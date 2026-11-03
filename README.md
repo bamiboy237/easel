@@ -37,7 +37,9 @@ Each entry contains a command ID, an origin (`user`, `agent`, or `voice`), a typ
 
 Each applied command gets the next board revision in `rev`. Run `agentApp.commands.getRev()` to read the current revision. Each agent request records the revision it read the board at, and every command from that request carries it as `baseRev`. If a user or voice command changed one of the command's records after `baseRev`, the agent command is stale: nothing from it applies, the log records it as `rejected` with the changed records in `staleRecordIds`, and the agent's next pass is told which shapes changed. Agent creates on new IDs are never stale.
 
-The command log stays in memory and starts empty after a reload. SQLite persistence, protected regions, and safe revert remain in Phase 2.
+The user's own work is protected from the agent. Each new shape records its creator in `meta.createdBy` (`user`, `agent`, or `voice`), so ownership is saved with the board. A shape is protected when the user created it, or when it sits inside a frame the user drew: a frame the user draws is their region. An agent command that changes, moves, or deletes a protected shape, or that places a shape over one, is rejected: nothing from it applies, the log records it with `reason: 'protected'` and the user's shapes in `protectedRecordIds`, and the agent's next pass is told to put its work elsewhere. The agent can still change the user's work when the request asks for it: when the user selects those shapes, adds them as context, or names them by ID or, for a frame, by its title. When the agent bumps into protected work, the board outlines it faintly for a moment. Rejection notices start at most three follow-up passes per request.
+
+Stale rejections have `reason: 'stale'`. The command log stays in memory and starts empty after a reload. SQLite persistence and safe revert remain in Phase 2.
 
 ## Agent guidance
 
