@@ -25,7 +25,7 @@ Phase 0 builds a rough version from the tldraw agent starter. Its gate is to run
 
 To use your ChatGPT Plus or Pro plan instead of an API key, run `npm run chatgpt` in a second terminal. Approve the sign-in in your browser, then pick `gpt-6.1-sol` in the chat panel. Review or limit usage in [ChatGPT Settings](https://chatgpt.com/settings/usage). The helper stores tokens in `~/.config/easel/`.
 
-The development server listens only on your Mac. AI requests must come from the same local Easel page. Tablet connections are planned for Phase 13.
+The development server listens only on your Mac. AI requests must come from the same local Easel page. Tablet connections are planned for Phase 14.
 
 ## Inspect board commands
 

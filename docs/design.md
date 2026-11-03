@@ -208,18 +208,20 @@ Development starts as a web app on localhost in the browser. Phase 0 tests the p
 **Gate:** either participant changes a parameter and both see the same result.
 7. **Predict and compare.** Predictions, sketches, and alternatives stored as board objects. Results appear next to the originals.\
 **Gate:** the board preserves how an idea changed.
-8. **Voice and pointing.** Push-to-talk, mark and speak, hands-free. Phrase-level pointing by shape and part ID.\
+8. **Learning mode.** Opt-in, for people who want to learn. Ordinary collaboration is unchanged. The agent shows a minimal worked example, asks the learner to predict or try the next step on the board before revealing it, and keeps a learner profile built from board evidence: predictions, questions, selections, and corrections. A per-topic concept graph the agent drafts and refines from that evidence sets the pace, and weak concepts come back for spaced review across sessions.\
+**Gate:** a returning learner's next session starts from what they found hard, and the agent holds back until they have tried.
+9. **Voice and pointing.** Push-to-talk, mark and speak, hands-free. Phrase-level pointing by shape and part ID.\
 **Gate:** interrupting stops speech and obsolete actions.
-9. **Context and proactive behavior.** Debounced checks, canceled on new interaction, ignoring agent-originated changes.\
+10. **Context and proactive behavior.** Debounced checks, canceled on new interaction, ignoring agent-originated changes.\
 **Gate:** no self-triggering loops and no interruptions during active work.
-10. **Declarative and generated visuals.** Catalog objects, then Vega-Lite and Mermaid specs, then sandboxed generated widgets with the typed bridge.
-11. **Manim and `VideoShape`.** Background rendering with progress, cancellation, cached outputs, and isolated jobs.
-12. **Mac shell and screen capture.** `WKWebView` wrapper, hotkey, floating window, ScreenCaptureKit, with captures feeding the annotation flow.\
+11. **Declarative and generated visuals.** Catalog objects, then Vega-Lite and Mermaid specs, then sandboxed generated widgets with the typed bridge.
+12. **Manim and `VideoShape`.** Background rendering with progress, cancellation, cached outputs, and isolated jobs.
+13. **Mac shell and screen capture.** `WKWebView` wrapper, hotkey, floating window, ScreenCaptureKit, with captures feeding the annotation flow.\
 **Gate:** focus, multiple displays, and permissions work without a second interaction system.
-13. **Cross-device.** iPad reconnect, shared-board updates, touch controls. Trusted HTTPS for microphone access on the local network.\
+14. **Cross-device.** iPad reconnect, shared-board updates, touch controls. Trusted HTTPS for microphone access on the local network.\
 **Gate:** reconnecting never loses ink, annotations, or parameter changes.
 
-The first complete milestone is phase 8. At that point people and agents can write, draw, annotate, manipulate, speak, and point together, and the combined experience gets refined before phases 9 to 13 add more systems.
+The first complete milestone is phase 9. At that point people and agents can write, draw, annotate, manipulate, speak, and point together, and the combined experience gets refined before phases 10 to 14 add more systems.
 
 Each change is tested on the two fixed sessions, one interaction at a time, comparing the old and new versions. Tracked: wrong targets, lost or overwritten edits, response latency, unnecessary interruptions, and which version is preferred.
 
