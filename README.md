@@ -21,9 +21,19 @@ Phase 0 builds a rough version from the tldraw agent starter. Its gate is to run
 	npm run dev
 	```
 
-4. Open `http://localhost:5173/`.
+4. Open `http://127.0.0.1:5173/`.
 
 To use your ChatGPT Plus or Pro plan instead of an API key, run `npm run chatgpt` in a second terminal. Approve the sign-in in your browser, then pick `gpt-6.1-sol` in the chat panel. Review or limit usage in [ChatGPT Settings](https://chatgpt.com/settings/usage). The helper stores tokens in `~/.config/easel/`.
+
+The development server listens only on your Mac. AI requests must come from the same local Easel page. Tablet connections are planned for Phase 13.
+
+## Inspect board commands
+
+Open the browser console and run `agentApp.commands.getHistory()`.
+
+Each entry contains a command ID, an origin (`user`, `agent`, or `voice`), a type, the document changes, and a timestamp. Direct edits appear after the editor transaction. Agent instructions are validated before they run. Preview updates do not add commands.
+
+The command log stays in memory and starts empty after a reload. SQLite persistence, stale-edit checks, protected regions, and safe revert remain in Phase 2.
 
 ## Documents
 
