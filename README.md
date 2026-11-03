@@ -37,7 +37,9 @@ The command log stays in memory and starts empty after a reload. SQLite persiste
 
 ## Agent guidance
 
-The built-in [canvas-work skill](worker/prompt/skills/canvas-work.md) guides layout, targeted edits, and reviews. The backend includes it in model requests that can edit or review the board, including follow-up requests.
+The built-in [canvas-work skill](worker/prompt/skills/canvas-work.md) guides reference reading, proportions, layout, purposeful color, and editable objects. It has specific guidance for illustrations, explanatory diagrams, and product mockups. The backend includes the same skill in every model request, including follow-up requests, across providers.
+
+The skill directs models to build in small passes, inspect review screenshots, and repair specific defects. It sets a prompt-level limit of two repair passes after the planned content is complete. The app does not enforce that limit in code.
 
 Muse and the OpenAI-backed providers receive the existing action schema through the model API as well as the prompt. Provider progress messages appear in chat, separate from board instructions. Failed requests stop the current run and keep completed board work.
 
