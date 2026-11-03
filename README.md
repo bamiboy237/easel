@@ -39,7 +39,13 @@ Each applied command gets the next board revision in `rev`. Run `agentApp.comman
 
 The user's own work is protected from the agent. Each new shape records its creator in `meta.createdBy` (`user`, `agent`, or `voice`), so ownership is saved with the board. A shape is protected when the user created it, or when it sits inside a frame the user drew: a frame the user draws is their region. An agent command that changes, moves, or deletes a protected shape, or that places a shape over one, is rejected: nothing from it applies, the log records it with `reason: 'protected'` and the user's shapes in `protectedRecordIds`, and the agent's next pass is told to put its work elsewhere. The agent can still change the user's work when the request asks for it: when the user selects those shapes, adds them as context, or names them by ID or, for a frame, by its title. When the agent bumps into protected work, the board outlines it faintly for a moment. Rejection notices start at most three follow-up passes per request.
 
-Stale rejections have `reason: 'stale'`. The command log stays in memory and starts empty after a reload. SQLite persistence and safe revert remain in Phase 2.
+Stale rejections have `reason: 'stale'`.
+
+Cancel and revert are separate. Cancel stops future agent work: the current stream, queued frame fills, and scheduled passes. It leaves finished work on the board and only removes the preview of an action that was still streaming, which was never a command. Revert undoes finished agent work and keeps newer human work. The chat's Undo button reverts that row's pass, and Restore brings it back. From the console, `agent.revert({ passId })` or `agent.revert({ requestId })` reverts one pass or a whole request. Each agent command carries its `passId` and `requestId`.
+
+A revert is one command with origin `user` and type `revert`, built from the command log. For each record the agent's commands touched, it restores the earlier version, except for properties that a later command changed. A shape the agent created stays when the user has since edited it or bound their own shape to it, and the user's shapes inside a deleted agent frame stay where they are on the page. The log lists the undone commands in `revertedCommandIds` and the records it left alone in `keptRecordIds`, and the chat row says how many shapes were kept. Restore is a revert of the revert, recorded with type `restore`. Reverts and restores do not count as human edits, so passes can be reverted in any order.
+
+The command log stays in memory and starts empty after a reload. SQLite persistence remains in Phase 2.
 
 ## Agent guidance
 
