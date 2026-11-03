@@ -34,7 +34,30 @@ The user can ask the AI to add a frame, split one into smaller parts, or go deep
 
 ## Architecture
 
-[embedded content: Components and how they connect]
+One set of canvas tools serves the UI, the voice model, and the agent.
+
+```mermaid
+flowchart TD
+    subgraph mac["Mac app"]
+        shell["Swift shell<br/>hotkey, screen capture, floating panel"]
+        subgraph web["Web app in WKWebView"]
+            canvas["tldraw canvas<br/>custom shapes, annotations"]
+        end
+    end
+    voice["Realtime voice API<br/>speech, plus the canvas tools"]
+    backend["Agent backend<br/>canvas tools, model context, storage"]
+    frontier["Frontier model<br/>Opus 5.5 or Sol"]
+    manim["Manim<br/>background renders"]
+
+    shell --> web
+    canvas <--> voice
+    canvas <--> backend
+    voice -- delegate --> backend
+    backend <--> frontier
+    backend --> manim
+```
+
+Components and how they connect.
 
 The Swift shell handles the hotkey and screen capture and hosts the web app. The canvas and the voice model both change the board through the agent backend's canvas tools. The backend calls a frontier model for topic maps and new visualizations, and runs Manim jobs in the background.
 
@@ -202,4 +225,6 @@ Each change is tested on the two fixed sessions, one interaction at a time, comp
 
 ## Open questions
 
-- [ ] Realtime voice provider: OpenAI Realtime, Gemini Live, or a pipeline with character-timestamped text-to-speech
+- [ ] Realtime voice provider: OpenAI Realtime, Gemini Live, or a pipeline with character-timestamped text-to-speech?
+- [ ] Which jobs, if any, move to a local model through MLX?
+- [ ] Should boards link to each other when topics overlap?
