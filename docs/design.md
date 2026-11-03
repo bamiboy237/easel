@@ -175,19 +175,19 @@ The open-source Clicky code (MIT) is a reference for the hotkey, capture, and ov
 
 ## Storage
 
-Everything is local, in one SQLite database.
+Everything is local, in one SQLite database. The database is the SQLite storage of a Durable Object in the agent backend, `BoardDurableObject`. The backend already runs as a Worker with Durable Objects, and in local development their storage is a file in `.wrangler/state`, so a separate database process is not needed.
 
 | Table | Key fields |
 | --- | --- |
-| `commands` | `command_id, board_id, origin, type, payload, base_rev, status, created_at` |
+| `commands` | `command_id, board_id, origin, type, payload, base_rev, status, created_at`, plus `seq` for log order, `rev`, and the other command fields as JSON in `details` |
 | `boards` | `board_id`, `title`, `created_at`, `updated_at` |
-| `snapshots` | `board_id`, `tldraw_snapshot`, `saved_at` |
+| `snapshots` | `board_id`, `rev`, `tldraw_snapshot`, `saved_at` |
 | `annotations` | `annotation_id`, `board_id`, `stroke_type`, `target_shape_ids`, `text`, `created_at` |
 | `thread_messages` | `annotation_id`, `author`, `text`, `created_at` |
 | `transcripts` | `board_id`, `speaker`, `text`, `ts` |
 | `renders` | `render_id`, `board_id`, `status`, `video_path`, `manim_source` |
 
-Commands persist incrementally as they happen, and a full tldraw snapshot is saved periodically. The command log is the source for undo, revert, and replay. Manim output files live in the app's support directory, referenced by path.
+Commands persist incrementally as they happen, and a full tldraw snapshot is saved periodically: every 25 commands, or 2 minutes after the last snapshot, and never while an agent is mid-pass, because its previews are not commands. A board loads as its latest snapshot plus the commands after it, and the whole log comes back with it. The command log is the source for undo, revert, and replay. Manim output files live in the app's support directory, referenced by path.
 
 ## Build phases
 
