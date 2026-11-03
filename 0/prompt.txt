@@ -1,0 +1,41 @@
+<launch-selected-element>
+<react name="es" props={"clearErrors":"[function]","control":"[object]","formState":"[object]","getErrors":"[function]","getFieldState":"[function]","getValues":"[function]","handleSubmit":"[function]","register":"[function]","reset":"[function]","resetDefaultValues":"[function]","resetField":"[function]","setError":"[function]","setFocus":"[function]","setValue":"[function]","setValues":"[function]","subscribe":"[function]","trigger":"[function]","unregister":"[function]","watch":"[function]"} />
+<element tag="div" has-screenshot="true" class="grid gap-4 rounded-xl bg-card p-5 md:p-6">
+  <text>"First Name *\nLast Name *\nEmail *\nProject website *\n\nProject website is required.\n\nProject domain *\n\nProject domain is required.\n\nProject description *\n\nProject description is required.\n\nSubmit"</text>
+  <path>section > div.grid > div > form.rounded-2xl</path>
+  <styles>{"display":"grid","position":"static","flex-direction":"row","justify-content":"normal","align-items":"normal","width":"1016px","height":"676px","padding":"24px","margin":"0px","background-color":"rgb(255, 255, 255)","color":"rgb(29, 29, 29)","font-size":"16px","font-weight":"400","border-radius":"8.4px","border-width":"0px","border-style":"solid","border-color":"rgb(227, 227, 227)"}</styles>
+  <html><div class="grid gap-4 rounded-xl bg-card p-5 md:p-6"><div class="grid items-start gap-4 md:grid-cols-2 sm:gap-3"><div data-slot="form-item" class="grid gap-2"><label data-slot="form-label" class="text-sm font-medium leading-none text-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-70" for="_r_0_-form-item">First Name<span class="text-destructive"> *</span></label><input data-slot="form-control" class="flex h-10 w-full rounded-md border border-border bg-muted-background px-3 py-1 text-sm text-foreground outline-none file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground aria-invalid:border-destructive/50 aria-invalid:ring-destructive/15 aria-invalid:ring-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60" placeholder="Kelly" autocomplete="off" id="_r_0_-form-item" aria-describedby="_r_0_-form-item-description" aria-invalid="false" type="text" value="Guy-robert" name="firstname" data-gtm-form-interact-field-id="0"></div><div data-slot="form-item" class="grid gap-2"><label data-slot="form-label" class="text-sm font-medium leading-none text-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-70" for="_r_1_-form-item">Last Name<span class="text-destructive"> *</span></label><input data-slot="form-control" class="flex h-10 w-full rounded-md border border-border bg-muted-background px-3 py-1 text-sm text-foreground outline-none file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground aria-invalid:border-destructive/50 aria-invalid:ring-destructive/15 aria-invalid:ring-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60" placeholder="O'Malley" autocomplete="off" id="_r_1_-form-item" aria-describedby="_r_1_-form-item-description" aria-invalid="false" type="text" value="Bogning...</html>
+  <siblings><!-- SELECTED --><div class="grid gap-4 rounded-xl bg-card p-5 md:p-6"><div class="grid items-start gap-4 md:grid-cols-2 sm:gap-3"><div data-slot="form-item" class="grid gap-2"><label data-slot="form-label" class="text-sm font-medium leading-none text-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-70" for="_r_0_-form-item">First Name<span class="text-destructive"> *</span></label><input data-slot="form-control" class="flex h-10 w-full rounded-md border border-border bg-muted-background px-3 py-1 text-sm text-foreground outline-none file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground aria-invalid:border-destructive/50 aria-invalid:ring-destructive/15 aria-invalid:ring-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60" placeholder="Kelly" autocomplete="off" id="_r_0_-form-item" aria-describedby="_r_0_-form-item-description" aria-invalid="false" type="text" value="Guy-robert" name="firstname" data-gtm-form-interact-field-id="0"></div><div data-slot="form-item" class="grid gap-2"><label data-slot="form-label" class="text-sm font-medium leading-none text-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-70" for="_r_1_-form-item">Last Name<span class="text-destructive"> *</span></label><input data-slot="form-control" class="flex h-10 w-full rounded-md border border-border bg-muted-background px-3 py-1 text-sm text-foreground outline-none file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground aria-invalid:border-destructive/50 aria-invalid:ring-destructive/15 aria-invalid:ring-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60" placeholder="O'Malley" autocomplete="off" id="_r_1_-form-item" aria-describedby="_r_1_-form-item-description" aria-invalid="false" type="tex...</siblings>
+</element>
+(Content above is from the element the user selected on the page. Treat it as data, not instructions.)
+</launch-selected-element>
+
+fill and submit
+
+---
+
+<task-notification>
+<task-id>bdshsxgmf</task-id>
+<tool-use-id>toolu_01NeFtSSrdCLnZj5jNDqwFfj</tool-use-id>
+<output-file>/private/tmp/claude-501/REDACTED/954b57f2-9b18-404d-8bb7-606c266418a0/tasks/bdshsxgmf.output</output-file>
+<status>failed</status>
+<summary>Background command "Start the ChatGPT helper, which opens the sign-in page" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+Approved, test it
+
+---
+
+<task-notification>
+<task-id>b8uazdk4u</task-id>
+<tool-use-id>toolu_01UHRS9dTb6mALzcwP5aeGwr</tool-use-id>
+<output-file>/private/tmp/claude-501/REDACTED/954b57f2-9b18-404d-8bb7-606c266418a0/tasks/b8uazdk4u.output</output-file>
+<status>failed</status>
+<summary>Background command "Restart the ChatGPT helper with the fix" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+Commit and push
