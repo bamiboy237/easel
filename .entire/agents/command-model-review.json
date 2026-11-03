@@ -2,18 +2,25 @@
 	"name": "Command model review",
 	"description": "Flags code that changes the board outside a validated command, skips a command's origin, or lets agent work into the user's protected work.",
 	"harness": "claude",
-	"model": "<model ID from the project's model list>",
+	"model": "claude-opus-5-5",
+	"reasoning_effort": "high",
 	"timeout_ms": 900000,
 	"is_enabled": true,
-	"repository_ids": ["<repository ID>"],
-	"environment_id": "<environment ID>",
+	"repository_ids": [
+		"01M6FF17X2QQ28RQ8HKWCEB2YE"
+	],
+	"environment_id": "01M5XTKAZG990KZPAQKBWHSEEP",
 	"triggers": [
 		{
 			"id": "push",
 			"kind": "push",
 			"when": "ready",
 			"branches": [],
-			"paths": ["client/**", "shared/**", "worker/**"]
+			"paths": [
+				"client/**",
+				"shared/**",
+				"worker/**"
+			]
 		}
 	],
 	"signal": {
