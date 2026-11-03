@@ -31,9 +31,11 @@ The development server listens only on your Mac. AI requests must come from the 
 
 Open the browser console and run `agentApp.commands.getHistory()`.
 
-Each entry contains a command ID, an origin (`user`, `agent`, or `voice`), a type, the document changes, and a timestamp. Direct edits appear after the editor transaction. Agent instructions are validated before they run. Preview updates do not add commands.
+Each entry contains a command ID, an origin (`user`, `agent`, or `voice`), a type, a status (`applied` or `rejected`), the document changes, and a timestamp. Direct edits appear after the editor transaction. Agent instructions are validated before they run. Preview updates do not add commands.
 
-The command log stays in memory and starts empty after a reload. SQLite persistence, stale-edit checks, protected regions, and safe revert remain in Phase 2.
+Each applied command gets the next board revision in `rev`. Run `agentApp.commands.getRev()` to read the current revision. Each agent request records the revision it read the board at, and every command from that request carries it as `baseRev`. If a user or voice command changed one of the command's records after `baseRev`, the agent command is stale: nothing from it applies, the log records it as `rejected` with the changed records in `staleRecordIds`, and the agent's next pass is told which shapes changed. Agent creates on new IDs are never stale.
+
+The command log stays in memory and starts empty after a reload. SQLite persistence, protected regions, and safe revert remain in Phase 2.
 
 ## Agent guidance
 
