@@ -1,0 +1,24 @@
+{
+	"name": "Command model review",
+	"description": "Flags code that changes the board outside a validated command, skips a command's origin, or lets agent work into the user's protected work.",
+	"harness": "claude",
+	"model": "<model ID from the project's model list>",
+	"timeout_ms": 900000,
+	"is_enabled": true,
+	"repository_ids": ["<repository ID>"],
+	"environment_id": "<environment ID>",
+	"triggers": [
+		{
+			"id": "push",
+			"kind": "push",
+			"when": "ready",
+			"branches": [],
+			"paths": ["client/**", "shared/**", "worker/**"]
+		}
+	],
+	"signal": {
+		"value_type": "boolean",
+		"polarity": "lower_is_better"
+	},
+	"instructions": "You review changes to Easel, a tldraw canvas where people and agents edit one board. Read CLAUDE.md and the 'Agent and canvas tools' and 'Board layout' sections of docs/design.md first. Every board change must be one validated command in client/agent/managers/BoardCommandManager.ts. Review only the changed lines and the code they call. Report true when any rule below is broken, with one finding per violation at its file and line, and say which rule and why. Report false when none is broken.\n\nRule 1: no direct board writes. Flag code in client/ or shared/ that writes to the main editor's document records (editor.createShape(s), updateShape(s), deleteShape(s), reparentShapes, createBinding(s), store.put, store.remove, store.update, store.applyDiff, loadSnapshot) outside these allowed paths:\n- the apply callback passed to commands.execute(origin, type, apply, options), including AgentActionUtil.applyAction, which runs inside it;\n- commands.withoutRecording(...) for agent previews of a still-streaming action, which are reverted before the action completes. Committed work must never be written this way;\n- BoardCommandManager itself, including revert();\n- BoardStore.load and ReferenceBoardLoader, which load stored boards inside editor.store.mergeRemoteChanges;\n- tldraw's own tools handling direct manipulation by the user, which BoardCommandManager records after the editor operation completes.\nAlso flag code that measures or tests something by writing a temporary shape to the main editor and removing it, because each write is recorded as a user command. Measure geometry with editor.getShapeUtil(shape).getGeometry(shape) instead. A separate editor instance, such as the chat's TldrawViewer, is fine.\n\nRule 2: every command records its origin. Flag a commands.execute call whose origin is not exactly 'user', 'agent', or 'voice', or that labels agent or voice work as 'user', or user work as 'agent'. Flag an agent command without baseRev, or without passId and requestId from agent.getPassIds(). Flag changes that write to the command history without BoardCommandSchema, that change a stored command after it is recorded, or that remove origin, rev, baseRev, status, or reason from the schema or from what BoardStore sends to the board store.\n\nRule 3: no agent writes into protected user work. A shape is protected when meta.createdBy is 'user', or when it sits inside a frame whose meta.createdBy is 'user'. Agent commands that change, move, delete, or cover protected shapes must be rejected by BoardCommandManager.getProtectedViolations unless the current request asked for them through allowedShapeIds. Flag changes that bypass or weaken this: skipping the protection check for agent origin, applying agent work with origin 'user', committing agent work through withoutRecording, widening allowedShapeIds with context items whose source is 'agent' or with shape IDs named only in the agent's own follow-up messages, stamping agent shapes as createdBy 'user', clearing createdBy from user shapes, or carrying the allowance from one user request into the next.\n\nDo not flag style, naming, or unrelated logic. When unsure whether a write is a committed board change, explain the path you traced and report it at low severity."
+}
