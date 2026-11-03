@@ -23,6 +23,8 @@ Phase 0 builds a rough version from the tldraw agent starter. Its gate is to run
 
 4. Open `http://localhost:5173/`.
 
+To use your ChatGPT Plus or Pro plan instead of an API key, run `npm run chatgpt` in a second terminal. Approve the sign-in in your browser, then pick `gpt-6.1-sol` in the chat panel. Review or limit usage in [ChatGPT Settings](https://chatgpt.com/settings/usage). The helper stores tokens in `~/.config/easel/`.
+
 ## Documents
 
 - [Design document](docs/design.md): product direction, architecture, and the 14 build phases.
