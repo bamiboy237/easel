@@ -6,14 +6,18 @@ Project Agents that review this repository on its Trails. Entire stores Agents i
 
 `command-model-review.json` flags code that changes the board outside a validated command, skips a command's origin, or lets agent work into the user's protected work.
 
-To create it, set the project path and fill in the three placeholders: the repository ID, the environment ID, and a model from the project's model list. The [Agents guide](https://docs.entire.com/guides/trails/agents) shows how to look each one up.
+The Agent exists in project `gh/bamiboy237` with ID `01M6HJXSAD0SEWPVW4XPJCJK63`. It runs on `easel` in the Repository sandbox environment. To change it, edit the JSON, read the current etag, and replace the Agent's configuration. The [Agents guide](https://docs.entire.com/guides/trails/agents) explains each step.
 
 ```bash
-P=gh/bamiboy237
+P=gh/bamiboy237 A=01M6HJXSAD0SEWPVW4XPJCJK63
 ```
 
 ```bash
-entire api --to cell -X POST "/api/v1/$P/agents" -H "Idempotency-Key: $(uuidgen)" --input .entire/agents/command-model-review.json
+ETAG=$(entire api --to cell "/api/v1/$P/agents/$A" | jq -r '.etag')
+```
+
+```bash
+entire api --to cell -X PUT "/api/v1/$P/agents/$A" -H "If-Match: $ETAG" --input .entire/agents/command-model-review.json
 ```
 
 To check it, push one test change for each rule on a branch with a Trail, and confirm that the Agent reports a finding for each:
