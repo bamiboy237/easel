@@ -6,9 +6,22 @@ The project bet is that people prefer this way of working with agents over chat.
 
 ## Status
 
-Easel is in Phase 0, the rough loop. The repo holds documents only. No app code exists yet.
+Easel is in Phase 0, the rough loop. The app is the tldraw agent starter at tldraw 5.6.0, with Muse Wonder as the default model.
 
 Phase 0 builds a rough version from the tldraw agent starter. Its gate is to run both test sessions and decide whether working this way beats chat. The test sessions are exploring a physics concept and developing a project mockup.
+
+## Run the app
+
+1. Copy `.dev.vars.example` to `.dev.vars`.
+2. Set `MODEL_API_KEY` to your key from the [Meta Model API dashboard](https://dev.meta.ai/).
+3. Install the dependencies and start the app:
+
+	```bash
+	npm install
+	npm run dev
+	```
+
+4. Open `http://localhost:5173/`.
 
 ## Documents
 
