@@ -45,7 +45,7 @@ Cancel and revert are separate. Cancel stops future agent work: the current stre
 
 A revert is one command with origin `user` and type `revert`, built from the command log. For each record the agent's commands touched, it restores the earlier version, except for properties that a later command changed. A shape the agent created stays when the user has since edited it or bound their own shape to it, and the user's shapes inside a deleted agent frame stay where they are on the page. The log lists the undone commands in `revertedCommandIds` and the records it left alone in `keptRecordIds`, and the chat row says how many shapes were kept. Restore is a revert of the revert, recorded with type `restore`. Reverts and restores do not count as human edits, so passes can be reverted in any order.
 
-The command log stays in memory and starts empty after a reload. SQLite persistence remains in Phase 2.
+The board and its command log are saved to a local SQLite database, in the worker's `BoardDurableObject`. Each command is written as it is recorded, and a full snapshot is saved every 25 commands or after 2 minutes, but never while an agent is mid-pass. On load, the board is rebuilt from the latest snapshot plus the commands after it, and the log comes back too, so Undo works on agent passes from before a reload. A reload in the middle of an agent pass keeps every finished command and drops only the action that was still streaming. The first time the store is empty, the board already saved in the browser becomes its first snapshot. In local development the database is under `.wrangler/state`. The reference board is not saved.
 
 ## Agent guidance
 
