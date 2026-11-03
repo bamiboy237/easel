@@ -26,7 +26,7 @@ The AI acts when the user addresses it by voice or text. It may also act after t
 
 ## Board layout
 
-One board per topic or project. When the user asks for something, the AI first places a map: a row of empty tldraw frames, one per part, each with a title and a one-line description of what it will hold. For Fourier transforms that might be intuition, the math, a worked example, and applications. For a mockup it might be goals, user flow, screens, and open decisions. The AI then fills the frames one at a time, so the user can start working in the first frame while later ones are still being generated. The user can cancel or retry generation per frame.
+One board per topic or project. The AI judges the scope of each request. A focused question gets one focused visual beside related work. When the work has several connected parts, such as a lesson or a project plan, the AI first places a map: a row of empty tldraw frames, one per part, each with a title and a one-line description of what it will hold. For Fourier transforms that might be intuition, the math, a worked example, and applications. For a mockup it might be goals, user flow, screens, and open decisions. The AI then fills the frames one at a time, so the user can start working in the first frame while later ones are still being generated. The user can cancel or retry generation per frame.
 
 The area to the left of the map is the user's space for scratch work, drawings, and their own notes. Protected regions are enforced in code: agent commands that target them are rejected unless the user asked for that change. New AI content goes next to the frame it relates to, and the user's camera stays where it is while the agent adds content elsewhere.
 
@@ -97,7 +97,7 @@ The agent's tools are commands:
 
 | Tool | Effect |
 | --- | --- |
-| `create_frame(title, description, position)` | Adds a topic-map frame |
+| `map(frames, frameWidth, frameHeight)` | Places a row of titled topic-map frames, then the app requests one fill per frame |
 | `create_note(text, near)` | Adds a text note next to a shape |
 | `draw_arrow(from, to, label)` | Connects two shapes |
 | `place_graph(spec, frame)` | Adds a `GraphShape` |
