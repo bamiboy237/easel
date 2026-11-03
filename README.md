@@ -35,6 +35,12 @@ Each entry contains a command ID, an origin (`user`, `agent`, or `voice`), a typ
 
 The command log stays in memory and starts empty after a reload. SQLite persistence, stale-edit checks, protected regions, and safe revert remain in Phase 2.
 
+## Agent guidance
+
+The built-in [canvas-work skill](worker/prompt/skills/canvas-work.md) guides layout, targeted edits, and reviews. The backend includes it in model requests that can edit or review the board, including follow-up requests.
+
+Muse and the OpenAI-backed providers receive the existing action schema through the model API as well as the prompt. Provider progress messages appear in chat, separate from board instructions. Failed requests stop the current run and keep completed board work.
+
 ## Documents
 
 - [Design document](docs/design.md): product direction, architecture, and the 14 build phases.
