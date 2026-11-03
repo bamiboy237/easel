@@ -1,0 +1,31 @@
+Cool do we begin building?
+
+---
+
+please tell me what phases are about so i know what you are building and am in the loop
+
+---
+
+Okay, so, yeah, this is fine. Let's explore ChatGPT, sign in because I have a Plus account. I'm also like, if you're adding tests, right, like the test, okay, um, I really do not like when agents do tests on my codebase. I mean like manual, like, um, regression tests unless it is absolutely necessary. Do not write any tests because they just bloat up context and waste a lot of tokens for nothing when you can just test it instantly. So yeah, test it and then we explore ChatGPT signing because I have a lot of tokens on ChatGPT signing also. I'll add this, I'm going to add the API to this and then you can use it.
+
+---
+
+<bash-input>cp .dev.vars.example .dev.vars</bash-input><bash-stdout>cp: .dev.vars.example: No such file or directory</bash-stdout><bash-stderr></bash-stderr>
+
+---
+
+Muse test first
+
+---
+
+<task-notification>
+<task-id>b2xd6ywhl</task-id>
+<tool-use-id>toolu_0188hJ7zvzLZ1zfu6pGQmP8o</tool-use-id>
+<output-file>/private/tmp/claude-501/REDACTED/954b57f2-9b18-404d-8bb7-606c266418a0/tasks/b2xd6ywhl.output</output-file>
+<status>failed</status>
+<summary>Background command "Start the Easel dev server" failed with exit code 143</summary>
+</task-notification>
+
+---
+
+Commit, then build
