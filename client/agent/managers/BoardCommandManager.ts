@@ -504,6 +504,24 @@ export class BoardCommandManager {
 	}
 
 	/** The protected shapes an agent command would change, move, delete, or cover. */
+	/**
+	 * True when a shape is an annotation, a mark or a thread, and one of the
+	 * shapes it is bound to, or a shape holding one, changed in the same command. Its change then came from
+	 * following that target, not from an edit to the user's work. A command that
+	 * moves an annotation without touching its targets is still checked.
+	 */
+	private followedTarget(id: string, changes: RecordsDiff<TLRecord>): boolean {
+		const changed = (shapeId: string) => shapeId in changes.updated || shapeId in changes.removed
+		return this.editor
+			.getBindingsFromShape(id as TLShapeId, 'annotation')
+			.some(
+				(binding) =>
+					changed(binding.toId) ||
+					// A target also moves when a shape holding it, such as a frame, moves.
+					this.editor.getShapeAncestors(binding.toId).some((ancestor) => changed(ancestor.id))
+			)
+	}
+
 	private getProtectedViolations(
 		changes: RecordsDiff<TLRecord>,
 		allowed: ReadonlySet<string>,
@@ -537,8 +555,8 @@ export class BoardCommandManager {
 		}
 		for (const [prev, next] of Object.values(changes.updated)) {
 			if (next.typeName !== 'shape' || prev.typeName !== 'shape') continue
-			// A mark or thread that only moved followed its target: that is not an edit.
-			if (isFollowingAnnotation(prev as TLShape, next as TLShape)) continue
+			// A mark or thread that followed its target in this same command is not an edit.
+			if (this.followedTarget(next.id, changes)) continue
 			// A protected shape, or a shape moved into a user region.
 			if (check(next.id, before) || check(next.id, after)) continue
 			placed.push(next.id)
@@ -664,21 +682,3 @@ export class BoardCommandManager {
 	}
 }
 
-/**
- * Marks and threads follow the shapes they point at. When an agent command
- * moves a target, the user's annotation moves with it; a change that only moves
- * the annotation, or marks its thread detached, does not touch the user's work.
- */
-function isFollowingAnnotation(prev: TLShape, next: TLShape): boolean {
-	const annotation = next.type === 'thread' || !!(next.meta as { mark?: unknown }).mark
-	if (!annotation) return false
-	const { x: _px, y: _py, props: prevProps, ...prevRest } = prev
-	const { x: _nx, y: _ny, props: nextProps, ...nextRest } = next
-	if (JSON.stringify(prevRest) !== JSON.stringify(nextRest)) return false
-	if (JSON.stringify(prevProps) === JSON.stringify(nextProps)) return true
-	// A thread may also become detached when its target is deleted.
-	if (next.type !== 'thread') return false
-	const { detached: _pd, ...prevOther } = prevProps as Record<string, unknown>
-	const { detached: _nd, ...nextOther } = nextProps as Record<string, unknown>
-	return JSON.stringify(prevOther) === JSON.stringify(nextOther)
-}

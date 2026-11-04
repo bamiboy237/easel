@@ -2,7 +2,7 @@ import { atom, b64Vecs, Box, BoxModel, createShapeId, Editor, TLShapeId, VecMode
 import { convertTldrawShapeToFocusedShape } from '../../../shared/format/convertTldrawShapeToFocusedShape'
 import { findClearSpaceBeside, findNoteSpot } from '../findClearSpace'
 import { classifyStroke, findMarkTargets, MARK_INTENTS, MarkKind } from '../marks'
-import { ANNOTATION_BINDING, bindAnnotation } from '../../shapes/AnnotationBindingUtil'
+import { ANNOTATION_BINDING, bindAnnotation, followDescendants } from '../../shapes/AnnotationBindingUtil'
 import { measureThreadHeight, THREAD_TYPE, THREAD_WIDTH, ThreadEntry, ThreadShape } from '../../shapes/ThreadShapeUtil'
 import { BaseAgentManager } from './BaseAgentManager'
 
@@ -60,6 +60,14 @@ export class AgentMarkManager extends BaseAgentManager {
 	constructor(agent: ConstructorParameters<typeof BaseAgentManager>[0]) {
 		super(agent)
 		const { editor } = agent
+		// Annotations on shapes inside a moved frame or group follow too.
+		this.disposables.add(
+			editor.store.sideEffects.registerAfterChangeHandler('shape', (prev, next) => {
+				if (prev.x === next.x && prev.y === next.y && prev.rotation === next.rotation) return
+				if (editor.getSortedChildIdsForParent(next.id).length === 0) return
+				followDescendants(editor, next.id)
+			})
+		)
 		// A thread grows to hold its entries, each line on a rule.
 		this.disposables.add(
 			editor.store.sideEffects.registerBeforeChangeHandler('shape', (prev, next) => {
