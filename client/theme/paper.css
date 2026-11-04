@@ -76,12 +76,31 @@
 	background-blend-mode: multiply, multiply, multiply, normal;
 }
 
+/* The full conversation slides in from the right edge when it opens. */
+.chat-panel.tl-theme__light:not(.chat-panel--floating) {
+	animation: panel-slide-in 200ms var(--ease-out);
+}
+
+@keyframes panel-slide-in {
+	from {
+		opacity: 0;
+		transform: translateX(12px);
+	}
+}
+
 /* Quiet frames: a serif title like a section heading, with no chip behind it. */
 .tl-theme__light .tl-frame-heading {
 	font-family: 'Source Serif 4 Variable', Georgia, serif;
 	font-size: 14px;
 	font-weight: 500;
 	padding-bottom: 6px;
+}
+
+/* tldraw fills the title's hit area with a flat background, which shows as a
+ * chip on the textured paper. The title sits on the paper itself. */
+.tl-theme__light .tl-frame-heading-hit-area {
+	background: transparent !important;
+	box-shadow: none !important;
 }
 
 /* The active tool is a soft tan pill with a dark icon, not a solid accent square. */
@@ -1296,6 +1315,7 @@
 	.chat-panel.tl-theme__light .prompt-tag,
 	.mark-composer,
 	.mark-chip,
+	.chat-panel.tl-theme__light:not(.chat-panel--floating),
 	.chat-panel--floating.tl-theme__light .chat-answer,
 	.chat-panel--floating.tl-theme__light .chat-sheet,
 	.chat-panel--ball.tl-theme__light .chat-ball,
