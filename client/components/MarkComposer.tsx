@@ -60,9 +60,14 @@ export function MarkComposer() {
 			<div className="mark-composer-label">
 				<span>{about}</span>
 				{listening !== 'off' && (
-					<span className={'mark-listening' + (listening === 'heard' ? ' mark-listening--heard' : '')} role="status">
+					// Only a small breathing dot shows the microphone is on; the words stay for screen readers.
+					<span
+						className={'mark-listening' + (listening === 'heard' ? ' mark-listening--heard' : '')}
+						role="status"
+						aria-label="Listening"
+						title="Listening"
+					>
 						<span className="mark-listening-dot" aria-hidden />
-						{listening === 'starting' ? 'starting…' : 'listening'}
 					</span>
 				)}
 			</div>
