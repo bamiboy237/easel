@@ -59,7 +59,7 @@ export function MarkComposer() {
 		>
 			<div className="mark-composer-label">
 				<span>{about}</span>
-				{listening !== 'off' && (
+				{(listening === 'listening' || listening === 'heard') && (
 					// Only a small breathing dot shows the microphone is on; the words stay for screen readers.
 					<span
 						className={'mark-listening' + (listening === 'heard' ? ' mark-listening--heard' : '')}

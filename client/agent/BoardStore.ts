@@ -1,7 +1,6 @@
 import { Editor, getSnapshot, loadSnapshot, react, RecordsDiff, TLRecord } from 'tldraw'
 import { BoardCommand } from '../../shared/schema/BoardCommand'
 import { BoardCommandManager } from './managers/BoardCommandManager'
-import { upgradeAnnotationRecords } from '../shapes/AnnotationBindingUtil'
 
 /** Save a snapshot after this many new commands... */
 const SNAPSHOT_EVERY_COMMANDS = 25
@@ -81,7 +80,6 @@ export class BoardStore {
 			editor.store.mergeRemoteChanges(() => {
 				if (stored.snapshot) loadSnapshot(editor.store, { document: stored.snapshot.document })
 				for (const command of replay) {
-					upgradeAnnotationRecords(command.payload)
 					editor.store.applyDiff(command.payload as RecordsDiff<TLRecord>)
 				}
 			})

@@ -61,10 +61,14 @@ export class AgentMarkManager extends BaseAgentManager {
 	private listener: VoiceListener | null = null
 	private $listening = atom<'off' | 'starting' | 'listening' | 'heard'>('mark listening', 'off')
 	private $spoken = atom<string | null>('mark spoken', null)
+	/** Set when the user asks while still speaking: the question goes once the last words arrive. */
+	private askWhenHeard: string | null = null
 
 	constructor(agent: ConstructorParameters<typeof BaseAgentManager>[0]) {
 		super(agent)
 		const { editor } = agent
+		// The microphone never outlives the app.
+		this.disposables.add(() => this.stopListening())
 		// Annotations on shapes inside a moved frame or group follow too.
 		this.disposables.add(
 			editor.store.sideEffects.registerAfterChangeHandler('shape', (prev, next) => {
@@ -166,6 +170,12 @@ export class AgentMarkManager extends BaseAgentManager {
 				this.listener = null
 				this.$listening.set('off')
 				if (text) this.$spoken.set(text)
+				// The user asked while still speaking: ask now, with the final words.
+				const typed = this.askWhenHeard
+				if (typed !== null) {
+					this.askWhenHeard = null
+					this.ask(text ?? typed)
+				}
 			},
 		})
 		this.listener = listener
@@ -178,6 +188,7 @@ export class AgentMarkManager extends BaseAgentManager {
 
 	/** Stop listening. Typing stops it and keeps the words heard so far. */
 	stopListening() {
+		this.askWhenHeard = null
 		this.listener?.cancel()
 		this.listener = null
 		this.$listening.set('off')
@@ -317,6 +328,12 @@ export class AgentMarkManager extends BaseAgentManager {
 
 	/** Ask about the draft. With no text, the kind of mark is the question. */
 	ask(text: string) {
+		// Still speaking: finish listening first, and ask once the last words arrive.
+		if (this.listener && this.$listening.get() === 'heard') {
+			this.askWhenHeard = text
+			this.listener.finish()
+			return
+		}
 		this.stopListening()
 		this.$spoken.set(null)
 		const draft = this.$draft.get()
