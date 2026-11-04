@@ -1,4 +1,4 @@
-import { atom, Box, BoxModel, RecordsDiff, structuredClone, TLRecord, TLShapeId } from 'tldraw'
+import { atom, Box, BoxModel, RecordsDiff, structuredClone, TLFrameShape, TLRecord, TLShapeId } from 'tldraw'
 import { parseAgentAction } from '../../../shared/schema/parseAgentAction'
 import { AgentAction } from '../../../shared/types/AgentAction'
 import { ChatHistoryItem } from '../../../shared/types/ChatHistoryItem'
@@ -17,15 +17,13 @@ const MAX_REJECTION_PASSES = 3
 /** How long the board outlines protected shapes after the agent bumps into them. */
 export const PROTECTED_FLASH_MS = 1600
 
-/** Where the agent is working on the board, and a short line about the step. */
+/** Where the agent is working on the board, and in which frame. */
 export interface AgentWork {
 	/** Everything the agent has changed in this request, as one box that only grows. */
 	bounds: BoxModel
 	/** The frame the agent is drawing in, if its work is inside one. */
 	frameId: string | null
 	frameName: string | null
-	/** The model's own note for the latest step. Kept for logs; not shown. */
-	step: string
 	/** The shapes the agent has changed in this request so far. */
 	shapeIds: string[]
 	/** Of those, the ones it created. */
@@ -124,27 +122,32 @@ export class AgentActionManager extends BaseAgentManager {
 	}
 
 	/** Remember the shapes an applied step changed as the agent's working place. */
-	private noteWork(action: Streaming<AgentAction>, changes: RecordsDiff<TLRecord>) {
+	private noteWork(changes: RecordsDiff<TLRecord>) {
 		const { editor } = this.agent
 		const ids = [...Object.keys(changes.added), ...Object.keys(changes.updated)].filter((id) =>
 			id.startsWith('shape:')
 		) as TLShapeId[]
 		const boxes = ids.map((id) => editor.getShapePageBounds(id)).filter((b): b is Box => !!b)
 		if (boxes.length === 0) return
-		const intent = 'intent' in action && typeof action.intent === 'string' ? action.intent.trim() : ''
 		const previous = this.$work.get()
 		const shapeIds = [...new Set([...(previous?.shapeIds ?? []), ...ids])]
 		const created = Object.keys(changes.added).filter((id) => id.startsWith('shape:'))
 		const createdIds = [...new Set([...(previous?.createdIds ?? []), ...created])]
 		// The working place grows to hold every change, so it never jumps from shape to shape.
 		const bounds = Box.Common(previous ? [Box.From(previous.bounds), ...boxes] : boxes)
-		const frame = this.findWorkFrame(ids) ?? (previous?.frameId ? editor.getShape(previous.frameId as TLShapeId) : undefined)
-		const frameName = frame && frame.type === 'frame' ? ((frame.props as { name?: string }).name ?? '').trim() || null : null
+		// The work is "in" a frame only while the frame holds all of it. Once the
+		// agent draws beyond it, the work is on the board.
+		const candidate = this.findWorkFrame(ids) ?? (previous?.frameId ? editor.getShape(previous.frameId as TLShapeId) : undefined)
+		const frame =
+			candidate &&
+			editor.isShapeOfType<TLFrameShape>(candidate, 'frame') &&
+			editor.getShapePageBounds(candidate)?.clone().expandBy(8).contains(bounds)
+				? candidate
+				: undefined
 		this.$work.set({
 			bounds: bounds.toJson(),
 			frameId: frame?.id ?? null,
-			frameName,
-			step: intent || previous?.step || '',
+			frameName: frame?.props.name.trim() || null,
 			shapeIds,
 			createdIds,
 		})
@@ -321,7 +324,7 @@ export class AgentActionManager extends BaseAgentManager {
 				if (result.status === 'applied') {
 					commandId = result.commandId
 					this.markLanded(Object.keys(result.changes.added))
-					this.noteWork(action, result.changes)
+					this.noteWork(result.changes)
 				}
 				if (result.status === 'rejected') {
 					rejected = true
