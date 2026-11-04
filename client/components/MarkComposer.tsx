@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Editor, renderPlaintextFromRichText, TLRichText, TLShapeId, useEditor, useValue } from 'tldraw'
+import { Box, Editor, renderPlaintextFromRichText, TLRichText, TLShapeId, useEditor, useValue } from 'tldraw'
+import { findNoteSpot } from '../agent/findClearSpace'
 import { MARK_LABELS } from '../agent/marks'
 import { useAgent } from '../agent/TldrawAgentAppProvider'
 
@@ -31,6 +32,10 @@ function describeTargets(editor: Editor, ids: TLShapeId[]): string {
  * The sticky note that opens beside a mark. Enter asks, Escape drops
  * the mark. With nothing typed, the kind of mark is the question.
  */
+/** The note's size on screen: as wide as a thread, so the question keeps its width when it becomes one. */
+const NOTE_WIDTH = 280
+const NOTE_HEIGHT = 120
+
 export function MarkComposer() {
 	const editor = useEditor()
 	const agent = useAgent()
@@ -40,9 +45,16 @@ export function MarkComposer() {
 		() => {
 			const d = agent.marks.getDraft()
 			if (!d) return null
-			// Beside the mark, so it never covers what is under or next to it.
-			const p = editor.pageToViewport({ x: d.bounds.x + d.bounds.w, y: d.bounds.y })
-			return { x: Math.round(p.x + 14), y: Math.round(p.y) }
+			// In the nearest clear space beside the mark, the same search a thread
+			// uses, so the question never covers what it asks about or what is next
+			// to it. The note keeps its size on screen, so it is measured in page
+			// units at the current zoom.
+			const zoom = editor.getZoomLevel()
+			const mark = Box.From(d.bounds)
+			const ignore = d.shapeId ? [d.shapeId] : []
+			const spot = findNoteSpot(editor, mark, { w: NOTE_WIDTH / zoom, h: NOTE_HEIGHT / zoom }, ignore)
+			const p = editor.pageToViewport(spot ? { x: spot.x, y: spot.y } : { x: mark.maxX + 14 / zoom, y: mark.y })
+			return { x: Math.round(p.x), y: Math.round(p.y) }
 		},
 		[agent, editor]
 	)

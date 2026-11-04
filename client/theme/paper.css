@@ -1117,7 +1117,7 @@
 	position: absolute;
 	z-index: 400;
 	pointer-events: all;
-	width: 264px;
+	width: 280px;
 	padding: var(--rule-top) 12px 14px 30px;
 	border-radius: 2px 2px 3px 3px;
 	background:
