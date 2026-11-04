@@ -117,14 +117,18 @@ export class ThreadShapeUtil extends ShapeUtil<ThreadShape> {
 function ThreadNote({ shape }: { shape: ThreadShape }) {
 	const editor = useEditor()
 	const isSelected = useValue('thread selected', () => editor.getOnlySelectedShapeId() === shape.id, [editor, shape.id])
-	const isThinking = useValue(
-		'thread thinking',
+	// The thread is busy while the agent answers in it. A follow-up then would be
+	// lost when the answer's preview is rolled back, so it waits.
+	const busy = useValue(
+		'thread busy',
 		() => {
 			const agent = AgentAppAgentsManager.getAgents(editor)[0]
-			return !!agent && agent.requests.isGenerating() && shape.props.entries.at(-1)?.author === 'user'
+			if (!agent || !agent.requests.isGenerating()) return false
+			return shape.props.entries.at(-1)?.author === 'user' || agent.marks.getActive()?.threadId === shape.id
 		},
-		[editor, shape.props.entries]
+		[editor, shape.id, shape.props.entries]
 	)
+	const isThinking = busy && shape.props.entries.at(-1)?.author === 'user'
 	const [text, setText] = useState('')
 	const { w, h, entries } = shape.props
 	// A thread is detached once none of the shapes it answered exist.
@@ -132,7 +136,7 @@ function ThreadNote({ shape }: { shape: ThreadShape }) {
 
 	// One sheet of paper: the thinking line, a follow-up, or the detached note is
 	// the last ruled line on the note itself, never a separate slip.
-	const extra = isThinking ? 'thinking' : isSelected ? 'follow-up' : detached ? 'detached' : null
+	const extra = isThinking ? 'thinking' : isSelected && !busy ? 'follow-up' : detached ? 'detached' : null
 
 	return (
 		<HTMLContainer className="thread-note-container">

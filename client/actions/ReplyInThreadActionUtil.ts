@@ -30,12 +30,15 @@ export const ReplyInThreadActionUtil = registerActionUtil(
 		override applyAction(action: Streaming<ReplyInThreadAction>) {
 			const { editor } = this.agent
 			if (!action.text) return
-			// The model may write the text before the thread ID. Until the ID arrives,
-			// the answer streams onto the thread this mark question belongs to.
-			const id = (action.thread ? `shape:${action.thread}` : this.agent.marks.getActive()?.threadId) as TLShapeId | undefined
-			if (!id) return
-			const thread = editor.getShape<ThreadShape>(id)
+			// The model may write the text before the thread ID, and a half-written ID
+			// names no shape. Until the ID names a thread, the answer streams onto the
+			// thread this mark question belongs to.
+			const named = action.thread ? editor.getShape<ThreadShape>(`shape:${action.thread}` as TLShapeId) : undefined
+			const fallback = this.agent.marks.getActive()?.threadId
+			const thread =
+				named?.type === THREAD_TYPE ? named : fallback ? editor.getShape<ThreadShape>(fallback as TLShapeId) : undefined
 			if (!thread || thread.type !== THREAD_TYPE) return
+			const id = thread.id
 			// The answer streams onto the note as it is written. Each partial version
 			// replaces the last; only the finished answer is recorded.
 			const entries = [...thread.props.entries, { author: 'agent' as const, text: action.complete ? action.text.trim() : action.text }]
