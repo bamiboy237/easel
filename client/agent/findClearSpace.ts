@@ -91,7 +91,7 @@ export function findNoteSpot(
 	const obstacles = [...topLevel.filter((shape) => !containers.includes(shape)).map((shape) => shape.id), ...inside]
 		.map((id) => bounds(id))
 		.filter((box): box is Box => !!box && !subject.contains(box))
-	const view = editor.getViewportPageBounds()
+	const view = getUsableViewBounds(editor)
 	const margin = 8
 	const gap = 24
 	const isClear = (box: Box) => {
@@ -167,4 +167,17 @@ export function overlapsShapes(editor: Editor, box: Box, ignore: TLShapeId[] = [
 		const bounds = editor.getShapePageBounds(id)
 		return !!bounds && box.collides(bounds)
 	})
+}
+
+/** Screen strips the board's chrome covers: the menu at the top, the toolbar at the bottom. */
+const TOP_CHROME = 56
+const BOTTOM_CHROME = 76
+
+/** The part of the view a note can be seen in: the viewport, less the menu and toolbar strips. */
+export function getUsableViewBounds(editor: Editor): Box {
+	const view = editor.getViewportPageBounds()
+	const zoom = editor.getZoomLevel()
+	const top = TOP_CHROME / zoom
+	const bottom = BOTTOM_CHROME / zoom
+	return new Box(view.x, view.y + top, view.w, Math.max(0, view.h - top - bottom))
 }
