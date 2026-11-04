@@ -446,7 +446,6 @@ export class AgentMarkManager extends BaseAgentManager {
 		const thread = editor.getShape<ThreadShape>(threadId)
 		if (!thread || thread.type !== THREAD_TYPE) return
 		const resolved = resolve || thread.props.resolved
-		// Its own undo step, separate from the user's last edit.
 		editor.markHistoryStoppingPoint('thread-fold')
 		this.agent.commands.execute('user', resolve ? 'thread-resolve' : 'thread-fold', () => {
 			this.placeThread(thread, this.getPinSpot(thread), { folded: true, resolved, w: PIN_SIZE, h: PIN_SIZE })
@@ -478,7 +477,6 @@ export class AgentMarkManager extends BaseAgentManager {
 		if (!thread || thread.type !== THREAD_TYPE || !thread.props.folded) return
 		const h = measureThreadHeight(editor, thread.props.entries)
 		const spot = this.getNoteSpot(thread, h)
-		// Its own undo step, separate from the user's last edit.
 		editor.markHistoryStoppingPoint('thread-open')
 		this.agent.commands.execute('user', 'thread-open', () => {
 			this.placeThread(thread, { x: spot.x, y: spot.y }, { folded: false, w: THREAD_WIDTH, h })
@@ -502,7 +500,6 @@ export class AgentMarkManager extends BaseAgentManager {
 		const mark = editor.getShape(thread.props.markShapeId as TLShapeId)
 		const markMeta = mark?.meta.mark as MarkMeta | undefined
 		const ids = [thread.id, ...(mark && markMeta && !markMeta.adopted ? [mark.id] : [])]
-		// Its own undo step, separate from the user's last edit.
 		editor.markHistoryStoppingPoint('thread-remove')
 		this.agent.commands.execute('user', 'thread-remove', () => editor.deleteShapes(ids))
 	}

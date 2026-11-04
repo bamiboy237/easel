@@ -1,11 +1,11 @@
 import { TLDefaultColorStyle, TLShape } from 'tldraw'
-import { getBoardSettings, updateBoardSettings } from '../boardSettings'
+import { BoardSettings, getBoardSettings, updateBoardSettings } from '../boardSettings'
 import { BaseAgentManager } from './BaseAgentManager'
 import { getShapeCreator } from './BoardCommandManager'
 import type { TldrawAgent } from '../TldrawAgent'
 
 /** The agent's ink: the colors it chose itself, or one color for all its shapes. */
-export type AgentInk = 'same' | TLDefaultColorStyle
+export type AgentInk = BoardSettings['agentInk']
 
 /** The inks offered in the board menu. Graphite is tldraw's grey. Red is kept for marks. */
 export const AGENT_INKS: { ink: AgentInk; label: string }[] = [
@@ -23,6 +23,9 @@ export const AGENT_INKS: { ink: AgentInk; label: string }[] = [
  * agent gave it in `meta.agentColor`, so choosing "Same as mine" restores it.
  */
 export class AgentInkManager extends BaseAgentManager {
+	/** On while the ink itself is being changed, so that change is not read as the agent recoloring. */
+	private inking = false
+
 	constructor(agent: TldrawAgent) {
 		super(agent)
 		const { editor } = agent
@@ -35,15 +38,14 @@ export class AgentInkManager extends BaseAgentManager {
 				return withInk(shape, shape.props.color, ink)
 			})
 		)
-		// When the agent recolors one of its shapes, the new color is what it chose,
-		// and the ink still shows.
+		// When the agent recolors one of its shapes, the new color is what it chose.
+		// It is remembered whatever the ink, and the ink, if any, still shows.
 		this.disposables.add(
 			editor.store.sideEffects.registerBeforeChangeHandler('shape', (prev, next, source) => {
-				if (source !== 'user' || !this.agent.getIsActingOnEditor() || !this.isAgentShape(next)) return next
+				if (source !== 'user' || this.inking || !this.agent.getIsActingOnEditor() || !this.isAgentShape(next)) return next
 				if (!hasColor(next) || !hasColor(prev) || next.props.color === prev.props.color) return next
 				const ink = this.getInk()
-				if (ink === 'same') return next
-				return withInk(next, next.props.color, ink)
+				return withInk(next, next.props.color, ink === 'same' ? next.props.color : ink)
 			})
 		)
 	}
@@ -61,20 +63,30 @@ export class AgentInkManager extends BaseAgentManager {
 	setInk(ink: AgentInk) {
 		const { editor } = this.agent
 		const previous = this.getInk()
-		// Its own undo step, separate from the user's last edit.
 		editor.markHistoryStoppingPoint('agent-ink')
-		this.agent.commands.execute('user', 'agent-ink', () => {
-			updateBoardSettings(editor, { agentInk: ink })
-			const updates = []
-			for (const shape of editor.getCurrentPageShapes()) {
-				if (!this.isAgentShape(shape) || !hasColor(shape)) continue
-				const original = (shape.meta.agentColor as TLDefaultColorStyle | undefined) ?? shape.props.color
-				const shown = previous === 'same' ? original : previous
-				if (shape.props.color !== shown) continue
-				updates.push(withInk(shape, original, ink === 'same' ? original : ink))
-			}
-			editor.updateShapes(updates)
-		})
+		this.inking = true
+		try {
+			this.agent.commands.execute('user', 'agent-ink', () => this.applyInk(previous, ink))
+		} finally {
+			this.inking = false
+		}
+	}
+
+	/** Redraw the agent's shapes on every page, from the ink they show now to the new one. */
+	private applyInk(previous: AgentInk, ink: AgentInk) {
+		const { editor } = this.agent
+		updateBoardSettings(editor, { agentInk: ink })
+		const updates = []
+		for (const id of editor.getPages().flatMap((page) => [...editor.getPageShapeIds(page)])) {
+			const shape = editor.getShape(id)
+			if (!shape || !this.isAgentShape(shape) || !hasColor(shape)) continue
+			const original = (shape.meta.agentColor as TLDefaultColorStyle | undefined) ?? shape.props.color
+			// A shape not in the ink it should show was recolored by hand, and keeps that color.
+			const shown = previous === 'same' ? original : previous
+			if (shape.props.color !== shown) continue
+			updates.push(withInk(shape, original, ink === 'same' ? original : ink))
+		}
+		editor.updateShapes(updates)
 	}
 
 	private isAgentShape(shape: TLShape) {
