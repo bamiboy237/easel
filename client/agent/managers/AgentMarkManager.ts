@@ -45,6 +45,8 @@ export class AgentMarkManager extends BaseAgentManager {
 	private $draft = atom<MarkDraft | null>('mark draft', null)
 	private $stroke = atom<VecModel[] | null>('mark stroke', null)
 	private active: ActiveMark | null = null
+	/** A mark asked about, waiting for its request to start. */
+	private pending: ActiveMark | null = null
 	/** A pen circle the user just drew, offered as a mark for a few seconds. */
 	private $chip = atom<{ shapeId: TLShapeId; bounds: BoxModel } | null>('mark chip', null)
 	private chipTimeout: ReturnType<typeof setTimeout> | null = null
@@ -100,6 +102,7 @@ export class AgentMarkManager extends BaseAgentManager {
 		this.$draft.set(null)
 		this.$stroke.set(null)
 		this.active = null
+		this.pending = null
 		this.dismissChip()
 	}
 
@@ -119,6 +122,16 @@ export class AgentMarkManager extends BaseAgentManager {
 	/** The mark the current request asks about, if any. */
 	getActive(): ActiveMark | null {
 		return this.active
+	}
+
+	/**
+	 * A user request takes the pending mark, or clears the last one. The agent's
+	 * own follow-up passes keep the mark, so continuations still know what it is about.
+	 */
+	onRequestStart(source: string) {
+		if (source === 'self') return
+		this.active = this.pending
+		this.pending = null
 	}
 
 	/** Finish a stroke: classify it, find its targets, keep it on the board, and open the composer. */
@@ -210,12 +223,8 @@ export class AgentMarkManager extends BaseAgentManager {
 		}
 	}
 
-	/**
-	 * Ask about the draft. With no text, the kind of mark is the question.
-	 * The targets go in as a user context item, which also lets the agent
-	 * change them if the question asks it to.
-	 */
-	async ask(text: string) {
+	/** Ask about the draft. With no text, the kind of mark is the question. */
+	ask(text: string) {
 		const draft = this.$draft.get()
 		if (!draft) return
 		const { editor } = this.agent
@@ -231,18 +240,23 @@ export class AgentMarkManager extends BaseAgentManager {
 			})
 		}
 
-		this.active = { ...draft, targetIds, text: question }
 		const shapes = targetIds
 			.map((id) => editor.getShape(id))
 			.filter((s) => !!s)
 			.map((s) => convertTldrawShapeToFocusedShape(editor, s))
-		if (shapes.length > 0) this.agent.context.add({ type: 'shapes', shapes, source: 'user' })
-		const shown = text.trim() || `(${draft.kind}) ${question}`
-		try {
-			await this.agent.prompt({ agentMessages: [question], userMessages: [shown] })
-		} finally {
-			this.active = null
-		}
+		this.pending = { ...draft, targetIds, text: question }
+		// The targets go with this request only, as user context, so the agent may
+		// change them if the question asks it to. Like the chat input, a new
+		// question interrupts any request still running.
+		this.agent.interrupt({
+			input: {
+				agentMessages: [question],
+				userMessages: [text.trim() || `(${draft.kind}) ${question}`],
+				bounds: editor.getViewportPageBounds(),
+				source: 'user',
+				contextItems: shapes.length > 0 ? [{ type: 'shapes', shapes, source: 'user' }] : [],
+			},
+		})
 	}
 }
 

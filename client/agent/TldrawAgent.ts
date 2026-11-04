@@ -679,6 +679,7 @@ export class TldrawAgent {
 				? new Set([...this.allowedShapeIds, ...requestedShapeIds])
 				: requestedShapeIds
 		this.actions.onRequestStart(request.source)
+		this.marks.onRequestStart(request.source)
 		this.waitingForAnswer = false
 		this.endResponse = false
 		if (request.source !== 'self') this.continuationPasses = 0

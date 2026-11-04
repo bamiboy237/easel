@@ -570,7 +570,7 @@ export const MarkPartDefinition: PromptPartDefinition<MarkPart> = {
 		const lines = [
 			`The user ${MARK_KINDS[mark.kind]} part of the board at ${JSON.stringify(mark.bounds)} to ask: "${mark.question}" ${targets} Answer about exactly what the mark points at. Read text, numbers, or details from the image of the region when the shapes do not hold them, such as in a photo or a sketch.`,
 		]
-		if (mark.image) lines.push('Here is the marked region, with the user\'s mark drawn in yellow.', mark.image)
+		if (mark.image) lines.push('Here is the marked region, with the user\'s mark drawn on it.', mark.image)
 		return lines
 	},
 }

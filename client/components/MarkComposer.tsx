@@ -54,7 +54,7 @@ export function MarkComposer() {
 			<form
 				onSubmit={(e) => {
 					e.preventDefault()
-					void agent.marks.ask(text)
+					agent.marks.ask(text)
 				}}
 			>
 				<input
