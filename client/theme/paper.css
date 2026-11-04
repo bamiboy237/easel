@@ -209,9 +209,11 @@
 	transition: transform 160ms var(--ease-out);
 }
 
+/* Feedback lands on pointer down and fast (100 ms); the release eases back slower (160 ms). */
 .chat-panel.tl-theme__light .agent-ask-choices button:active:not(:disabled),
 .chat-panel.tl-theme__light .chat-input-submit:active:not(:disabled) {
 	transform: scale(0.97);
+	transition-duration: 100ms;
 }
 
 .chat-panel.tl-theme__light .agent-ask-key {
