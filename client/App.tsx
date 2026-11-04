@@ -41,6 +41,18 @@ const overlayUtils = [AgentHighlightOverlayUtil, MarkOverlayUtil]
 // Threads: a mark's question and answers on a sticky note beside it
 const shapeUtils = [ThreadShapeUtil]
 const themes = { default: paperTheme }
+
+/**
+ * One icon family for the whole UI: Lucide outlines at a 1.5 px stroke, so icons
+ * match the weight of the text. The Mark tool has its own icon in the same style.
+ */
+const ICON_NAMES = [
+	'tool-pointer', 'tool-hand', 'tool-pencil', 'tool-eraser', 'tool-arrow', 'tool-text', 'tool-note',
+	'tool-media', 'tool-line', 'tool-frame', 'tool-highlight', 'geo-rectangle', 'geo-ellipse',
+	'geo-triangle', 'geo-diamond', 'undo', 'redo', 'trash', 'duplicate', 'menu', 'dots-vertical',
+	'dots-horizontal', 'chevron-up', 'chevron-down', 'chevron-right', 'chevron-left', 'plus', 'minus', 'mark',
+]
+const assetUrls = { icons: Object.fromEntries(ICON_NAMES.map((name) => [name, `/icons/${name}.svg`])) }
 const overrides: TLUiOverrides = {
 	tools: (editor, tools) => {
 		return {
@@ -49,7 +61,7 @@ const overrides: TLUiOverrides = {
 				id: 'mark',
 				label: 'Mark and ask',
 				kbd: 'm',
-				icon: 'question-mark-circle',
+				icon: 'mark',
 				onSelect() {
 					editor.setCurrentTool('mark')
 				},
@@ -109,6 +121,7 @@ function App() {
 						overrides={overrides}
 						components={components}
 						themes={themes}
+						assetUrls={assetUrls}
 					>
 						<TldrawAgentAppProvider onMount={setApp} onUnmount={handleUnmount} />
 						{isReferenceBoard && <ReferenceBoardLoader />}
