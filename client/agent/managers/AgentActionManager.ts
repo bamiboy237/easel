@@ -24,7 +24,7 @@ export const CHANGE_GHOST_MS = 320
 export interface ChangeGhost {
 	id: string
 	bounds: { x: number; y: number; w: number; h: number }
-	kind: 'removed' | 'added'
+	kind: 'removed' | 'added' | 'landed'
 	startedAt: number
 }
 
@@ -111,6 +111,33 @@ export class AgentActionManager extends BaseAgentManager {
 			}, CHANGE_GHOST_MS)
 		}
 		return result
+	}
+
+	/**
+	 * Give shapes the agent just created a faint outline that fades, so each one
+	 * reads as landing rather than popping in. The shapes themselves are already
+	 * in place; only the overlay fades.
+	 */
+	private markLanded(recordIds: string[]) {
+		if (prefersReducedMotion()) return
+		const { editor } = this.agent
+		const startedAt = Date.now()
+		const landed: ChangeGhost[] = []
+		for (const id of recordIds) {
+			if (!id.startsWith('shape:')) continue
+			const b = editor.getShapePageBounds(id as TLShapeId)
+			if (b) landed.push({ id, bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, kind: 'landed', startedAt })
+		}
+		if (landed.length === 0) return
+		this.$changeGhosts.update((current) => [
+			...current.filter((g) => Date.now() - g.startedAt < CHANGE_GHOST_MS),
+			...landed,
+		])
+		if (this.changeGhostTimeout) clearTimeout(this.changeGhostTimeout)
+		this.changeGhostTimeout = setTimeout(() => {
+			this.$changeGhosts.set([])
+			this.changeGhostTimeout = null
+		}, CHANGE_GHOST_MS)
 	}
 
 	private getPageShapeBounds() {
@@ -206,7 +233,10 @@ export class AgentActionManager extends BaseAgentManager {
 					...this.agent.getPassIds(),
 				})
 				diff = result.changes
-				if (result.status === 'applied') commandId = result.commandId
+				if (result.status === 'applied') {
+					commandId = result.commandId
+					this.markLanded(Object.keys(result.changes.added))
+				}
 				if (result.status === 'rejected') {
 					rejected = true
 					this.reportRejectedCommand(action._type, result)

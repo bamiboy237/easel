@@ -18,6 +18,7 @@ type AgentHighlightColor = 'selected' | 'tooltip' | 'protected'
 // The outline on the user's shapes after the agent bumps into them stays quiet.
 const PROTECTED_ALPHA = 0.4
 const GHOST_WASH_ALPHA = 0.12
+const LANDED_ALPHA = 0.3
 const FLASH_IN_MS = 120
 const FLASH_OUT_MS = 240
 const ANIMATION_PERIOD = 100_000
@@ -35,7 +36,7 @@ interface AgentAreaHighlightOverlay extends TLOverlay {
 		/** For a protected flash: when it started, so it can fade in and out. */
 		flashStartedAt?: number
 		/** For an undo or restore: what happened to the shape, and when. */
-		ghost?: { kind: 'removed' | 'added'; startedAt: number }
+		ghost?: { kind: 'removed' | 'added' | 'landed'; startedAt: number }
 		label?: string
 	}
 }
@@ -104,7 +105,8 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 					props: {
 						kind: 'area',
 						bounds: ghost.bounds,
-						color: 'protected',
+						// The agent's own shapes land in the selection accent; undo and restore use ink.
+						color: ghost.kind === 'landed' ? 'selected' : 'protected',
 						generating: false,
 						ghost: { kind: ghost.kind, startedAt: ghost.startedAt },
 					},
@@ -140,7 +142,7 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		// advance the animation. This is a side effect, so it belongs in render
 		// (an effect) rather than getOverlays (a reactive computation).
 		this.hasAnimatedOverlays = overlays.some(
-			(overlay) => overlay.props.generating || overlay.props.color === 'protected' // includes ghosts
+			(overlay) => overlay.props.generating || overlay.props.color === 'protected' || ('ghost' in overlay.props && !!overlay.props.ghost)
 		)
 
 		const zoom = this.editor.getZoomLevel()
@@ -350,7 +352,7 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 	private renderGhost(
 		ctx: CanvasRenderingContext2D,
 		pageBounds: BoxModel,
-		ghost: { kind: 'removed' | 'added'; startedAt: number },
+		ghost: { kind: 'removed' | 'added' | 'landed'; startedAt: number },
 		color: string,
 		zoom: number
 	): void {
@@ -366,7 +368,7 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 			ctx.fillRect(pageBounds.x, pageBounds.y, pageBounds.w, pageBounds.h)
 		} else {
 			const bounds = Box.From(pageBounds).expandBy(4)
-			ctx.globalAlpha = PROTECTED_ALPHA * fade
+			ctx.globalAlpha = (ghost.kind === 'landed' ? LANDED_ALPHA : PROTECTED_ALPHA) * fade
 			ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h)
 		}
 		ctx.restore()
