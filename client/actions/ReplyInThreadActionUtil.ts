@@ -51,10 +51,9 @@ export const ReplyInThreadActionUtil = registerActionUtil(
 			const h = measureThreadHeight(editor, entries)
 			const page = editor.getShapePageBounds(id)!
 			const grown = new Box(page.x, page.y, thread.props.w, h)
-			// A thread the user put inside a frame is not blocked by that frame.
-			const own = [id, thread.props.markShapeId, ...thread.props.targetIds, ...editor.getShapeAncestors(id).map((s) => s.id)].filter(
-				Boolean
-			) as TLShapeId[]
+			// The thread may sit over the frames that hold it, its mark, or its targets.
+			const related = [id, thread.props.markShapeId, ...thread.props.targetIds].filter(Boolean) as TLShapeId[]
+			const own = [...related, ...related.flatMap((r) => (editor.getShape(r) ? editor.getShapeAncestors(r).map((s) => s.id) : []))]
 			const view = editor.getViewportPageBounds()
 			let position = { x: thread.x, y: thread.y }
 			if (overlapsShapes(editor, grown, own) || (view.contains(page) && !view.contains(grown))) {
