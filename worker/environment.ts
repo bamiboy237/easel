@@ -7,4 +7,6 @@ export interface Environment {
 	MODEL_API_KEY: string
 	/** Optional. Overrides the Meta Model API base URL, for example to route through a local relay. */
 	MODEL_API_BASE_URL?: string
+	/** Optional. Overrides the OpenAI API base URL, for example to route through a local relay. */
+	OPENAI_API_BASE_URL?: string
 }

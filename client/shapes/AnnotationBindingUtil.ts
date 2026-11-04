@@ -2,6 +2,8 @@ import {
 	BindingOnShapeChangeOptions,
 	BindingUtil,
 	Box,
+	createBindingPropsMigrationIds,
+	createBindingPropsMigrationSequence,
 	Editor,
 	RecordProps,
 	T,
@@ -41,6 +43,40 @@ export type AnnotationBinding = TLBinding<typeof ANNOTATION_BINDING>
 
 const EPSILON = 0.5
 
+const versions = createBindingPropsMigrationIds(ANNOTATION_BINDING, { StoreRelation: 1 })
+
+/**
+ * The first annotation bindings stored only which target led. They now store
+ * the annotation's place relative to its target. An old binding is marked as
+ * not knowing it yet (rw of 0, which no real relation has); the first time its
+ * target changes, it records where the annotation is instead of moving it.
+ */
+const migrations = createBindingPropsMigrationSequence({
+	sequence: [{ id: versions.StoreRelation, up: (props: Record<string, unknown>) => upgradeAnnotationProps(props) }],
+})
+
+/** Bring old annotation binding props up to date in place. Safe to run on current props. */
+export function upgradeAnnotationProps(props: Record<string, unknown>) {
+	if (typeof props.order === 'number') return
+	const leads = props.leads === true
+	delete props.leads
+	Object.assign(props, { order: leads ? 0 : 1, rx: 0, ry: 0, rw: 0, rh: 0, ox: 0, oy: 0 })
+}
+
+/**
+ * Saved board commands hold records as they were written, and replaying them
+ * does not run migrations, so old annotation bindings in them are upgraded here.
+ */
+export function upgradeAnnotationRecords(diff: { added: object; updated: object; removed: object }) {
+	const upgrade = (record: unknown) => {
+		const r = record as { typeName?: string; type?: string; props?: Record<string, unknown> }
+		if (r?.typeName === 'binding' && r.type === ANNOTATION_BINDING && r.props) upgradeAnnotationProps(r.props)
+	}
+	Object.values(diff.added).forEach(upgrade)
+	Object.values(diff.removed).forEach(upgrade)
+	Object.values(diff.updated).forEach((pair) => (pair as unknown[]).forEach(upgrade))
+}
+
 /**
  * Binds a mark's stroke, or its thread, to each shape the mark points at.
  * Moving or resizing the target places the annotation from the stored
@@ -50,6 +86,7 @@ const EPSILON = 0.5
  */
 export class AnnotationBindingUtil extends BindingUtil<AnnotationBinding> {
 	static override type = ANNOTATION_BINDING
+	static override migrations = migrations
 	static override props: RecordProps<AnnotationBinding> = {
 		order: T.number,
 		rx: T.number,
@@ -101,6 +138,8 @@ function refreshRelation(editor: Editor, binding: AnnotationBinding) {
 /** Place an annotation after its target changed, if this binding is the one it follows. */
 export function followTarget(editor: Editor, binding: AnnotationBinding) {
 	if (getLeadBinding(editor, binding.fromId)?.id !== binding.id) return
+	// A migrated binding does not know its relation yet: record it, don't move.
+	if (binding.props.rw === 0) return refreshRelation(editor, binding)
 	const annotation = editor.getShape(binding.fromId)
 	const target = editor.getShapePageBounds(binding.toId)
 	if (annotation && target) place(editor, annotation, target, binding.props)

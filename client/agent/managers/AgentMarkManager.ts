@@ -1,7 +1,8 @@
-import { atom, b64Vecs, Box, BoxModel, createShapeId, Editor, TLShapeId, VecModel } from 'tldraw'
+import { atom, b64Vecs, Box, BoxModel, createShapeId, Editor, renderPlaintextFromRichText, TLRichText, TLShapeId, VecModel } from 'tldraw'
 import { convertTldrawShapeToFocusedShape } from '../../../shared/format/convertTldrawShapeToFocusedShape'
 import { findClearSpaceBeside, findNoteSpot } from '../findClearSpace'
 import { classifyStroke, findMarkTargets, MARK_INTENTS, MarkKind } from '../marks'
+import { VoiceListener } from '../voice'
 import { ANNOTATION_BINDING, bindAnnotation, followDescendants } from '../../shapes/AnnotationBindingUtil'
 import { measureThreadHeight, THREAD_TYPE, THREAD_WIDTH, ThreadEntry, ThreadShape } from '../../shapes/ThreadShapeUtil'
 import { BaseAgentManager } from './BaseAgentManager'
@@ -56,6 +57,10 @@ export class AgentMarkManager extends BaseAgentManager {
 	/** A pen circle the user just drew, offered as a mark for a few seconds. */
 	private $chip = atom<{ shapeId: TLShapeId; bounds: BoxModel } | null>('mark chip', null)
 	private chipTimeout: ReturnType<typeof setTimeout> | null = null
+	/** Mark and speak: whether the app is listening for the question, and what it heard. */
+	private listener: VoiceListener | null = null
+	private $listening = atom<'off' | 'starting' | 'listening' | 'heard'>('mark listening', 'off')
+	private $spoken = atom<string | null>('mark spoken', null)
 
 	constructor(agent: ConstructorParameters<typeof BaseAgentManager>[0]) {
 		super(agent)
@@ -117,8 +122,65 @@ export class AgentMarkManager extends BaseAgentManager {
 		this.dismissChip()
 		if (!chip) return
 		this.adoptStroke(chip.shapeId)
+		this.startListening()
 		// The Mark tool lets the user click shapes to fix the target.
 		this.agent.editor.setCurrentTool('mark')
+	}
+
+	/** Whether the app is listening for the question: starting, listening, heard speech, or off. */
+	getListening() {
+		return this.$listening.get()
+	}
+
+	/** The words heard so far for the open mark, or null. */
+	getSpoken() {
+		return this.$spoken.get()
+	}
+
+	/**
+	 * Start listening as soon as a mark is made, so marking and speaking feel
+	 * like one motion. Only marks start listening: ordinary drawing never does.
+	 * If the microphone or the voice session is unavailable, the user types.
+	 */
+	startListening() {
+		this.stopListening()
+		const draft = this.$draft.get()
+		if (!draft) return
+		const { editor } = this.agent
+		// Words on the marked shapes help the transcription spell them.
+		const keywords = draft.targetIds
+			.map((id) => editor.getShape(id))
+			.map((shape) => (shape?.props as { richText?: TLRichText } | undefined)?.richText)
+			.filter((richText): richText is TLRichText => !!richText)
+			.map((richText) => renderPlaintextFromRichText(editor, richText).trim())
+			.filter(Boolean)
+		const listener = new VoiceListener({
+			onText: (text) => {
+				if (this.listener === listener) this.$spoken.set(text)
+			},
+			onSpeech: () => {
+				if (this.listener === listener) this.$listening.set('heard')
+			},
+			onEnd: (text) => {
+				if (this.listener !== listener) return
+				this.listener = null
+				this.$listening.set('off')
+				if (text) this.$spoken.set(text)
+			},
+		})
+		this.listener = listener
+		this.$spoken.set(null)
+		this.$listening.set('starting')
+		void listener.start(keywords).then((ok) => {
+			if (ok && this.listener === listener && this.$listening.get() === 'starting') this.$listening.set('listening')
+		})
+	}
+
+	/** Stop listening. Typing stops it and keeps the words heard so far. */
+	stopListening() {
+		this.listener?.cancel()
+		this.listener = null
+		this.$listening.set('off')
 	}
 
 	reset(): void {
@@ -127,6 +189,7 @@ export class AgentMarkManager extends BaseAgentManager {
 		this.$active.set(null)
 		this.pending = null
 		this.dismissChip()
+		this.stopListening()
 	}
 
 	getDraft(): MarkDraft | null {
@@ -207,6 +270,7 @@ export class AgentMarkManager extends BaseAgentManager {
 			})
 		}
 		this.$draft.set({ id, kind, bounds, shapeId, targetIds })
+		this.startListening()
 	}
 
 	/**
@@ -240,6 +304,8 @@ export class AgentMarkManager extends BaseAgentManager {
 
 	/** Drop the draft and its stroke. */
 	cancelDraft() {
+		this.stopListening()
+		this.$spoken.set(null)
 		const draft = this.$draft.get()
 		if (!draft) return
 		this.$draft.set(null)
@@ -251,6 +317,8 @@ export class AgentMarkManager extends BaseAgentManager {
 
 	/** Ask about the draft. With no text, the kind of mark is the question. */
 	ask(text: string) {
+		this.stopListening()
+		this.$spoken.set(null)
 		const draft = this.$draft.get()
 		if (!draft) return
 		const { editor } = this.agent
