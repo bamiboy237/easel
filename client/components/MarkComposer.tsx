@@ -45,6 +45,11 @@ export function MarkComposer() {
 		() => {
 			const d = agent.marks.getDraft()
 			if (!d) return null
+			// Where the user dragged it, if they did.
+			if (d.noteAt) {
+				const p = editor.pageToViewport(d.noteAt)
+				return { x: Math.round(p.x), y: Math.round(p.y) }
+			}
 			// In the nearest clear space beside the mark, the same search a thread
 			// uses, so the question never covers what it asks about or what is next
 			// to it. The note keeps its size on screen, so it is measured in page
@@ -80,7 +85,27 @@ export function MarkComposer() {
 		<div
 			className="mark-composer"
 			style={{ left: anchor.x, top: anchor.y }}
-			onPointerDown={(e) => e.stopPropagation()}
+			// The note moves like paper: drag it by anywhere but the line you write on.
+			onPointerDown={(e) => {
+				e.stopPropagation()
+				if ((e.target as HTMLElement).closest('input, button')) return
+				e.preventDefault()
+				const start = { x: e.clientX, y: e.clientY }
+				const screen = editor.getViewportScreenBounds()
+				const from = editor.screenToPage({ x: anchor.x + screen.x, y: anchor.y + screen.y })
+				const zoom = editor.getZoomLevel()
+				const target = e.currentTarget
+				target.setPointerCapture(e.pointerId)
+				const move = (ev: PointerEvent) =>
+					agent.marks.moveDraftNote({ x: from.x + (ev.clientX - start.x) / zoom, y: from.y + (ev.clientY - start.y) / zoom })
+				const up = () => {
+					target.removeEventListener('pointermove', move)
+					target.removeEventListener('pointerup', up)
+					inputRef.current?.focus()
+				}
+				target.addEventListener('pointermove', move)
+				target.addEventListener('pointerup', up)
+			}}
 		>
 			<div className="mark-composer-label">
 				<span>{about}</span>

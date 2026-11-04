@@ -1127,6 +1127,7 @@
  * line of text sits on a rule. Enter asks; there is no send button.
  */
 .mark-composer {
+	cursor: grab;
 	--sticky: #fcf3bd;
 	--sticky-deep: #f6e7a0;
 	--sticky-ink: #3b3320;
@@ -1378,4 +1379,12 @@
 
 .chat-panel.tl-theme__light .chat-model-select select:focus-visible {
 	outline: none;
+}
+
+.mark-composer:active {
+	cursor: grabbing;
+}
+
+.mark-composer input {
+	cursor: text;
 }
