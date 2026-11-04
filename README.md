@@ -55,7 +55,7 @@ The model picks the form of each answer. When a request names a topic but not a 
 
 The skill explains its limits instead of enforcing them in code: small passes that fit the response budget, review from fresh screenshots, and repair passes only for visible defects.
 
-Muse and the OpenAI-backed providers receive the existing action schema through the model API as well as the prompt. Provider progress messages appear in chat, separate from board instructions. Failed requests stop the current run and keep completed board work.
+Muse and the OpenAI-backed providers receive the existing action schema through the model API as well as the prompt. Provider progress messages appear in chat, separate from board instructions. Each response has a 16,384-token output budget. When a response still reaches it, its finished actions stay on the board and the agent continues in a new, shorter pass, up to three times per request, before stopping with a quiet note. Other failed requests stop the current run and keep completed board work.
 
 ## Documents
 
