@@ -184,7 +184,7 @@ function OpenThreadNote({ shape }: { shape: ThreadShape }) {
 	const busy = useValue(
 		'thread busy',
 		() => {
-			const agent = AgentAppAgentsManager.getAgents(editor)[0]
+			const agent = agentOf(editor)
 			if (!agent || !agent.requests.isGenerating()) return false
 			return shape.props.entries.at(-1)?.author === 'user' || agent.marks.getActive()?.threadId === shape.id
 		},
@@ -237,7 +237,7 @@ function OpenThreadNote({ shape }: { shape: ThreadShape }) {
 						onPointerDown={(e) => e.stopPropagation()}
 						onSubmit={(e) => {
 							e.preventDefault()
-							const agent = AgentAppAgentsManager.getAgents(editor)[0]
+							const agent = agentOf(editor)
 							if (!agent || !text.trim()) return
 							agent.marks.followUp(shape.id, text)
 							setText('')

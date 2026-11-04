@@ -20,6 +20,8 @@ export interface MarkMeta {
 	kind: MarkKind
 	targetIds: TLShapeId[]
 	question: string | null
+	/** A pen circle the user drew and then asked about. It stays their drawing. */
+	adopted?: boolean
 }
 
 /** A mark the user is composing: drawn, with an inferred target, not yet asked. */
@@ -86,7 +88,27 @@ export class AgentMarkManager extends BaseAgentManager {
 				const thread = next as ThreadShape
 				if ((prev as ThreadShape).props.entries === thread.props.entries) return next
 				const h = measureThreadHeight(editor, thread.props.entries)
-				return { ...thread, props: { ...thread.props, folded: false, w: THREAD_WIDTH, h } }
+				if (!thread.props.folded) return { ...thread, props: { ...thread.props, h } }
+				// The note opens where it would if the user clicked its pin.
+				const spot = this.getNoteSpot(thread, h)
+				const local = editor.getPointInParentSpace(thread.id, { x: spot.x, y: spot.y })
+				return { ...thread, x: local.x, y: local.y, props: { ...thread.props, folded: false, w: THREAD_WIDTH, h } }
+			})
+		)
+		// A pin stays on its mark's corner, even when a resize moves the corner
+		// differently from the target's edge the thread follows.
+		this.disposables.add(
+			editor.store.sideEffects.registerAfterChangeHandler('shape', (prev, next) => {
+				if (!next.meta.mark || (prev.x === next.x && prev.y === next.y && prev.props === next.props)) return
+				for (const shape of editor.getCurrentPageShapes()) {
+					if (shape.type !== THREAD_TYPE) continue
+					const thread = shape as ThreadShape
+					if (!thread.props.folded || thread.props.markShapeId !== next.id) continue
+					const spot = this.getPinSpot(thread)
+					const local = editor.getPointInParentSpace(thread.id, spot)
+					if (Math.abs(local.x - thread.x) < 0.5 && Math.abs(local.y - thread.y) < 0.5) continue
+					editor.updateShape<ThreadShape>({ id: thread.id, type: THREAD_TYPE, x: local.x, y: local.y })
+				}
 			})
 		)
 		// When the user finishes a pen circle around something, offer to ask about
@@ -349,7 +371,7 @@ export class AgentMarkManager extends BaseAgentManager {
 		if (draft.shapeId && editor.getShape(draft.shapeId)) {
 			this.agent.commands.execute('user', 'mark-ask', () => {
 				const shape = editor.getShape(draft.shapeId!)!
-				const meta: MarkMeta = { id: draft.id, kind: draft.kind, targetIds, question }
+				const meta: MarkMeta = { id: draft.id, kind: draft.kind, targetIds, question, ...(draft.adopted ? { adopted: true } : {}) }
 				editor.updateShape({ id: shape.id, type: shape.type, meta: { ...shape.meta, mark: meta as unknown as Record<string, never> } })
 			})
 		}
@@ -415,20 +437,36 @@ export class AgentMarkManager extends BaseAgentManager {
 		editor.updateShape<ThreadShape>({ id: thread.id, type: THREAD_TYPE, x: local.x, y: local.y, props })
 	}
 
-	/** Fold a thread to a small pin at the top right corner of its mark. */
-	foldThread(threadId: TLShapeId, resolved = false) {
+	/**
+	 * Fold a thread to a small pin at the top right corner of its mark. Folding
+	 * keeps whether it is resolved, unless resolving is what folds it.
+	 */
+	foldThread(threadId: TLShapeId, resolve = false) {
 		const { editor } = this.agent
 		const thread = editor.getShape<ThreadShape>(threadId)
 		if (!thread || thread.type !== THREAD_TYPE) return
-		const subject = this.getThreadSubject(thread)
-		this.agent.commands.execute('user', resolved ? 'thread-resolve' : 'thread-fold', () => {
-			this.placeThread(
-				thread,
-				{ x: subject.maxX - PIN_SIZE / 2, y: subject.y - PIN_SIZE / 2 },
-				{ folded: true, resolved, w: PIN_SIZE, h: PIN_SIZE }
-			)
+		const resolved = resolve || thread.props.resolved
+		this.agent.commands.execute('user', resolve ? 'thread-resolve' : 'thread-fold', () => {
+			this.placeThread(thread, this.getPinSpot(thread), { folded: true, resolved, w: PIN_SIZE, h: PIN_SIZE })
 			editor.selectNone()
 		})
+	}
+
+	/** Where a folded thread's pin sits: centered on the top right corner of its mark. */
+	private getPinSpot(thread: ThreadShape) {
+		const subject = this.getThreadSubject(thread)
+		return { x: subject.maxX - PIN_SIZE / 2, y: subject.y - PIN_SIZE / 2 }
+	}
+
+	/** Where an opening thread's note goes: the nearest clear spot beside its mark. */
+	private getNoteSpot(thread: ThreadShape, h: number) {
+		const { editor } = this.agent
+		const subject = this.getThreadSubject(thread)
+		const ignore = [thread.id, thread.props.markShapeId as TLShapeId].filter(Boolean)
+		return (
+			findNoteSpot(editor, subject, { w: THREAD_WIDTH, h }, ignore) ??
+			new Box(subject.maxX + 24, subject.y, THREAD_WIDTH, h)
+		)
 	}
 
 	/** Open a folded thread beside its mark again, at the nearest clear spot. */
@@ -436,12 +474,8 @@ export class AgentMarkManager extends BaseAgentManager {
 		const { editor } = this.agent
 		const thread = editor.getShape<ThreadShape>(threadId)
 		if (!thread || thread.type !== THREAD_TYPE || !thread.props.folded) return
-		const subject = this.getThreadSubject(thread)
 		const h = measureThreadHeight(editor, thread.props.entries)
-		const ignore = [thread.id, thread.props.markShapeId as TLShapeId].filter(Boolean)
-		const spot =
-			findNoteSpot(editor, subject, { w: THREAD_WIDTH, h }, ignore) ??
-			new Box(subject.maxX + 24, subject.y, THREAD_WIDTH, h)
+		const spot = this.getNoteSpot(thread, h)
 		this.agent.commands.execute('user', 'thread-open', () => {
 			this.placeThread(thread, { x: spot.x, y: spot.y }, { folded: false, w: THREAD_WIDTH, h })
 			editor.select(thread.id)
@@ -462,7 +496,8 @@ export class AgentMarkManager extends BaseAgentManager {
 			return
 		}
 		const mark = editor.getShape(thread.props.markShapeId as TLShapeId)
-		const ids = [thread.id, ...(mark?.meta.mark ? [mark.id] : [])]
+		const markMeta = mark?.meta.mark as MarkMeta | undefined
+		const ids = [thread.id, ...(mark && markMeta && !markMeta.adopted ? [mark.id] : [])]
 		this.agent.commands.execute('user', 'thread-remove', () => editor.deleteShapes(ids))
 	}
 
