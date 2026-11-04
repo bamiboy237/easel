@@ -537,6 +537,8 @@ export class BoardCommandManager {
 		}
 		for (const [prev, next] of Object.values(changes.updated)) {
 			if (next.typeName !== 'shape' || prev.typeName !== 'shape') continue
+			// A mark or thread that only moved followed its target: that is not an edit.
+			if (isFollowingAnnotation(prev as TLShape, next as TLShape)) continue
 			// A protected shape, or a shape moved into a user region.
 			if (check(next.id, before) || check(next.id, after)) continue
 			placed.push(next.id)
@@ -660,4 +662,23 @@ export class BoardCommandManager {
 		this.history.update((history) => [...history, command])
 		return command.commandId
 	}
+}
+
+/**
+ * Marks and threads follow the shapes they point at. When an agent command
+ * moves a target, the user's annotation moves with it; a change that only moves
+ * the annotation, or marks its thread detached, does not touch the user's work.
+ */
+function isFollowingAnnotation(prev: TLShape, next: TLShape): boolean {
+	const annotation = next.type === 'thread' || !!(next.meta as { mark?: unknown }).mark
+	if (!annotation) return false
+	const { x: _px, y: _py, props: prevProps, ...prevRest } = prev
+	const { x: _nx, y: _ny, props: nextProps, ...nextRest } = next
+	if (JSON.stringify(prevRest) !== JSON.stringify(nextRest)) return false
+	if (JSON.stringify(prevProps) === JSON.stringify(nextProps)) return true
+	// A thread may also become detached when its target is deleted.
+	if (next.type !== 'thread') return false
+	const { detached: _pd, ...prevOther } = prevProps as Record<string, unknown>
+	const { detached: _nd, ...nextOther } = nextProps as Record<string, unknown>
+	return JSON.stringify(prevOther) === JSON.stringify(nextOther)
 }

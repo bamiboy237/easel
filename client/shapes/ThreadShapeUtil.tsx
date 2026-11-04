@@ -134,6 +134,7 @@ function ThreadNote({ shape }: { shape: ThreadShape }) {
 					</p>
 				))}
 			</div>
+			{detached && !isSelected && <div className="thread-footer thread-footer--thinking">What this answered was deleted.</div>}
 			{isThinking && <div className="thread-footer thread-footer--thinking">Thinking…</div>}
 			{isSelected && !isThinking && (
 				<form
