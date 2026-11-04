@@ -169,15 +169,33 @@ export function overlapsShapes(editor: Editor, box: Box, ignore: TLShapeId[] = [
 	})
 }
 
-/** Screen strips the board's chrome covers: the menu at the top, the toolbar at the bottom. */
-const TOP_CHROME = 56
-const BOTTOM_CHROME = 76
+/**
+ * Screen strips the board's chrome covers, measured from tldraw's menu zone
+ * (top left) and main toolbar (bottom center), plus a little air. The numbers
+ * are only a fallback for when the UI is not mounted, such as in tests: they
+ * are those two elements' sizes at the default layout.
+ */
+const FALLBACK_TOP_CHROME = 56
+const FALLBACK_BOTTOM_CHROME = 76
+const CHROME_AIR = 8
+
+function measureChrome(editor: Editor): { top: number; bottom: number } {
+	const container = editor.getContainer()
+	const frame = container.getBoundingClientRect()
+	const menu = container.querySelector('.tlui-menu-zone')?.getBoundingClientRect()
+	const toolbar = container.querySelector('.tlui-main-toolbar')?.getBoundingClientRect()
+	return {
+		top: menu ? menu.bottom - frame.top + CHROME_AIR : FALLBACK_TOP_CHROME,
+		bottom: toolbar ? frame.bottom - toolbar.top + CHROME_AIR : FALLBACK_BOTTOM_CHROME,
+	}
+}
 
 /** The part of the view a note can be seen in: the viewport, less the menu and toolbar strips. */
 export function getUsableViewBounds(editor: Editor): Box {
 	const view = editor.getViewportPageBounds()
 	const zoom = editor.getZoomLevel()
-	const top = TOP_CHROME / zoom
-	const bottom = BOTTOM_CHROME / zoom
+	const chrome = measureChrome(editor)
+	const top = chrome.top / zoom
+	const bottom = chrome.bottom / zoom
 	return new Box(view.x, view.y + top, view.w, Math.max(0, view.h - top - bottom))
 }

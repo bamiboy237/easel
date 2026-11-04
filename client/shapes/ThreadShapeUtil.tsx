@@ -10,6 +10,7 @@ import {
 	ShapeUtil,
 	T,
 	TLShape,
+	TLShapeId,
 	useEditor,
 	useValue,
 } from 'tldraw'
@@ -93,6 +94,29 @@ function useFresh(id: string) {
 		return () => clearTimeout(timer)
 	}, [fresh])
 	return fresh
+}
+
+/**
+ * What a thread may sit over: itself, its mark, and the frames and groups that
+ * hold the thread, its mark, or its targets. Its targets themselves, and
+ * everything else, it must not cover.
+ */
+export function getThreadOwnIds(editor: Editor, thread: ThreadShape): TLShapeId[] {
+	const markId = thread.props.markShapeId as TLShapeId
+	const related = [thread.id, markId, ...(thread.props.targetIds as TLShapeId[])].filter(Boolean)
+	const holders = related.flatMap((id) => (editor.getShape(id) ? editor.getShapeAncestors(id).map((s) => s.id) : []))
+	return [thread.id, ...(markId ? [markId] : []), ...holders]
+}
+
+/** Where a thread's note sat beside its subject before it was folded, kept in its meta. */
+export interface ThreadOpenAt {
+	dx: number
+	dy: number
+}
+
+export function getThreadOpenAt(thread: ThreadShape): ThreadOpenAt | undefined {
+	const openAt = thread.meta.openAt as Partial<ThreadOpenAt> | undefined
+	return typeof openAt?.dx === 'number' && typeof openAt.dy === 'number' ? { dx: openAt.dx, dy: openAt.dy } : undefined
 }
 
 /** A folded thread's pin, in page units. */
