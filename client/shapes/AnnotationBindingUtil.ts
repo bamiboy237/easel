@@ -65,28 +65,37 @@ export class AnnotationBindingUtil extends BindingUtil<AnnotationBinding> {
 	}
 
 	override onAfterChangeToShape({ binding }: BindingOnShapeChangeOptions<AnnotationBinding>) {
-		followTarget(this.editor, binding)
+		const { editor } = this
+		if (getLeadBinding(editor, binding.fromId)?.id === binding.id) followTarget(editor, binding)
+		// A target the annotation does not follow keeps its relation current, so
+		// if it takes the lead later, the annotation does not jump.
+		else refreshRelation(editor, binding)
 	}
 
-	override onAfterChangeFromShape({ binding, shapeAfter }: BindingOnShapeChangeOptions<AnnotationBinding>) {
+	override onAfterChangeFromShape({ binding }: BindingOnShapeChangeOptions<AnnotationBinding>) {
 		// The annotation moved on its own, such as the user dragging it: keep the
 		// new place relative to the target. After following, this finds no change.
-		const { editor } = this
-		const target = editor.getShapePageBounds(binding.toId)
-		const bounds = editor.getShapePageBounds(shapeAfter.id)
-		if (!target || !bounds) return
-		const relation = getRelation(bounds, target)
-		const p = binding.props
-		const same =
-			Math.abs(relation.ox - p.ox) < EPSILON &&
-			Math.abs(relation.oy - p.oy) < EPSILON &&
-			Math.abs(relation.rx - p.rx) * target.w < EPSILON &&
-			Math.abs(relation.ry - p.ry) * target.h < EPSILON &&
-			Math.abs(relation.rw - p.rw) * target.w < EPSILON &&
-			Math.abs(relation.rh - p.rh) * target.h < EPSILON
-		if (same) return
-		editor.updateBinding<AnnotationBinding>({ id: binding.id, type: ANNOTATION_BINDING, props: { ...relation, order: p.order } })
+		refreshRelation(this.editor, binding)
 	}
+}
+
+/** Store where the annotation sits now relative to this binding's target, if it changed. */
+function refreshRelation(editor: Editor, binding: AnnotationBinding) {
+	const current = editor.getBinding(binding.id) as AnnotationBinding | undefined
+	const target = editor.getShapePageBounds(binding.toId)
+	const bounds = editor.getShapePageBounds(binding.fromId)
+	if (!current || !target || !bounds) return
+	const relation = getRelation(bounds, target)
+	const p = current.props
+	const same =
+		Math.abs(relation.ox - p.ox) < EPSILON &&
+		Math.abs(relation.oy - p.oy) < EPSILON &&
+		Math.abs(relation.rx - p.rx) * target.w < EPSILON &&
+		Math.abs(relation.ry - p.ry) * target.h < EPSILON &&
+		Math.abs(relation.rw - p.rw) * target.w < EPSILON &&
+		Math.abs(relation.rh - p.rh) * target.h < EPSILON
+	if (same) return
+	editor.updateBinding<AnnotationBinding>({ id: current.id, type: ANNOTATION_BINDING, props: { ...relation, order: p.order } })
 }
 
 /** Place an annotation after its target changed, if this binding is the one it follows. */
@@ -118,9 +127,14 @@ export function getLeadBinding(editor: Editor, annotationId: TLShapeId): Annotat
 		.sort((a, b) => a.props.order - b.props.order)[0]
 }
 
-/** True when none of an annotation's targets exist any more. */
-export function isDetached(editor: Editor, annotationId: TLShapeId): boolean {
-	return !getLeadBinding(editor, annotationId)
+/**
+ * True when none of an annotation's targets exist any more. A thread saved
+ * before bindings existed has no bindings, so its target IDs decide instead.
+ */
+export function isDetached(editor: Editor, annotationId: TLShapeId, targetIds: string[] = []): boolean {
+	if (getLeadBinding(editor, annotationId)) return false
+	if (editor.getBindingsFromShape(annotationId, ANNOTATION_BINDING).length > 0) return true
+	return !targetIds.some((id) => editor.getShape(id as TLShapeId))
 }
 
 function getRelation(bounds: Box, target: Box) {
@@ -142,7 +156,7 @@ function place(editor: Editor, annotation: TLShape, target: Box, relation: Annot
 		const dx = target.maxX + relation.ox - bounds.x
 		const dy = target.y + relation.oy - bounds.y
 		if (Math.abs(dx) < EPSILON && Math.abs(dy) < EPSILON) return
-		editor.updateShape({ id: annotation.id, type: annotation.type, x: annotation.x + dx, y: annotation.y + dy })
+		moveByPage(editor, annotation, dx, dy)
 		return
 	}
 	// A mark grows or shrinks with its target, so a circle still circles it.
@@ -163,7 +177,18 @@ function place(editor: Editor, annotation: TLShape, target: Box, relation: Annot
 	const dx = want.x - now.x
 	const dy = want.y - now.y
 	if (Math.abs(dx) < EPSILON && Math.abs(dy) < EPSILON) return
-	editor.updateShape({ id: current.id, type: current.type, x: current.x + dx, y: current.y + dy })
+	moveByPage(editor, current, dx, dy)
+}
+
+/**
+ * Move a shape by a distance measured on the page. A shape inside a moved or
+ * rotated group or frame stores its position in its parent's space, so the
+ * target point is converted there first.
+ */
+function moveByPage(editor: Editor, shape: TLShape, dx: number, dy: number) {
+	const origin = editor.getShapePageTransform(shape.id).point()
+	const local = editor.getPointInParentSpace(shape.id, { x: origin.x + dx, y: origin.y + dy })
+	editor.updateShape({ id: shape.id, type: shape.type, x: local.x, y: local.y })
 }
 
 /** Bind an annotation to its targets, keeping its current place relative to each. */

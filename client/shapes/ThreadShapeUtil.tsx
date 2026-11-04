@@ -126,7 +126,7 @@ function ThreadNote({ shape }: { shape: ThreadShape }) {
 	const [text, setText] = useState('')
 	const { w, h, entries } = shape.props
 	// A thread is detached once none of the shapes it answered exist.
-	const detached = useValue('thread detached', () => isDetached(editor, shape.id), [editor, shape.id])
+	const detached = useValue('thread detached', () => isDetached(editor, shape.id, shape.props.targetIds), [editor, shape.id, shape.props.targetIds])
 
 	return (
 		<HTMLContainer className="thread-note-container">
