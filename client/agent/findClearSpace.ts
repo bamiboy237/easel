@@ -1,4 +1,4 @@
-import { Box, Editor, TLShapeId } from 'tldraw'
+import { Box, Editor, TLShape, TLShapeId } from 'tldraw'
 
 /** Space kept between new work and the shapes around it. */
 const MARGIN = 40
@@ -75,10 +75,13 @@ export function findNoteSpot(
 	const ignored = new Set(ignore)
 	const bounds = (id: TLShapeId) => editor.getShapePageBounds(id)
 	const topLevel = editor.getCurrentPageShapes().filter((shape) => shape.parentId === editor.getCurrentPageId())
-	// A frame or group that holds the subject, or that the caller ignores, is
-	// the user's own work about the same thing, so the note may sit over its
-	// empty space. Only what is drawn inside it blocks the note.
-	const containers = topLevel.filter((shape) => ignored.has(shape.id) || bounds(shape.id)?.contains(subject))
+	// A frame or group that holds the subject, or a shape the caller ignores,
+	// is the user's own work about the same thing, so the note may sit over its
+	// empty space. Only what is drawn inside it blocks the note. Any other shape
+	// that holds the subject, such as an image the mark circles part of, still
+	// blocks the note.
+	const holds = (shape: TLShape) => (shape.type === 'frame' || shape.type === 'group') && !!bounds(shape.id)?.contains(subject)
+	const containers = topLevel.filter((shape) => ignored.has(shape.id) || holds(shape))
 	const inside: TLShapeId[] = []
 	for (const container of containers) {
 		editor.visitDescendants(container.id, (id) => {
@@ -104,13 +107,12 @@ export function findNoteSpot(
 		const slide = side === 0 || side === 2 ? Math.abs(box.y - subject.y) : Math.abs(box.x - subject.x)
 		return Math.hypot(dx, dy) + slide * 0.5 + side * 12
 	}
-	// The sides of each shape that holds the subject are tried too, still scored
-	// by distance to the subject itself.
+	// The sides of each shape that holds the subject, such as its frame or the
+	// image it circles part of, are tried too, still scored by distance to the
+	// subject itself.
 	const anchors = [
 		subject,
-		...containers
-			.map((shape) => bounds(shape.id))
-			.filter((box): box is Box => !!box && box.contains(subject)),
+		...topLevel.map((shape) => bounds(shape.id)).filter((box): box is Box => !!box && box.contains(subject)),
 	]
 	const candidates: { box: Box; inView: boolean; score: number }[] = []
 	for (const anchor of anchors) {
