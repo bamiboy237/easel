@@ -17,14 +17,20 @@ const MAX_REJECTION_PASSES = 3
 /** How long the board outlines protected shapes after the agent bumps into them. */
 export const PROTECTED_FLASH_MS = 1600
 
-/** How long the board marks where an undo removed shapes, or a restore brought them back. */
+/** How long a change ghost fades on the board. */
 export const CHANGE_GHOST_MS = 320
 
-/** Where an undo or restore removed or added a shape, for a short fade on the board. */
+/**
+ * What a change ghost marks: a shape an undo removed, a shape a restore
+ * brought back, or a shape the agent just created.
+ */
+export type ChangeGhostKind = 'removed' | 'added' | 'landed'
+
+/** A short fade on the board where a shape left, returned, or landed. */
 export interface ChangeGhost {
 	id: string
 	bounds: { x: number; y: number; w: number; h: number }
-	kind: 'removed' | 'added' | 'landed'
+	kind: ChangeGhostKind
 	startedAt: number
 }
 
@@ -85,7 +91,7 @@ export class AgentActionManager extends BaseAgentManager {
 		return this.$protectedFlash.get()
 	}
 
-	/** Where the last undo or restore removed or added shapes, while they fade. */
+	/** The change ghosts still fading on the board. */
 	getChangeGhosts(): ChangeGhost[] {
 		return this.$changeGhosts.get()
 	}
@@ -102,14 +108,7 @@ export class AgentActionManager extends BaseAgentManager {
 		const ghosts: ChangeGhost[] = []
 		for (const [id, bounds] of before) if (!after.has(id)) ghosts.push({ id, bounds, kind: 'removed', startedAt })
 		for (const [id, bounds] of after) if (!before.has(id)) ghosts.push({ id, bounds, kind: 'added', startedAt })
-		if (ghosts.length > 0 && !prefersReducedMotion()) {
-			this.$changeGhosts.set(ghosts)
-			if (this.changeGhostTimeout) clearTimeout(this.changeGhostTimeout)
-			this.changeGhostTimeout = setTimeout(() => {
-				this.$changeGhosts.set([])
-				this.changeGhostTimeout = null
-			}, CHANGE_GHOST_MS)
-		}
+		this.addChangeGhosts(ghosts)
 		return result
 	}
 
@@ -119,7 +118,6 @@ export class AgentActionManager extends BaseAgentManager {
 	 * in place; only the overlay fades.
 	 */
 	private markLanded(recordIds: string[]) {
-		if (prefersReducedMotion()) return
 		const { editor } = this.agent
 		const startedAt = Date.now()
 		const landed: ChangeGhost[] = []
@@ -128,10 +126,16 @@ export class AgentActionManager extends BaseAgentManager {
 			const b = editor.getShapePageBounds(id as TLShapeId)
 			if (b) landed.push({ id, bounds: { x: b.x, y: b.y, w: b.w, h: b.h }, kind: 'landed', startedAt })
 		}
-		if (landed.length === 0) return
+		this.addChangeGhosts(landed)
+	}
+
+	/** Show ghosts alongside any still fading, and clear them all once the last one has faded. */
+	private addChangeGhosts(ghosts: ChangeGhost[]) {
+		if (ghosts.length === 0 || prefersReducedMotion()) return
+		const now = Date.now()
 		this.$changeGhosts.update((current) => [
-			...current.filter((g) => Date.now() - g.startedAt < CHANGE_GHOST_MS),
-			...landed,
+			...current.filter((g) => now - g.startedAt < CHANGE_GHOST_MS),
+			...ghosts,
 		])
 		if (this.changeGhostTimeout) clearTimeout(this.changeGhostTimeout)
 		this.changeGhostTimeout = setTimeout(() => {

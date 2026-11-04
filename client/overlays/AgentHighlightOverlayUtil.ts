@@ -11,7 +11,7 @@ import {
 } from 'tldraw'
 import { ContextItem } from '../../shared/types/ContextItem'
 import { AgentAppAgentsManager } from '../agent/managers/AgentAppAgentsManager'
-import { CHANGE_GHOST_MS, PROTECTED_FLASH_MS } from '../agent/managers/AgentActionManager'
+import { CHANGE_GHOST_MS, ChangeGhostKind, PROTECTED_FLASH_MS } from '../agent/managers/AgentActionManager'
 
 type AgentHighlightColor = 'selected' | 'tooltip' | 'protected'
 
@@ -36,7 +36,7 @@ interface AgentAreaHighlightOverlay extends TLOverlay {
 		/** For a protected flash: when it started, so it can fade in and out. */
 		flashStartedAt?: number
 		/** For an undo or restore: what happened to the shape, and when. */
-		ghost?: { kind: 'removed' | 'added' | 'landed'; startedAt: number }
+		ghost?: { kind: ChangeGhostKind; startedAt: number }
 		label?: string
 	}
 }
@@ -352,7 +352,7 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 	private renderGhost(
 		ctx: CanvasRenderingContext2D,
 		pageBounds: BoxModel,
-		ghost: { kind: 'removed' | 'added' | 'landed'; startedAt: number },
+		ghost: { kind: ChangeGhostKind; startedAt: number },
 		color: string,
 		zoom: number
 	): void {
