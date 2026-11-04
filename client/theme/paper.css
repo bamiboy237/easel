@@ -933,13 +933,6 @@
 
 /* Keep fades, drop movement, for people who ask for less motion. */
 @media (prefers-reduced-motion: reduce) {
-	.chat-panel--ball.tl-theme__light .chat-ball--working::after {
-		animation: none;
-		opacity: 0.6;
-	}
-}
-
-@media (prefers-reduced-motion: reduce) {
 	.chat-panel.tl-theme__light .agent-ask,
 	.chat-panel.tl-theme__light .chat-history-section,
 	.chat-panel.tl-theme__light .chat-history-change,
@@ -955,6 +948,12 @@
 	.thread-footer,
 	.go-to-agent {
 		animation-name: paper-fade-in;
+	}
+
+	/* The agent's working ring holds still instead of breathing. */
+	.chat-panel--ball.tl-theme__light .chat-ball--working::after {
+		animation: none;
+		opacity: 0.6;
 	}
 
 	.chat-panel.tl-theme__light .agent-ask-choices button:active:not(:disabled),

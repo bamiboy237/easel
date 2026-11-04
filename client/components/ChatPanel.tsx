@@ -1,5 +1,6 @@
 import { FormEventHandler, useCallback, useEffect, useRef, useState } from 'react'
 import { useValue } from 'tldraw'
+import { NibIcon } from '../../shared/icons/NibIcon'
 import { answerQuestion, getOpenQuestion } from '../agent/openQuestion'
 import { useAgent } from '../agent/TldrawAgentAppProvider'
 import { ChatHistory } from './chat-history/ChatHistory'
@@ -47,6 +48,8 @@ export function ChatPanel() {
 	const [pane, setPaneState] = useState<PaneState>(loadPane)
 	const [draft, setDraft] = useState('')
 	const [unread, setUnread] = useState(false)
+	const paneRef = useRef(pane)
+	paneRef.current = pane
 	const setPane = useCallback((state: PaneState) => {
 		setPaneState(state)
 		savePane(state)
@@ -73,6 +76,13 @@ export function ChatPanel() {
 		return () => window.removeEventListener('pointerdown', handlePointerDown, { capture: true })
 	}, [pane, draft, setPane])
 
+	// A question from the agent must be seen to be answered, whatever started the
+	// request, so an open question brings up the answer view.
+	const hasOpenQuestion = useValue('pane open question', () => getOpenQuestion(agent.chat.getHistory()) !== null, [agent])
+	useEffect(() => {
+		if (hasOpenQuestion && (pane === 'ball' || pane === 'quiet')) setPaneState('responding')
+	}, [hasOpenQuestion, pane])
+
 	// When a chat answer finishes while the pane is a ball, the ball shows a dot.
 	// Answers to marks land on the board beside the mark, so they need no dot.
 	const wasGenerating = useRef(false)
@@ -89,7 +99,9 @@ export function ChatPanel() {
 			if (target?.closest('input, textarea, [contenteditable="true"]')) return
 			if (agent.editor.getEditingShapeId()) return
 			event.preventDefault()
-			openComposer()
+			// From the ball, open the composer. Otherwise keep the pane as it is.
+			if (paneRef.current === 'ball') openComposer()
+			else inputRef.current?.focus()
 		}
 		window.addEventListener('keydown', handleKeyDown)
 		return () => window.removeEventListener('keydown', handleKeyDown)
@@ -105,6 +117,8 @@ export function ChatPanel() {
 			const target = event.target as HTMLElement | null
 			if (target?.closest('input, textarea, [contenteditable="true"]')) return
 			if (agent.editor.getEditingShapeId() || agent.requests.isGenerating()) return
+			// Only a question the user can see is answered by a number key.
+			if (paneRef.current === 'ball' || paneRef.current === 'quiet') return
 			const open = getOpenQuestion(agent.chat.getHistory())
 			const choice = open?.choices[index]
 			if (!open || !choice) return
@@ -176,7 +190,7 @@ export function ChatPanel() {
 					title="Ask Easel (/)"
 					onClick={() => (unread ? setPane('responding') : openComposer())}
 				>
-					<NibGlyph />
+					<NibIcon size={20} />
 					{unread && <span className="chat-ball-dot" aria-hidden />}
 				</button>
 			</div>
@@ -267,13 +281,3 @@ function CloseGlyph() {
 	)
 }
 
-/** The same pencil nib as the send button. */
-function NibGlyph() {
-	return (
-		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-			<path d="M12 21 7 11l5-8 5 8z" />
-			<path d="M12 21v-7" />
-			<circle cx="12" cy="11.5" r="1.4" />
-		</svg>
-	)
-}

@@ -1,5 +1,6 @@
 import { FormEventHandler } from 'react'
 import { useValue } from 'tldraw'
+import { NibIcon } from '../../shared/icons/NibIcon'
 import { AGENT_MODEL_DEFINITIONS, AgentModelName } from '../../shared/models'
 import { getOpenQuestion } from '../agent/openQuestion'
 import { useAgent } from '../agent/TldrawAgentAppProvider'
@@ -89,22 +90,11 @@ export function ChatInput({
 						aria-label={stops ? 'Stop' : 'Send'}
 						title={stops ? 'Stop' : 'Send'}
 					>
-						{stops ? <StopGlyph /> : <NibGlyph />}
+						{stops ? <StopGlyph /> : <NibIcon />}
 					</button>
 				</span>
 			</form>
 		</div>
-	)
-}
-
-/** A fountain-pen nib: sending writes the message onto the board. */
-function NibGlyph() {
-	return (
-		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-			<path d="M12 21 7 11l5-8 5 8z" />
-			<path d="M12 21v-7" />
-			<circle cx="12" cy="11.5" r="1.4" />
-		</svg>
 	)
 }
 
