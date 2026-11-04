@@ -1,6 +1,8 @@
 import { atom, b64Vecs, Box, BoxModel, createShapeId, Editor, TLShapeId, VecModel } from 'tldraw'
 import { convertTldrawShapeToFocusedShape } from '../../../shared/format/convertTldrawShapeToFocusedShape'
+import { findClearSpaceBeside, findNoteSpot } from '../findClearSpace'
 import { classifyStroke, findMarkTargets, MARK_INTENTS, MarkKind } from '../marks'
+import { measureThreadHeight, THREAD_TYPE, THREAD_WIDTH, ThreadEntry, ThreadShape } from '../../shapes/ThreadShapeUtil'
 import { BaseAgentManager } from './BaseAgentManager'
 
 /** The mark's stroke is drawn at this scale of the pen's smallest size. */
@@ -33,6 +35,9 @@ export interface MarkDraft {
 /** The mark the current request is about, sent to the model with a crop of its region. */
 export interface ActiveMark extends MarkDraft {
 	text: string
+	/** The thread the answer goes in, and what was said in it before this question. */
+	threadId: TLShapeId
+	history: ThreadEntry[]
 }
 
 /**
@@ -54,6 +59,15 @@ export class AgentMarkManager extends BaseAgentManager {
 	constructor(agent: ConstructorParameters<typeof BaseAgentManager>[0]) {
 		super(agent)
 		const { editor } = agent
+		// A thread grows to hold its entries, each line on a rule.
+		this.disposables.add(
+			editor.store.sideEffects.registerBeforeChangeHandler('shape', (prev, next) => {
+				if (next.type !== THREAD_TYPE) return next
+				const thread = next as ThreadShape
+				if ((prev as ThreadShape).props.entries === thread.props.entries) return next
+				return { ...thread, props: { ...thread.props, h: measureThreadHeight(editor, thread.props.entries) } }
+			})
+		)
 		// When the user finishes a pen circle around something, offer to ask about
 		// it. The offer never asks by itself: only a tap on the chip does.
 		this.disposables.add(
@@ -240,18 +254,79 @@ export class AgentMarkManager extends BaseAgentManager {
 			})
 		}
 
-		const shapes = targetIds
+		// The answer lives in a thread beside the mark, where the question box was.
+		const markBounds = Box.From(draft.bounds)
+		const entries: ThreadEntry[] = [{ author: 'user', text: question }]
+		const h = measureThreadHeight(editor, entries)
+		// Right beside the mark, where the question was typed. Answers grow the note
+		// downward, so leave room for a few lines.
+		const room = { w: THREAD_WIDTH, h: h + 96 }
+		const view = editor.getViewportPageBounds()
+		const beside = findClearSpaceBeside(editor, markBounds, room)
+		const spot =
+			findNoteSpot(editor, markBounds, room) ??
+			(beside && view.contains(beside) ? beside : null) ??
+			new Box(markBounds.maxX + 24, markBounds.y, THREAD_WIDTH, h)
+		const threadId = createShapeId(`thread-${draft.id}`)
+		this.agent.commands.execute('user', 'thread', () => {
+			editor.createShape<ThreadShape>({
+				id: threadId,
+				type: THREAD_TYPE,
+				x: spot.x,
+				y: spot.y,
+				props: {
+					w: THREAD_WIDTH,
+					h,
+					kind: draft.kind,
+					markShapeId: draft.shapeId ?? '',
+					targetIds,
+					entries,
+					detached: false,
+				},
+			})
+		})
+		this.send({ ...draft, targetIds, text: question, threadId, history: [] }, text.trim() || `(${draft.kind}) ${question}`)
+	}
+
+	/** A follow-up question typed in a thread: it joins the same thread and asks again. */
+	followUp(threadId: TLShapeId, text: string) {
+		const { editor } = this.agent
+		const thread = editor.getShape<ThreadShape>(threadId)
+		const question = text.trim()
+		if (!thread || !question) return
+		const history = thread.props.entries
+		this.agent.commands.execute('user', 'thread-follow-up', () => {
+			editor.updateShape<ThreadShape>({ id: threadId, type: THREAD_TYPE, props: { entries: [...history, { author: 'user', text: question }] } })
+		})
+		const targetIds = thread.props.targetIds.filter((id) => editor.getShape(id as TLShapeId)) as TLShapeId[]
+		const markId = thread.props.markShapeId as TLShapeId
+		const bounds =
+			(markId && editor.getShapePageBounds(markId)) ||
+			Box.Common(targetIds.map((id) => editor.getShapePageBounds(id)).filter((b): b is Box => !!b)) ||
+			editor.getShapePageBounds(threadId)!
+		this.send(
+			{ id: threadId, kind: thread.props.kind as MarkKind, bounds: bounds.toJson(), shapeId: markId || null, targetIds, text: question, threadId, history },
+			question
+		)
+	}
+
+	/**
+	 * Ask the agent about a mark. The targets and the thread go with this request
+	 * only, as user context, so the agent may change the targets if the question
+	 * asks it to and may answer in the thread. Like the chat input, a new
+	 * question interrupts any request still running.
+	 */
+	private send(mark: ActiveMark, shown: string) {
+		const { editor } = this.agent
+		const shapes = [...mark.targetIds, mark.threadId]
 			.map((id) => editor.getShape(id))
 			.filter((s) => !!s)
 			.map((s) => convertTldrawShapeToFocusedShape(editor, s))
-		this.pending = { ...draft, targetIds, text: question }
-		// The targets go with this request only, as user context, so the agent may
-		// change them if the question asks it to. Like the chat input, a new
-		// question interrupts any request still running.
+		this.pending = mark
 		this.agent.interrupt({
 			input: {
-				agentMessages: [question],
-				userMessages: [text.trim() || `(${draft.kind}) ${question}`],
+				agentMessages: [mark.text],
+				userMessages: [shown],
 				bounds: editor.getViewportPageBounds(),
 				source: 'user',
 				contextItems: shapes.length > 0 ? [{ type: 'shapes', shapes, source: 'user' }] : [],

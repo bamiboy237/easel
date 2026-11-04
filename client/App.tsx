@@ -26,6 +26,7 @@ import { isReferenceBoard, ReferenceBoardLoader } from './components/ReferenceBo
 import { paperTheme } from './theme/paperTheme'
 import { AgentHighlightOverlayUtil } from './overlays/AgentHighlightOverlayUtil'
 import { MarkOverlayUtil } from './overlays/MarkOverlayUtil'
+import { ThreadShapeUtil } from './shapes/ThreadShapeUtil'
 import { MarkTool } from './tools/MarkTool'
 
 // Customize tldraw's styles to play to the agent's strengths
@@ -37,6 +38,8 @@ DefaultDashStyle.setDefaultValue('solid')
 // The Mark tool: circle, underline, strike, scribble, or tap anything to ask about it
 const tools = [MarkTool]
 const overlayUtils = [AgentHighlightOverlayUtil, MarkOverlayUtil]
+// Threads: a mark's question and answers on a sticky note beside it
+const shapeUtils = [ThreadShapeUtil]
 const themes = { default: paperTheme }
 const overrides: TLUiOverrides = {
 	tools: (editor, tools) => {
@@ -101,6 +104,7 @@ function App() {
 						// The reference board is not persisted, so it never overwrites the user's saved board.
 						persistenceKey={isReferenceBoard ? undefined : 'tldraw-agent-demo'}
 						tools={tools}
+						shapeUtils={shapeUtils}
 						overlayUtils={overlayUtils}
 						overrides={overrides}
 						components={components}
