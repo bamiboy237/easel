@@ -35,7 +35,7 @@ interface AgentAreaHighlightOverlay extends TLOverlay {
 		generating: boolean
 		/** For a protected flash: when it started, so it can fade in and out. */
 		flashStartedAt?: number
-		/** For an undo or restore: what happened to the shape, and when. */
+		/** For a change ghost: whether an undo removed the shape, a restore brought it back, or the agent created it, and when. */
 		ghost?: { kind: ChangeGhostKind; startedAt: number }
 		label?: string
 	}
@@ -346,8 +346,10 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 	}
 
 	/**
-	 * Where an undo removed a shape, a soft wash fades away; where a restore
-	 * brought one back, an outline fades away. Both use a plain ease-out fade.
+	 * Where an undo removed a shape, a soft wash fades away. Where a restore
+	 * brought one back, an ink outline fades away, and where the agent just
+	 * created one, an outline in the selection accent does. All use a plain
+	 * ease-out fade.
 	 */
 	private renderGhost(
 		ctx: CanvasRenderingContext2D,
