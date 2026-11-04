@@ -142,9 +142,12 @@ export class AgentMarkManager extends BaseAgentManager {
 	 * A user request takes the pending mark, or clears the last one. The agent's
 	 * own follow-up passes keep the mark, so continuations still know what it is about.
 	 */
-	onRequestStart(source: string) {
+	onRequestStart(source: string, agentMessages: string[]) {
 		if (source === 'self') return
-		this.$active.set(this.pending)
+		// The mark belongs to the request that asked it. A different user request,
+		// such as a chat message that replaced a queued mark question, drops it.
+		const pending = this.pending
+		this.$active.set(pending && agentMessages[0] === pending.text ? pending : null)
 		this.pending = null
 	}
 
