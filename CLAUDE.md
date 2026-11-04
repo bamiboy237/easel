@@ -22,7 +22,7 @@ Every board change is a validated command. Keep all changes on this one code pat
 
 - Keep GitHub as the source of truth. Entire is a mirror.
 - Open one Entire Trail per build phase.
-- Track work in the Easel project in Linear, in team `THE`.
+- Track work in Linear, in team `THE`. Phases 0 to 4 and the later phases live in the Easel project. The visuals phases after Phase 4 (6, 11, 12, 9, then 5) live in the Easel: Visuals project.
 - Add the Entire review agent for the command model in Phase 2.
 
 ## Writing

@@ -193,6 +193,15 @@ Commands persist incrementally as they happen, and a full tldraw snapshot is sav
 
 Development starts as a web app on localhost in the browser. Phase 0 tests the product bet with a rough version before the foundation gets polished. Each later phase has a gate that must pass before the next starts.
 
+The phases keep their numbers, but after Phase 4 they are built in this order, so the agent gets good at visuals first:
+
+1. Phase 6, interactive objects.
+2. Phase 11, declarative and generated visuals.
+3. Phase 12, Manim and `VideoShape`.
+4. Phase 9, voice and pointing.
+5. Phase 5, sketching and handwriting.
+6. Then phases 7, 8, and 10, followed by 13 and 14.
+
 0. **Rough loop, about two weeks.** tldraw agent starter, a simple command model, Ask with skeleton-then-fill, and select-and-type annotations. No styling work.\
 **Gate:** run both test sessions and decide whether working this way beats chat.
 1. **Paper canvas and typography.** Theme, rich text, frames, arrows, contextual controls, refined on a populated board.\
@@ -222,7 +231,7 @@ Development starts as a web app on localhost in the browser. Phase 0 tests the p
 14. **Cross-device.** iPad reconnect, shared-board updates, touch controls. Trusted HTTPS for microphone access on the local network.\
 **Gate:** reconnecting never loses ink, annotations, or parameter changes.
 
-The first complete milestone is phase 9. At that point people and agents can write, draw, annotate, manipulate, speak, and point together, and the combined experience gets refined before phases 10 to 14 add more systems.
+The first complete milestone comes after Phase 9 in the build order above. At that point people and agents can write, draw, annotate, manipulate, speak, and point together, and the agent can explain with live objects, charts, diagrams, and animation. The combined experience gets refined before the remaining phases add more systems.
 
 Each change is tested on the two fixed sessions, one interaction at a time, comparing the old and new versions. Tracked: wrong targets, lost or overwritten edits, response latency, unnecessary interruptions, and which version is preferred.
 
