@@ -464,3 +464,116 @@ export const UnknownAction = z
 	})
 
 export type UnknownAction = z.infer<typeof UnknownAction>
+
+// Interactive objects (Phase 6)
+
+// Equation Action
+export const EquationAction = z
+	.object({
+		_type: z.literal('equation'),
+		intent: z.string(),
+		shapeId: SimpleShapeIdSchema,
+		latex: z.string(),
+		x: z.number(),
+		y: z.number(),
+		size: z.number(),
+	})
+	.meta({
+		title: 'Equation',
+		description:
+			'The AI writes an equation, typeset from LaTeX, as an equation shape the user can edit. Use it for any formula or derivation step instead of a text shape. To change an existing equation, use its shapeId; to add one, use a new shapeId. LaTeX: the math only, with no dollar signs, such as "F = ma" or "\\\\frac{1}{2}mv^2". x and y: the top left corner. Size: the type size in pixels; 24 for body math, 32 for a headline result.',
+	})
+
+export type EquationAction = z.infer<typeof EquationAction>
+
+const ParameterSchema = z.object({
+	name: z.string(),
+	value: z.number(),
+	min: z.number(),
+	max: z.number(),
+	step: z.number(),
+})
+
+// Graph Action
+export const GraphAction = z
+	.object({
+		_type: z.literal('graph'),
+		intent: z.string(),
+		shapeId: SimpleShapeIdSchema,
+		x: z.number(),
+		y: z.number(),
+		width: z.number(),
+		height: z.number(),
+		functions: z.array(z.string()),
+		parameters: z.array(ParameterSchema),
+		xMin: z.number(),
+		xMax: z.number(),
+		yMin: z.number(),
+		yMax: z.number(),
+	})
+	.meta({
+		title: 'Graph',
+		description:
+			'The AI draws a live graph of functions of x, which the user can explore with sliders. Use it whenever a relationship between quantities should be seen, instead of drawing a curve with the pen. Functions: y as an expression of x and the parameters, such as "a*sin(b*x)" or "x^2 - c"; allowed are + - * / ^, parentheses, pi, e, and sin cos tan exp ln log sqrt abs. Parameters: each named number in the functions, with its starting value, its range, and its slider step; the user drags them, and the board shows their current values. To change an existing graph, use its shapeId. Width and height: the plot area in pixels; the sliders are added below it.',
+	})
+
+export type GraphAction = z.infer<typeof GraphAction>
+
+// Simulation Action
+export const SimulationAction = z
+	.object({
+		_type: z.literal('simulation'),
+		intent: z.string(),
+		shapeId: SimpleShapeIdSchema,
+		x: z.number(),
+		y: z.number(),
+		kind: z.enum(['projectile']),
+		speed: z.number(),
+		angle: z.number(),
+		gravity: z.number(),
+		height: z.number(),
+	})
+	.meta({
+		title: 'Simulation',
+		description:
+			'The AI places a deterministic simulation the user can play, pause, scrub, and change with sliders. Kind "projectile": a launched ball under gravity, with its speed in m/s, launch angle in degrees, gravity in m/s², and launch height in m. Use it when motion should be seen, not described. To change an existing simulation, use its shapeId.',
+	})
+
+export type SimulationAction = z.infer<typeof SimulationAction>
+
+// Set Parameter Action
+export const SetParameterAction = z
+	.object({
+		_type: z.literal('set_parameter'),
+		intent: z.string(),
+		shapeId: SimpleShapeIdSchema,
+		name: z.string(),
+		value: z.number(),
+	})
+	.meta({
+		title: 'Set Parameter',
+		description:
+			"The AI sets one parameter of a graph or a simulation, the same way the user moves its slider, and the plot updates for both. Use it to show what a change does, such as doubling the speed. The board shows each shape's current parameter values; read them before changing one, because the user may have moved it.",
+	})
+
+export type SetParameterAction = z.infer<typeof SetParameterAction>
+
+// Diagram Action
+export const DiagramAction = z
+	.object({
+		_type: z.literal('diagram'),
+		intent: z.string(),
+		diagramId: z.string(),
+		x: z.number(),
+		y: z.number(),
+		layout: z.enum(['flow', 'map']),
+		nodes: z.array(z.object({ id: z.string(), label: z.string() })),
+		edges: z.array(z.object({ from: z.string(), to: z.string(), label: z.string() })),
+	})
+	.meta({
+		title: 'Diagram',
+		description:
+			'The AI draws a diagram from nodes and edges, and the app lays it out cleanly as ordinary boxes and bound arrows the user can move and edit. Use it for any flow, process, hierarchy, or concept map instead of placing boxes and arrows one by one. Layout "flow": top to bottom in steps, for processes and causes. Layout "map": spread out by links, for concept maps. Node labels: a few words. Edge labels: a few words, or "" for none. x and y: the top left corner. To redraw a diagram, send the same diagramId; nodes the user moved stay where they put them.',
+	})
+
+export type DiagramAction = z.infer<typeof DiagramAction>

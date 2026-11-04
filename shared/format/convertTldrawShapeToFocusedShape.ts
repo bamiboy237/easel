@@ -241,11 +241,24 @@ function convertNoteShapeToFocused(editor: Editor, shape: TLNoteShape): FocusedN
 	}
 }
 
+/**
+ * Shapes the format does not know can still be described to the agent in a
+ * line, such as an equation's LaTeX or a graph's functions and parameter
+ * values. The client registers a describer for each of its own shape types.
+ */
+const shapeDescribers = new Map<string, (shape: TLShape) => string>()
+
+export function registerShapeDescriber(type: string, describe: (shape: TLShape) => string) {
+	shapeDescribers.set(type, describe)
+}
+
 function convertUnknownShapeToFocused(editor: Editor, shape: TLShape): FocusedUnknownShape {
 	const bounds = getSimpleBounds(editor, shape)
+	const described = shapeDescribers.get(shape.type)?.(shape)
+	const note = (shape.meta.note as string) ?? ''
 	return {
 		_type: 'unknown',
-		note: (shape.meta.note as string) ?? '',
+		note: described ? (note ? `${described} ${note}` : described) : note,
 		shapeId: convertTldrawIdToSimpleId(shape.id),
 		subType: shape.type,
 		x: bounds.x,
