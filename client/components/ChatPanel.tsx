@@ -7,20 +7,27 @@ import { ChatInput } from './ChatInput'
 import { TodoList } from './TodoList'
 
 /**
- * The agent pane has three states, so the board stays the main workspace:
+ * The agent pane has four states, so the board stays the main workspace:
+ * - ball: a small pencil-nib ball in the corner while you work on the board
  * - quiet: only the composer, floating over the board
  * - responding: the composer with the latest answer above it, after you send
  * - expanded: the docked panel with the whole conversation
  * Sending reveals the answer; it never opens the full panel. The answer stays
  * until you close it, and the draft and conversation carry across states.
  */
-type PaneState = 'quiet' | 'responding' | 'expanded'
+type PaneState = 'ball' | 'quiet' | 'responding' | 'expanded'
 
 const PANE_KEY = 'easel.pane'
 
+/**
+ * The expanded panel is remembered. Otherwise the pane starts as a ball, except
+ * the very first time, when it starts as the composer so it is easy to find.
+ */
 function loadPane(): PaneState {
 	try {
-		return localStorage.getItem(PANE_KEY) === 'expanded' ? 'expanded' : 'quiet'
+		const saved = localStorage.getItem(PANE_KEY)
+		if (saved === 'expanded') return 'expanded'
+		return saved === null ? 'quiet' : 'ball'
 	} catch {
 		return 'quiet'
 	}
@@ -28,7 +35,7 @@ function loadPane(): PaneState {
 
 function savePane(state: PaneState) {
 	try {
-		localStorage.setItem(PANE_KEY, state === 'expanded' ? 'expanded' : 'quiet')
+		localStorage.setItem(PANE_KEY, state === 'expanded' ? 'expanded' : 'ball')
 	} catch {
 		// Storage can be unavailable; the pane still works, it just won't remember.
 	}
@@ -39,10 +46,40 @@ export function ChatPanel() {
 	const inputRef = useRef<HTMLTextAreaElement>(null)
 	const [pane, setPaneState] = useState<PaneState>(loadPane)
 	const [draft, setDraft] = useState('')
+	const [unread, setUnread] = useState(false)
 	const setPane = useCallback((state: PaneState) => {
 		setPaneState(state)
 		savePane(state)
+		if (state !== 'ball') setUnread(false)
 	}, [])
+	const isGenerating = useValue('pane generating', () => agent.requests.isGenerating(), [agent])
+
+	// Open the composer and put the cursor in it.
+	const openComposer = useCallback(() => {
+		setPane('quiet')
+		requestAnimationFrame(() => inputRef.current?.focus())
+	}, [setPane])
+
+	// The composer folds back into the ball when the user goes back to the board,
+	// but never with a draft in it and never while an answer is open.
+	useEffect(() => {
+		if (pane !== 'quiet' || draft !== '') return
+		const handlePointerDown = (event: PointerEvent) => {
+			const target = event.target as HTMLElement | null
+			if (target?.closest('.chat-panel')) return
+			setPane('ball')
+		}
+		window.addEventListener('pointerdown', handlePointerDown, { capture: true })
+		return () => window.removeEventListener('pointerdown', handlePointerDown, { capture: true })
+	}, [pane, draft, setPane])
+
+	// When a chat answer finishes while the pane is a ball, the ball shows a dot.
+	// Answers to marks land on the board beside the mark, so they need no dot.
+	const wasGenerating = useRef(false)
+	useEffect(() => {
+		if (wasGenerating.current && !isGenerating && pane === 'ball' && !agent.marks.getActive()) setUnread(true)
+		wasGenerating.current = isGenerating
+	}, [isGenerating, pane, agent])
 
 	// "/" puts the cursor in the composer from anywhere on the board.
 	useEffect(() => {
@@ -52,11 +89,11 @@ export function ChatPanel() {
 			if (target?.closest('input, textarea, [contenteditable="true"]')) return
 			if (agent.editor.getEditingShapeId()) return
 			event.preventDefault()
-			inputRef.current?.focus()
+			openComposer()
 		}
 		window.addEventListener('keydown', handleKeyDown)
 		return () => window.removeEventListener('keydown', handleKeyDown)
-	}, [agent])
+	}, [agent, openComposer])
 
 	// While the agent waits on a question, the number keys pick its choices,
 	// unless the user is typing somewhere.
@@ -129,6 +166,22 @@ export function ChatPanel() {
 			/>
 		</div>
 	)
+
+	if (pane === 'ball') {
+		return (
+			<div className="chat-panel chat-panel--floating chat-panel--ball tl-theme__light">
+				<button
+					className={'chat-ball' + (isGenerating ? ' chat-ball--working' : '')}
+					aria-label={unread ? 'Ask Easel (an answer is waiting)' : 'Ask Easel'}
+					title="Ask Easel (/)"
+					onClick={() => (unread ? setPane('responding') : openComposer())}
+				>
+					<NibGlyph />
+					{unread && <span className="chat-ball-dot" aria-hidden />}
+				</button>
+			</div>
+		)
+	}
 
 	if (pane !== 'expanded') {
 		return (
@@ -211,5 +264,16 @@ function CloseGlyph() {
 		<Glyph>
 			<path d="M18 6 6 18M6 6l12 12" />
 		</Glyph>
+	)
+}
+
+/** The same pencil nib as the send button. */
+function NibGlyph() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+			<path d="M12 21 7 11l5-8 5 8z" />
+			<path d="M12 21v-7" />
+			<circle cx="12" cy="11.5" r="1.4" />
+		</svg>
 	)
 }

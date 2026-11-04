@@ -569,6 +569,88 @@
 	gap: 2px;
 }
 
+/* The composer grows out of the ball's corner, and the ball settles back into it. */
+.chat-panel--floating.tl-theme__light:not(.chat-panel--ball) .chat-input form {
+	transform-origin: bottom right;
+	animation: composer-open 200ms var(--ease-out);
+}
+
+@keyframes composer-open {
+	from {
+		opacity: 0;
+		transform: scale(0.92);
+	}
+}
+
+.chat-panel.chat-panel--ball.tl-theme__light {
+	width: auto;
+	align-items: flex-end;
+}
+
+.chat-panel--ball.tl-theme__light .chat-ball {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 44px;
+	height: 44px;
+	padding: 0;
+	border: none;
+	border-radius: 50%;
+	background-color: var(--paper-accent);
+	color: #f5f1e7;
+	box-shadow:
+		0 1px 2px rgba(60, 45, 20, 0.12),
+		0 8px 20px rgba(60, 45, 20, 0.16);
+	cursor: pointer;
+	transform-origin: bottom right;
+	animation: paper-pop 180ms var(--ease-out);
+	transition: transform 160ms var(--ease-out), background-color 160ms var(--ease-out);
+}
+
+.chat-panel--ball.tl-theme__light .chat-ball:hover {
+	background-color: #2a3f36;
+}
+
+.chat-panel--ball.tl-theme__light .chat-ball:active {
+	transform: scale(0.95);
+	transition-duration: 100ms;
+}
+
+/* While the agent works, a slow ring breathes around the ball. */
+.chat-panel--ball.tl-theme__light .chat-ball--working::after {
+	content: '';
+	position: absolute;
+	inset: -5px;
+	border: 1.5px solid rgba(52, 76, 65, 0.45);
+	border-radius: 50%;
+	animation: ball-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes ball-breathe {
+	0%,
+	100% {
+		opacity: 0.25;
+		transform: scale(0.96);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1.04);
+	}
+}
+
+/* A waiting answer: a small red-pencil dot on the ball. */
+.chat-panel--ball.tl-theme__light .chat-ball-dot {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	width: 10px;
+	height: 10px;
+	border: 2px solid #f5f1e7;
+	border-radius: 50%;
+	background-color: #ae3b2c;
+}
+
 /* The answer grows up out of the composer. */
 @keyframes chat-answer-open {
 	from {
@@ -851,6 +933,13 @@
 
 /* Keep fades, drop movement, for people who ask for less motion. */
 @media (prefers-reduced-motion: reduce) {
+	.chat-panel--ball.tl-theme__light .chat-ball--working::after {
+		animation: none;
+		opacity: 0.6;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
 	.chat-panel.tl-theme__light .agent-ask,
 	.chat-panel.tl-theme__light .chat-history-section,
 	.chat-panel.tl-theme__light .chat-history-change,
@@ -860,6 +949,8 @@
 	.mark-composer,
 	.mark-chip,
 	.chat-panel--floating.tl-theme__light .chat-answer,
+	.chat-panel--floating.tl-theme__light:not(.chat-panel--ball) .chat-input form,
+	.chat-panel--ball.tl-theme__light .chat-ball,
 	.thread-note,
 	.thread-footer,
 	.go-to-agent {
