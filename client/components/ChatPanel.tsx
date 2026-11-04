@@ -1,6 +1,6 @@
 import { FormEventHandler, useCallback, useEffect, useRef, useState } from 'react'
 import { useValue } from 'tldraw'
-import { NibIcon } from '../../shared/icons/NibIcon'
+import { AgentFace } from '../../shared/icons/AgentFace'
 import { answerQuestion, getOpenQuestion } from '../agent/openQuestion'
 import { useAgent } from '../agent/TldrawAgentAppProvider'
 import { ChatHistory } from './chat-history/ChatHistory'
@@ -193,7 +193,7 @@ export function ChatPanel() {
 					title="Ask Easel (/)"
 					onClick={() => (unread ? setPane('responding') : openComposer())}
 				>
-					<NibIcon size={20} />
+					<AgentFace size={32} />
 					{unread && <span className="chat-ball-dot" aria-hidden />}
 				</button>
 			</div>
@@ -240,7 +240,10 @@ export function ChatPanel() {
 	return (
 		<div className="chat-panel tl-theme__light">
 			<div className="chat-header">
-				<span className="chat-wordmark">Easel</span>
+				<span className="chat-wordmark">
+					<AgentFace size={22} />
+					Easel
+				</span>
 				<span className="chat-header-actions">
 					<button className="new-chat-button" onClick={handleNewChat}>
 						New chat

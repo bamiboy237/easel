@@ -9,6 +9,7 @@ import {
 	TLShapeId,
 	VecModel,
 } from 'tldraw'
+import { AGENT_FACE_URL } from '../../shared/icons/AgentFace'
 import { ContextItem } from '../../shared/types/ContextItem'
 import { AgentAppAgentsManager } from '../agent/managers/AgentAppAgentsManager'
 import { CHANGE_GHOST_MS, ChangeGhostKind, PROTECTED_FLASH_MS } from '../agent/managers/AgentActionManager'
@@ -31,6 +32,19 @@ const WORK_INK = '#302F2A'
 const WORK_LABEL = '#716C62'
 /** One breath of the working dots, in milliseconds. */
 const WORK_DOT_PERIOD = 1200
+/** The agent's face on its working slip, in screen pixels. */
+const FACE_SIZE = 16
+
+let agentFace: HTMLImageElement | null = null
+/** The agent's face as an image for the canvas, once it has loaded. */
+function getAgentFace(): HTMLImageElement | null {
+	if (typeof Image === 'undefined') return null
+	if (!agentFace) {
+		agentFace = new Image()
+		agentFace.src = AGENT_FACE_URL
+	}
+	return agentFace.complete && agentFace.naturalWidth > 0 ? agentFace : null
+}
 
 interface AgentAreaHighlightOverlay extends TLOverlay {
 	type: 'agent-highlight'
@@ -386,12 +400,20 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		ctx.font = `500 11px ${fontFamily}`
 		const label = step ? fitStep(ctx, step, Math.max(220, bounds.w * zoom - 30)) : ''
 		// A slip of board paper behind the dots and the step, so they read over ink.
-		const slipWidth = 28 + (label ? ctx.measureText(label).width + 6 : 0)
+		// The agent's face leads the slip, then the dots, then the step.
+		const face = getAgentFace()
+		const lead = face ? FACE_SIZE + 4 : 0
+		const slipWidth = lead + 28 + (label ? ctx.measureText(label).width + 6 : 0)
 		ctx.fillStyle = this.editor.getCurrentTheme().colors[this.editor.getColorMode()].background
 		ctx.globalAlpha = 0.92
 		ctx.beginPath()
-		ctx.roundRect(-4, baseline - 13, slipWidth + 4, 17, 4)
+		ctx.roundRect(-4, baseline - 15, slipWidth + 4, 21, 5)
 		ctx.fill()
+		if (face) {
+			ctx.globalAlpha = 1
+			ctx.drawImage(face, 0, baseline - 5 - FACE_SIZE / 2, FACE_SIZE, FACE_SIZE)
+			ctx.translate(lead, 0)
+		}
 		for (let i = 0; i < 3; i++) {
 			const phase = ((elapsed / WORK_DOT_PERIOD - i * 0.15) % 1 + 1) % 1
 			ctx.globalAlpha = still ? 0.6 : 0.3 + 0.6 * (0.5 - 0.5 * Math.cos(phase * PI2))

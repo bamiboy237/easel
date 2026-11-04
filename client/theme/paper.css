@@ -127,6 +127,9 @@
 }
 
 .chat-panel.tl-theme__light .chat-wordmark {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
 	font-family: 'Source Serif 4 Variable', Georgia, serif;
 	font-size: 17px;
 	font-weight: 500;
@@ -649,13 +652,13 @@
 	width: 44px;
 	height: 44px;
 	padding: 0;
-	border: none;
+	/* A paper disc with the agent's face in ink, so the drawing reads. */
+	border: 1px solid var(--paper-rule);
 	border-radius: 50%;
-	background-color: var(--paper-accent);
-	color: #f5f1e7;
+	background-color: var(--paper-card);
 	box-shadow:
-		0 1px 2px rgba(60, 45, 20, 0.12),
-		0 8px 20px rgba(60, 45, 20, 0.16);
+		0 1px 2px rgba(60, 45, 20, 0.1),
+		0 8px 20px rgba(60, 45, 20, 0.12);
 	cursor: pointer;
 	transform-origin: bottom right;
 	animation: paper-pop 180ms var(--ease-out);
@@ -663,7 +666,7 @@
 }
 
 .chat-panel--ball.tl-theme__light .chat-ball:hover {
-	background-color: #2a3f36;
+	background-color: var(--paper-hover);
 }
 
 .chat-panel--ball.tl-theme__light .chat-ball:active {
@@ -700,7 +703,7 @@
 	right: 2px;
 	width: 10px;
 	height: 10px;
-	border: 2px solid #f5f1e7;
+	border: 2px solid var(--paper-card);
 	border-radius: 50%;
 	background-color: #ae3b2c;
 }
@@ -1102,4 +1105,12 @@
 	.chat-panel.tl-theme__light .chat-input-submit:active:not(:disabled) {
 		transform: none;
 	}
+}
+
+/* The agent's face keeps its drawn size and never catches a drag. */
+.agent-face {
+	display: block;
+	flex: none;
+	pointer-events: none;
+	user-select: none;
 }
