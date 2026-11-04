@@ -13,7 +13,7 @@ import { ContextItem } from '../../shared/types/ContextItem'
 import { AgentAppAgentsManager } from '../agent/managers/AgentAppAgentsManager'
 import { CHANGE_GHOST_MS, ChangeGhostKind, PROTECTED_FLASH_MS } from '../agent/managers/AgentActionManager'
 
-type AgentHighlightColor = 'selected' | 'tooltip' | 'protected'
+type AgentHighlightColor = 'selected' | 'protected'
 
 // The outline on the user's shapes after the agent bumps into them stays quiet.
 const PROTECTED_ALPHA = 0.4
@@ -25,6 +25,12 @@ const ANIMATION_PERIOD = 100_000
 const DASH_SPEED = 20
 const MINIMAP_FILL_ALPHA = 0.12
 const MINIMAP_PULSE_PERIOD = 2400
+/** The agent's color, the same forest as the rest of the app, and its ink and label tones. */
+const WORK_ACCENT = '#344C41'
+const WORK_INK = '#302F2A'
+const WORK_LABEL = '#716C62'
+/** One breath of the working dots, in milliseconds. */
+const WORK_DOT_PERIOD = 1200
 
 interface AgentAreaHighlightOverlay extends TLOverlay {
 	type: 'agent-highlight'
@@ -37,7 +43,6 @@ interface AgentAreaHighlightOverlay extends TLOverlay {
 		flashStartedAt?: number
 		/** For a change ghost: whether an undo removed the shape, a restore brought it back, or the agent created it, and when. */
 		ghost?: { kind: ChangeGhostKind; startedAt: number }
-		label?: string
 	}
 }
 
@@ -51,7 +56,18 @@ interface AgentPointHighlightOverlay extends TLOverlay {
 	}
 }
 
-type AgentHighlightOverlay = AgentAreaHighlightOverlay | AgentPointHighlightOverlay
+/** Where the agent is working: a quiet outline, three breathing dots, and the step. */
+interface AgentWorkOverlay extends TLOverlay {
+	type: 'agent-highlight'
+	props: {
+		kind: 'work'
+		bounds: BoxModel
+		step: string
+		generating: boolean
+	}
+}
+
+type AgentHighlightOverlay = AgentAreaHighlightOverlay | AgentPointHighlightOverlay | AgentWorkOverlay
 
 export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay> {
 	static override type = 'agent-highlight' as const
@@ -85,21 +101,19 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 			// its thread already show what the agent is working on.
 			const aboutMark = !!agent.marks.getActive()
 
-			if (
-				activeRequest?.bounds &&
-				!aboutMark &&
-				!this.isEquivalentToPendingContextArea(activeRequest.bounds, activeContextItems)
-			) {
+			// While it works, the agent shows where on the board it is and what it is
+			// doing there, instead of outlining everything it can see.
+			const reviewing = activeContextItems.find((item) => item.type === 'area' && item.source === 'agent')
+			const work =
+				agent.actions.getWork() ??
+				(agent.requests.isGenerating() && reviewing?.type === 'area'
+					? { bounds: toBoxModel(reviewing.bounds), step: 'Reviewing' }
+					: null)
+			if (work && !aboutMark) {
 				overlays.push({
-					id: `agent-highlight:${agent.id}:viewport`,
+					id: `agent-highlight:${agent.id}:work`,
 					type: 'agent-highlight',
-					props: {
-						kind: 'area',
-						bounds: toBoxModel(activeRequest.bounds),
-						color: 'tooltip',
-						generating: true,
-						label: `Agent ${agent.id.slice(0, 6)}'s view`,
-					},
+					props: { kind: 'work', bounds: work.bounds, step: work.step, generating: true },
 				})
 			}
 
@@ -147,7 +161,7 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		// advance the animation. This is a side effect, so it belongs in render
 		// (an effect) rather than getOverlays (a reactive computation).
 		this.hasAnimatedOverlays = overlays.some(
-			(overlay) => overlay.props.generating || overlay.props.color === 'protected' || ('ghost' in overlay.props && !!overlay.props.ghost)
+			(overlay) => overlay.props.generating || ('color' in overlay.props && overlay.props.color === 'protected') || ('ghost' in overlay.props && !!overlay.props.ghost)
 		)
 
 		const zoom = this.editor.getZoomLevel()
@@ -155,8 +169,11 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		const dashOffset = getDashOffset(this.$animationElapsed.get(), zoom)
 
 		for (const overlay of overlays) {
+			if (overlay.props.kind === 'work') {
+				this.renderWork(ctx, overlay.props.bounds, overlay.props.step, zoom)
+				continue
+			}
 			const color = colors[overlay.props.color]
-
 			if (overlay.props.kind === 'area' && overlay.props.ghost) {
 				this.renderGhost(ctx, overlay.props.bounds, overlay.props.ghost, color, zoom)
 			} else if (overlay.props.kind === 'area') {
@@ -168,11 +185,9 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 							: 1,
 					generating: overlay.props.generating,
 					dashOffset,
-					label: overlay.props.label,
-					labelText: colors.labelText,
 					zoom,
 				})
-			} else {
+			} else if (overlay.props.kind === 'point') {
 				this.renderPoint(ctx, overlay.props.point, {
 					color,
 					generating: overlay.props.generating,
@@ -192,6 +207,7 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		const animationElapsed = this.$animationElapsed.get()
 
 		for (const overlay of overlays) {
+			if (overlay.props.kind === 'work') continue
 			const color = colors[overlay.props.color]
 
 			if (overlay.props.kind === 'area') {
@@ -235,6 +251,8 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 
 			switch (item.type) {
 				case 'area': {
+					// The agent's own review area shows as its working place instead.
+					if (generating && item.source === 'agent') break
 					areaHighlights.push({
 						id,
 						type: 'agent-highlight',
@@ -243,7 +261,7 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 							bounds: toBoxModel(item.bounds),
 							color: 'selected',
 							generating,
-							label: generating && item.source === 'agent' ? 'Reviewing' : undefined,
+
 						},
 					})
 					break
@@ -319,16 +337,12 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 			alpha,
 			generating,
 			dashOffset,
-			label,
-			labelText,
 			zoom,
 		}: {
 			color: string
 			alpha: number
 			generating: boolean
 			dashOffset: number
-			label?: string
-			labelText: string
 			zoom: number
 		}
 	): void {
@@ -344,10 +358,55 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		}
 		ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h)
 		ctx.restore()
+	}
 
-		if (label) {
-			this.renderLabel(ctx, bounds, label, color, labelText, zoom)
+	/**
+	 * The agent's working place: a forest hairline around what it is changing,
+	 * and above it three graphite dots that breathe in opacity only, followed by
+	 * the step in small type. Text and dots keep their size at any zoom.
+	 */
+	private renderWork(ctx: CanvasRenderingContext2D, pageBounds: BoxModel, step: string, zoom: number): void {
+		const bounds = Box.From(pageBounds).expandBy(6 / zoom)
+		ctx.save()
+		ctx.strokeStyle = WORK_ACCENT
+		ctx.globalAlpha = 0.4
+		ctx.lineWidth = 1 / zoom
+		ctx.beginPath()
+		ctx.roundRect(bounds.x, bounds.y, bounds.w, bounds.h, 3 / zoom)
+		ctx.stroke()
+		ctx.restore()
+
+		ctx.save()
+		ctx.translate(bounds.x, bounds.y)
+		ctx.scale(1 / zoom, 1 / zoom)
+		const baseline = -8
+		const elapsed = this.$animationElapsed.get()
+		const still = prefersReducedMotion()
+		const fontFamily = this.editor.getCurrentTheme().fonts.sans.fontFamily
+		ctx.font = `500 11px ${fontFamily}`
+		const label = step ? fitStep(ctx, step, Math.max(220, bounds.w * zoom - 30)) : ''
+		// A slip of board paper behind the dots and the step, so they read over ink.
+		const slipWidth = 28 + (label ? ctx.measureText(label).width + 6 : 0)
+		ctx.fillStyle = this.editor.getCurrentTheme().colors[this.editor.getColorMode()].background
+		ctx.globalAlpha = 0.92
+		ctx.beginPath()
+		ctx.roundRect(-4, baseline - 13, slipWidth + 4, 17, 4)
+		ctx.fill()
+		for (let i = 0; i < 3; i++) {
+			const phase = ((elapsed / WORK_DOT_PERIOD - i * 0.15) % 1 + 1) % 1
+			ctx.globalAlpha = still ? 0.6 : 0.3 + 0.6 * (0.5 - 0.5 * Math.cos(phase * PI2))
+			ctx.fillStyle = WORK_INK
+			ctx.beginPath()
+			ctx.arc(4 + i * 8, baseline - 5, 2, 0, PI2)
+			ctx.fill()
 		}
+		if (label) {
+			ctx.globalAlpha = 1
+			ctx.textBaseline = 'alphabetic'
+			ctx.fillStyle = WORK_LABEL
+			ctx.fillText(label, 28, baseline - 1)
+		}
+		ctx.restore()
 	}
 
 	/**
@@ -412,45 +471,11 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		ctx.restore()
 	}
 
-	private renderLabel(
-		ctx: CanvasRenderingContext2D,
-		bounds: Box,
-		label: string,
-		color: string,
-		labelText: string,
-		zoom: number
-	): void {
-		const scale = 1 / zoom
-		const padding = 4
-		const fontSize = 12
-		const fontFamily = this.editor.getCurrentTheme().fonts.sans.fontFamily
-
-		ctx.save()
-		ctx.translate(bounds.x, bounds.y)
-		ctx.scale(scale, scale)
-		ctx.font = `500 ${fontSize}px ${fontFamily}`
-		ctx.textBaseline = 'top'
-
-		const width = Math.ceil(ctx.measureText(label).width) + padding * 2
-		const height = fontSize + padding * 2
-
-		ctx.fillStyle = color
-		ctx.beginPath()
-		ctx.roundRect(0, 0, width, height, 4)
-		ctx.fill()
-
-		ctx.fillStyle = labelText
-		ctx.fillText(label, padding, padding)
-		ctx.restore()
-	}
-
 	private getColors() {
 		const themeColors = this.editor.getCurrentTheme().colors[this.editor.getColorMode()]
 		return {
 			selected: themeColors.selectionStroke,
-			tooltip: themeColors.text,
 			protected: themeColors.text,
-			labelText: themeColors.background,
 		}
 	}
 
@@ -487,4 +512,16 @@ function getMinimapPulseAlpha(phase: number): number {
 
 function getDashOffset(elapsed: number, zoom: number): number {
 	return -((elapsed / 1000) * DASH_SPEED) / zoom
+}
+
+/** The step, shortened with an ellipsis to fit the width, in the context's current font. */
+function fitStep(ctx: CanvasRenderingContext2D, step: string, maxWidth: number): string {
+	if (ctx.measureText(step).width <= maxWidth) return step
+	let text = step
+	while (text.length > 1 && ctx.measureText(text + '…').width > maxWidth) text = text.slice(0, -1)
+	return text.trimEnd() + '…'
+}
+
+function prefersReducedMotion(): boolean {
+	return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 }

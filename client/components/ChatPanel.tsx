@@ -167,6 +167,9 @@ export function ChatPanel() {
 	}, [agent])
 
 	const isEmpty = useValue('chat is empty', () => agent.chat.getHistory().length === 0, [agent])
+	// While the agent changes the board, the answer card folds to one line, so it
+	// never hides the work. The full answer opens when the agent is done.
+	const work = useValue('pane agent work', () => agent.actions.getWork(), [agent])
 
 	const composer = (
 		<div className="chat-input-container">
@@ -210,7 +213,18 @@ export function ChatPanel() {
 								<CloseGlyph />
 							</button>
 						</div>
-						<ChatHistory agent={agent} latestOnly />
+						{work ? (
+							<p className="chat-answer-status" role="status">
+								<span className="chat-working-dots" aria-hidden>
+									<span />
+									<span />
+									<span />
+								</span>
+								<span className="chat-answer-status-text">{work.step || 'Working on the board'}</span>
+							</p>
+						) : (
+							<ChatHistory agent={agent} latestOnly />
+						)}
 					</div>
 				)}
 				{composer}
