@@ -183,12 +183,14 @@ export function ChatPanel() {
 		}
 	}
 	// While the agent changes the board, the answer card folds to one line, so it
-	// never hides the work. The full answer opens when the agent is done.
+	// never hides the work.
 	const work = useValue('pane agent work', () => agent.actions.getWork(), [agent])
 	// After a request that drew on the board, the card stays one line, so the
-	// drawing is what the user sees. "See more" opens the whole conversation.
+	// drawing is what the user sees. "See more" opens the whole conversation. An
+	// open question is the exception: it must be seen to be answered.
 	const lastWork = useValue('pane last work', () => agent.actions.getLastWork(), [agent])
-	const summary = !isGenerating && lastWork ? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
+	const summary =
+		!isGenerating && lastWork && !hasOpenQuestion ? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
 
 	const composer = (
 		<div className="chat-input-container">

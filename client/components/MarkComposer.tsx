@@ -3,7 +3,6 @@ import { Editor, renderPlaintextFromRichText, TLRichText, TLShapeId, useEditor, 
 import { MARK_LABELS } from '../agent/marks'
 import { useAgent } from '../agent/TldrawAgentAppProvider'
 
-/** What the note is about, quoting the target's text when it has some: about "F = m a". */
 /** A shape's words, for naming it: its text, cut short, or null when it has none. */
 function shapeName(editor: Editor, id: TLShapeId, max: number): string | null {
 	const shape = editor.getShape(id)

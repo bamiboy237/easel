@@ -3,7 +3,6 @@ import { Box, Editor, TLShape, TLShapeId, VecModel } from 'tldraw'
 /** What kind of gesture a mark is. Each one sets the default intent when the user gives no text. */
 export type MarkKind = 'circle' | 'underline' | 'strike' | 'scribble' | 'tap'
 
-/** The question each kind of mark asks when the user does not type or say one. */
 /** What a mark asks when the user types nothing, in their words: the note's placeholder and the thread's question. */
 export const MARK_LABELS: Record<MarkKind, string> = {
 	circle: 'Explain this',
