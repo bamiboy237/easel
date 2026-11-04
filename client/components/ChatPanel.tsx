@@ -186,7 +186,7 @@ export function ChatPanel() {
 	// never hides the work. The full answer opens when the agent is done.
 	const work = useValue('pane agent work', () => agent.actions.getWork(), [agent])
 	// After a request that drew on the board, the card stays one line, so the
-	// drawing is what the user sees. The expand control opens the conversation.
+	// drawing is what the user sees. "See more" opens the whole conversation.
 	const lastWork = useValue('pane last work', () => agent.actions.getLastWork(), [agent])
 	const summary = !isGenerating && lastWork ? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
 
@@ -232,8 +232,8 @@ export function ChatPanel() {
 									<AgentFace size={22} />
 								</span>
 								<span className="chat-answer-controls">
-									<button className="chat-icon-button" title="Open the conversation" aria-label="Open the conversation" onClick={() => setPane('expanded')}>
-										<ExpandGlyph />
+									<button className="chat-answer-more" onClick={() => setPane('expanded')}>
+										See more
 									</button>
 									<button className="chat-icon-button" title="Close" aria-label="Close" onClick={() => setPane('quiet')}>
 										<CloseGlyph />
@@ -311,14 +311,6 @@ function Glyph({ children }: { children: React.ReactNode }) {
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
 			{children}
 		</svg>
-	)
-}
-
-function ExpandGlyph() {
-	return (
-		<Glyph>
-			<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-		</Glyph>
 	)
 }
 

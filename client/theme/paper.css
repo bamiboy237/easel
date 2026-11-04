@@ -642,6 +642,7 @@
 /* The controls sit on the header line, so streamed text never runs under them. */
 .chat-panel--floating.tl-theme__light .chat-answer-controls {
 	display: flex;
+	align-items: center;
 	gap: 2px;
 }
 
@@ -665,6 +666,25 @@
 	color: var(--tl-color-text-3);
 	font-size: 13px;
 	line-height: 18px;
+}
+
+/* "See more": a quiet text button beside close, for the whole conversation. */
+.chat-panel--floating.tl-theme__light .chat-answer-more {
+	height: 28px;
+	padding: 0 8px;
+	border: none;
+	border-radius: 8px;
+	background: none;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--tl-color-text-3);
+	cursor: pointer;
+	transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+
+.chat-panel--floating.tl-theme__light .chat-answer-more:hover {
+	background-color: var(--paper-hover);
+	color: var(--paper-ink);
 }
 
 .chat-panel--floating.tl-theme__light .chat-answer-status-text {
