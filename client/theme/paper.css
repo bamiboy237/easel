@@ -59,11 +59,20 @@
 }
 
 /*
- * A faint fiber grain, like good writing paper. It stays fixed to the screen,
- * so it reads as the surface rather than as marks on the board.
+ * The board is ivory writing paper, from the Figma "Ivory writing paper" frame:
+ * a warm stock tone that shifts slightly across the sheet, with three layers
+ * of grain on top: a fine tooth, faint horizontal fibers, and a soft cloudy
+ * formation. It stays fixed to the screen, so it reads as the surface rather
+ * than as marks on the board.
  */
 .tl-theme__light .tl-background {
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.38 0 0 0 0 0.36 0 0 0 0 0.31 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23g)'/%3E%3C/svg%3E");
+	background-color: #f5f1e7;
+	background-image:
+		url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.36 0 0 0 0 0.32 0 0 0 0 0.25 0 0 0 0.055 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url%28%23g%29'/%3E%3C/svg%3E"),
+		url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0156 0.3125' numOctaves='2' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.36 0 0 0 0 0.28 0 0 0 0.022 0'/%3E%3C/filter%3E%3Crect width='512' height='512' filter='url%28%23g%29'/%3E%3C/svg%3E"),
+		url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1024' height='1024'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0078' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.38 0 0 0 0 0.3 0 0 0 0.03 0'/%3E%3C/filter%3E%3Crect width='1024' height='1024' filter='url%28%23g%29'/%3E%3C/svg%3E"),
+		linear-gradient(90deg, #f7f4eb 0%, #f5f1e7 50%, #f3efe4 100%);
+	background-blend-mode: multiply, multiply, multiply, normal;
 }
 
 /* Quiet frames: a serif title like a section heading, with no chip behind it. */

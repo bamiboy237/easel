@@ -49,7 +49,7 @@ export interface ActiveMark extends MarkDraft {
 export class AgentMarkManager extends BaseAgentManager {
 	private $draft = atom<MarkDraft | null>('mark draft', null)
 	private $stroke = atom<VecModel[] | null>('mark stroke', null)
-	private active: ActiveMark | null = null
+	private $active = atom<ActiveMark | null>('active mark', null)
 	/** A mark asked about, waiting for its request to start. */
 	private pending: ActiveMark | null = null
 	/** A pen circle the user just drew, offered as a mark for a few seconds. */
@@ -115,7 +115,7 @@ export class AgentMarkManager extends BaseAgentManager {
 	reset(): void {
 		this.$draft.set(null)
 		this.$stroke.set(null)
-		this.active = null
+		this.$active.set(null)
 		this.pending = null
 		this.dismissChip()
 	}
@@ -135,7 +135,7 @@ export class AgentMarkManager extends BaseAgentManager {
 
 	/** The mark the current request asks about, if any. */
 	getActive(): ActiveMark | null {
-		return this.active
+		return this.$active.get()
 	}
 
 	/**
@@ -144,7 +144,7 @@ export class AgentMarkManager extends BaseAgentManager {
 	 */
 	onRequestStart(source: string) {
 		if (source === 'self') return
-		this.active = this.pending
+		this.$active.set(this.pending)
 		this.pending = null
 	}
 
