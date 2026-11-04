@@ -73,6 +73,22 @@ export function MarkComposer() {
 		if (draft) requestAnimationFrame(() => inputRef.current?.focus())
 	}, [draft?.id])
 
+	// Escape drops the note wherever the keyboard is, not only in its text line:
+	// the microphone prompt, or a click on the board to add a shape, can take
+	// focus away from the note.
+	useEffect(() => {
+		if (!draft) return
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== 'Escape') return
+			event.preventDefault()
+			event.stopPropagation()
+			agent.marks.cancelDraft()
+			editor.focus()
+		}
+		window.addEventListener('keydown', handleKeyDown, { capture: true })
+		return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
+	}, [draft?.id, agent, editor])
+
 	// The words fill the note as they are heard; the user can edit them before asking.
 	useEffect(() => {
 		if (spoken !== null) setText(spoken)
@@ -136,13 +152,8 @@ export function MarkComposer() {
 						if (listening !== 'off') agent.marks.stopListening()
 						setText(e.target.value)
 					}}
-					onKeyDown={(e) => {
-						e.stopPropagation()
-						if (e.key === 'Escape') {
-							agent.marks.cancelDraft()
-							editor.focus()
-						}
-					}}
+					// Keys typed here are the user's words, not board shortcuts. Escape is handled above.
+					onKeyDown={(e) => e.stopPropagation()}
 				/>
 			</form>
 			<div className="mark-composer-hint">Enter to ask · Esc to cancel · Click to add</div>
