@@ -185,6 +185,14 @@ export function ChatPanel() {
 	// While the agent changes the board, the answer card folds to one line, so it
 	// never hides the work. The full answer opens when the agent is done.
 	const work = useValue('pane agent work', () => agent.actions.getWork(), [agent])
+	// After a request that drew on the board, the card stays one line, so the
+	// drawing is what the user sees. The answer opens on request.
+	const lastWork = useValue('pane last work', () => agent.actions.getLastWork(), [agent])
+	const [answerShown, setAnswerShown] = useState(false)
+	useEffect(() => {
+		if (isGenerating) setAnswerShown(false)
+	}, [isGenerating])
+	const summary = !isGenerating && lastWork && !answerShown ? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
 
 	const composer = (
 		<div className="chat-input-container">
@@ -216,33 +224,49 @@ export function ChatPanel() {
 	}
 
 	if (pane !== 'expanded') {
+		const answering = pane === 'responding' && !isEmpty
 		return (
 			<div className="chat-panel chat-panel--floating tl-theme__light">
-				{pane === 'responding' && !isEmpty && (
-					<div className="chat-answer">
-						<div className="chat-answer-controls">
-							<button className="chat-icon-button" title="Open the conversation" aria-label="Open the conversation" onClick={() => setPane('expanded')}>
-								<ExpandGlyph />
-							</button>
-							<button className="chat-icon-button" title="Close" aria-label="Close" onClick={() => setPane('quiet')}>
-								<CloseGlyph />
-							</button>
-						</div>
-						{work ? (
-							<p className="chat-answer-status" role="status">
-								<span className="chat-working-dots" aria-hidden>
-									<span />
-									<span />
-									<span />
+				{/* The answer and the composer are one sheet, with a hairline between them. */}
+				<div className={'chat-sheet' + (answering ? ' chat-sheet--answering' : '')}>
+					{answering && (
+						<div className="chat-answer">
+							<div className="chat-answer-header">
+								<span className="chat-answer-title" aria-label="Easel">
+									<AgentFace size={22} />
 								</span>
-								<span className="chat-answer-status-text">{work.step || 'Working on the board'}</span>
-							</p>
-						) : (
-							<ChatHistory agent={agent} latestOnly />
-						)}
-					</div>
-				)}
-				{composer}
+								<span className="chat-answer-controls">
+									<button className="chat-icon-button" title="Open the conversation" aria-label="Open the conversation" onClick={() => setPane('expanded')}>
+										<ExpandGlyph />
+									</button>
+									<button className="chat-icon-button" title="Close" aria-label="Close" onClick={() => setPane('quiet')}>
+										<CloseGlyph />
+									</button>
+								</span>
+							</div>
+							{summary ? (
+								<p className="chat-answer-status">
+									<span className="chat-answer-status-text">{summary}</span>
+									<button className="chat-answer-show" onClick={() => setAnswerShown(true)}>
+										Show answer
+									</button>
+								</p>
+							) : work ? (
+								<p className="chat-answer-status" role="status">
+									<span className="chat-working-dots" aria-hidden>
+										<span />
+										<span />
+										<span />
+									</span>
+									<span className="chat-answer-status-text">{work.step || 'Working on the board'}</span>
+								</p>
+							) : (
+								<ChatHistory agent={agent} latestOnly />
+							)}
+						</div>
+					)}
+					{composer}
+				</div>
 				{pane === 'quiet' && !isEmpty && (
 					<button className="chat-quiet-open" onClick={() => setPane('expanded')}>
 						Conversation
@@ -278,6 +302,14 @@ export function ChatPanel() {
 			{composer}
 		</div>
 	)
+}
+
+/** What a request did on the board, in a few words: "Drew 16 shapes", or "Changed 3 shapes". */
+function describeWork(created: number, changed: number): string | null {
+	const shapes = (n: number) => `${n} ${n === 1 ? 'shape' : 'shapes'}`
+	if (created > 0) return `Drew ${shapes(created)}` + (changed > created ? `, changed ${changed - created} more` : '')
+	if (changed > 0) return `Changed ${shapes(changed)}`
+	return null
 }
 
 /** Fine-stroke glyphs that match the toolbar: 1.5 px on a 24 px grid. */
