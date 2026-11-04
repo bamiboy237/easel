@@ -10,13 +10,14 @@
 	--paper-pressed: #e7e4dc;
 	--paper-rule: #e6e2d9;
 	--paper-ink: #1f1e1b;
-	--paper-accent: #2e4a6e;
+	/* A muted forest green: the one accent, for selection, focus, and the user's own words. */
+	--paper-accent: #344c41;
 
 	/* Motion, after Emil Kowalski's rules: strong ease-out, short, and only transform and opacity. */
 	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
 	--tl-color-background: var(--paper);
-	--tl-color-selection-fill: rgba(46, 74, 110, 0.12);
+	--tl-color-selection-fill: rgba(52, 76, 65, 0.12);
 	--tl-color-selection-stroke: var(--paper-accent);
 	--tl-color-grid: hsl(38, 14%, 62%);
 
@@ -96,9 +97,24 @@
 	color: var(--paper-ink);
 }
 
+/*
+ * The chat panel is warm stone, like a desk under the ivory board: smooth, with
+ * no grain, so small text stays crisp. Ink text, taupe for secondary text,
+ * pale stone rules, and an off-white composer.
+ */
 .chat-panel.tl-theme__light {
-	--tl-color-text-2: #8a8476;
-	--tl-color-primary-hover: #22384f;
+	--paper-panel: #e7e3da;
+	--paper-card: #faf8f2;
+	--paper-rule: #d7d1c5;
+	--paper-ink: #302f2a;
+	--paper-hover: #dfdace;
+	--paper-pressed: #d7d1c5;
+	--tl-color-text: #302f2a;
+	--tl-color-text-0: #302f2a;
+	--tl-color-text-1: #302f2a;
+	--tl-color-text-2: #716c62;
+	--tl-color-text-3: #716c62;
+	--tl-color-primary-hover: #2a3f36;
 	background-color: var(--paper-panel);
 	border-left: 1px solid var(--paper-rule);
 	font-size: 13px;
@@ -148,7 +164,7 @@
 	color: var(--tl-color-text-3);
 }
 
-/* The user's prompt reads like a margin note in blue-black ink; the agent's reply reads as plain text. */
+/* The user's prompt reads like a margin note in forest-green ink; the agent's reply reads as plain text. */
 .chat-panel.tl-theme__light .chat-history-prompt-container {
 	background-color: var(--paper-panel);
 }
@@ -372,14 +388,16 @@
 .chat-panel.tl-theme__light .chat-input form {
 	background-color: var(--paper-card);
 	border: 1px solid var(--paper-rule);
-	border-radius: 16px;
-	box-shadow: 0px 2px 8px rgba(60, 45, 20, 0.06);
+	border-radius: 14px;
+	box-shadow: 0px 1px 2px rgba(60, 45, 20, 0.05);
 }
 
 .chat-panel.tl-theme__light .chat-input-submit {
 	width: 28px;
 	height: 28px;
 	font-size: 13px;
+	background: var(--paper-accent);
+	color: #f5f1e7;
 	box-shadow: none;
 	transition: transform 160ms var(--ease-out);
 }
