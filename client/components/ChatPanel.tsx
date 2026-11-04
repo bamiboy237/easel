@@ -173,7 +173,10 @@ export function ChatPanel() {
 	// gets the keyboard back.
 	const escapeComposer = () => {
 		if (pane === 'responding') setPane('quiet')
-		else if (pane === 'quiet' && draft === '') setPane('ball')
+		else if (pane === 'quiet' && draft === '') {
+			setPane('ball')
+			agent.editor.focus()
+		}
 		else {
 			inputRef.current?.blur()
 			agent.editor.focus()

@@ -89,7 +89,8 @@ export class AgentMarkManager extends BaseAgentManager {
 				if ((prev as ThreadShape).props.entries === thread.props.entries) return next
 				const h = measureThreadHeight(editor, thread.props.entries)
 				if (!thread.props.folded) return { ...thread, props: { ...thread.props, h } }
-				// The note opens where it would if the user clicked its pin.
+				// The note opens where it would if the user clicked its pin, and settles in.
+				markThreadFresh(thread.id)
 				const spot = this.getNoteSpot(thread, h)
 				const local = editor.getPointInParentSpace(thread.id, { x: spot.x, y: spot.y })
 				return { ...thread, x: local.x, y: local.y, props: { ...thread.props, folded: false, w: THREAD_WIDTH, h } }

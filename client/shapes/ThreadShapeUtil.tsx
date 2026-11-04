@@ -73,14 +73,15 @@ const threadMigrations = createShapePropsMigrationSequence({
  * restarts a CSS animation when it shows again, so the class that animates
  * comes off once the view has settled.
  */
-const freshViews = new Set<string>()
+const freshViews = new Map<string, ReturnType<typeof setTimeout>>()
 /** A little longer than the settle animations. */
 const SETTLE_MS = 400
 
 /** Let a thread's next view settle in: a new note, a pin, or a note opened from its pin. */
 export function markThreadFresh(id: string) {
-	freshViews.add(id)
-	setTimeout(() => freshViews.delete(id), 1000)
+	const previous = freshViews.get(id)
+	if (previous) clearTimeout(previous)
+	freshViews.set(id, setTimeout(() => freshViews.delete(id), 1000))
 }
 
 /** Whether a view is settling in: true from its mount, if it is fresh, until it has settled. */
