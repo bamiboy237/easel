@@ -667,25 +667,6 @@
 	line-height: 18px;
 }
 
-/* "Show answer": a quiet text button at the end of the summary line. */
-.chat-panel--floating.tl-theme__light .chat-answer-show {
-	flex: none;
-	margin-left: auto;
-	padding: 2px 6px;
-	border: none;
-	border-radius: 6px;
-	background: none;
-	font-size: 12px;
-	font-weight: 500;
-	color: var(--paper-accent);
-	cursor: pointer;
-	transition: background-color 150ms var(--ease-out);
-}
-
-.chat-panel--floating.tl-theme__light .chat-answer-show:hover {
-	background-color: var(--paper-hover);
-}
-
 .chat-panel--floating.tl-theme__light .chat-answer-status-text {
 	overflow: hidden;
 	text-overflow: ellipsis;

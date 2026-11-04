@@ -186,13 +186,9 @@ export function ChatPanel() {
 	// never hides the work. The full answer opens when the agent is done.
 	const work = useValue('pane agent work', () => agent.actions.getWork(), [agent])
 	// After a request that drew on the board, the card stays one line, so the
-	// drawing is what the user sees. The answer opens on request.
+	// drawing is what the user sees. The expand control opens the conversation.
 	const lastWork = useValue('pane last work', () => agent.actions.getLastWork(), [agent])
-	const [answerShown, setAnswerShown] = useState(false)
-	useEffect(() => {
-		if (isGenerating) setAnswerShown(false)
-	}, [isGenerating])
-	const summary = !isGenerating && lastWork && !answerShown ? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
+	const summary = !isGenerating && lastWork ? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
 
 	const composer = (
 		<div className="chat-input-container">
@@ -247,9 +243,6 @@ export function ChatPanel() {
 							{summary ? (
 								<p className="chat-answer-status">
 									<span className="chat-answer-status-text">{summary}</span>
-									<button className="chat-answer-show" onClick={() => setAnswerShown(true)}>
-										Show answer
-									</button>
 								</p>
 							) : work ? (
 								<p className="chat-answer-status" role="status">
