@@ -26,10 +26,6 @@ const ANIMATION_PERIOD = 100_000
 const DASH_SPEED = 20
 const MINIMAP_FILL_ALPHA = 0.12
 const MINIMAP_PULSE_PERIOD = 2400
-/** The agent's color, the same forest as the rest of the app, and its ink and label tones. */
-const WORK_ACCENT = '#344C41'
-const WORK_INK = '#302F2A'
-const WORK_LABEL = '#716C62'
 /** One breath of the working dots, in milliseconds. */
 const WORK_DOT_PERIOD = 1200
 /** The agent's face on its working slip, in screen pixels. */
@@ -275,7 +271,6 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 							bounds: toBoxModel(item.bounds),
 							color: 'selected',
 							generating,
-
 						},
 					})
 					break
@@ -331,18 +326,6 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		overlays.push(...areaHighlights, ...pointHighlights)
 	}
 
-	private isEquivalentToPendingContextArea(
-		agentViewportBounds: BoxModel,
-		contextItems: ContextItem[]
-	): boolean {
-		return contextItems.some(
-			(item) =>
-				item.type === 'area' &&
-				item.source === 'agent' &&
-				Box.Equals(item.bounds, agentViewportBounds)
-		)
-	}
-
 	private renderArea(
 		ctx: CanvasRenderingContext2D,
 		pageBounds: BoxModel,
@@ -380,9 +363,11 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 	 * the step in small type. Text and dots keep their size at any zoom.
 	 */
 	private renderWork(ctx: CanvasRenderingContext2D, pageBounds: BoxModel, step: string, zoom: number): void {
+		// The theme's accent and ink, so the slip follows the color mode.
+		const theme = this.editor.getCurrentTheme().colors[this.editor.getColorMode()]
 		const bounds = Box.From(pageBounds).expandBy(6 / zoom)
 		ctx.save()
-		ctx.strokeStyle = WORK_ACCENT
+		ctx.strokeStyle = theme.selectionStroke
 		ctx.globalAlpha = 0.4
 		ctx.lineWidth = 1 / zoom
 		ctx.beginPath()
@@ -404,7 +389,7 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		const face = getAgentFace()
 		const lead = face ? FACE_SIZE + 4 : 0
 		const slipWidth = lead + 28 + (label ? ctx.measureText(label).width + 6 : 0)
-		ctx.fillStyle = this.editor.getCurrentTheme().colors[this.editor.getColorMode()].background
+		ctx.fillStyle = theme.background
 		ctx.globalAlpha = 0.92
 		ctx.beginPath()
 		ctx.roundRect(-4, baseline - 15, slipWidth + 4, 21, 5)
@@ -417,15 +402,16 @@ export class AgentHighlightOverlayUtil extends OverlayUtil<AgentHighlightOverlay
 		for (let i = 0; i < 3; i++) {
 			const phase = ((elapsed / WORK_DOT_PERIOD - i * 0.15) % 1 + 1) % 1
 			ctx.globalAlpha = still ? 0.6 : 0.3 + 0.6 * (0.5 - 0.5 * Math.cos(phase * PI2))
-			ctx.fillStyle = WORK_INK
+			ctx.fillStyle = theme.text
 			ctx.beginPath()
 			ctx.arc(4 + i * 8, baseline - 5, 2, 0, PI2)
 			ctx.fill()
 		}
 		if (label) {
-			ctx.globalAlpha = 1
+			// The step is quieter than ink, like the app's secondary text.
+			ctx.globalAlpha = 0.7
 			ctx.textBaseline = 'alphabetic'
-			ctx.fillStyle = WORK_LABEL
+			ctx.fillStyle = theme.text
 			ctx.fillText(label, 28, baseline - 1)
 		}
 		ctx.restore()

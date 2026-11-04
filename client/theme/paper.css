@@ -127,9 +127,6 @@
 }
 
 .chat-panel.tl-theme__light .chat-wordmark {
-	display: inline-flex;
-	align-items: center;
-	gap: 8px;
 	font-family: 'Source Serif 4 Variable', Georgia, serif;
 	font-size: 17px;
 	font-weight: 500;
@@ -603,7 +600,7 @@
 	width: 4px;
 	height: 4px;
 	border-radius: 50%;
-	background-color: #302f2a;
+	background-color: var(--tl-color-text);
 	opacity: 0.3;
 	animation: chat-working 1.2s ease-in-out infinite;
 }
