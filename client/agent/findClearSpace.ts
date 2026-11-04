@@ -60,9 +60,9 @@ export function findClearSpaceInView(editor: Editor, size: { w: number; h: numbe
 
 /**
  * A spot for a small note tied to a subject, such as a thread beside its mark.
- * It tries every side, sliding along each a line at a time, and takes the clear
- * spot nearest the subject. The right side wins a tie, then below, left, and
- * above. A spot inside the view beats one outside it. Only when no side has
+ * It tries every side, sliding along each a line at a time. Any clear spot in
+ * view beats one outside it; among those, the nearest wins, with a small
+ * preference for the right side, then below, left, and above. Only when no side has
  * room near the subject does the note step further right. Notes sit closer
  * than new work, so this uses a small margin.
  */
@@ -86,35 +86,40 @@ export function findNoteSpot(
 		return obstacles.every((obstacle) => !padded.collides(obstacle))
 	}
 
-	let best: { box: Box; score: number } | null = null
-	const consider = (x: number, y: number, side: number) => {
-		const box = new Box(x, y, size.w, size.h)
-		if (!isClear(box)) return
-		// Distance the eye travels from the subject to the note, plus a small
-		// preference for the right side and for staying in view.
+	// Distance the eye travels from the subject to a note, plus a small
+	// preference for sliding less and for the right side.
+	const score = (box: Box, side: number) => {
 		const dx = Math.max(subject.x - box.maxX, box.x - subject.maxX, 0)
 		const dy = Math.max(subject.y - box.maxY, box.y - subject.maxY, 0)
 		const slide = side === 0 || side === 2 ? Math.abs(box.y - subject.y) : Math.abs(box.x - subject.x)
-		const score = Math.hypot(dx, dy) + slide * 0.5 + side * 12 + (view.contains(box) ? 0 : 400)
-		if (!best || score < best.score) best = { box, score }
+		return Math.hypot(dx, dy) + slide * 0.5 + side * 12
 	}
 	// A subject inside a frame has no room beside it inside the frame, so the
 	// sides of each shape that holds it are tried too, still scored by distance
 	// to the subject itself.
 	const anchors = [subject, ...obstacles.filter((obstacle) => obstacle.contains(subject))]
+	const candidates: { box: Box; inView: boolean; score: number }[] = []
 	for (const anchor of anchors) {
 		for (let step = 0; step <= 8; step++) {
 			for (const k of step === 0 ? [0] : [step, -step]) {
 				const y = subject.y + k * 24
 				const x = subject.x + k * 40
-				consider(anchor.maxX + gap, y, 0)
-				consider(x, anchor.maxY + gap, 1)
-				consider(anchor.x - gap - size.w, y, 2)
-				consider(x, anchor.y - gap - size.h, 3)
+				const sides: [number, number, number][] = [
+					[anchor.maxX + gap, y, 0],
+					[x, anchor.maxY + gap, 1],
+					[anchor.x - gap - size.w, y, 2],
+					[x, anchor.y - gap - size.h, 3],
+				]
+				for (const [bx, by, side] of sides) {
+					const box = new Box(bx, by, size.w, size.h)
+					if (isClear(box)) candidates.push({ box, inView: view.contains(box), score: score(box, side) })
+				}
 			}
 		}
 	}
-	if (best) return (best as { box: Box }).box
+	// Any spot in view comes first; among those, the nearest.
+	candidates.sort((a, b) => Number(b.inView) - Number(a.inView) || a.score - b.score)
+	if (candidates.length > 0) return candidates[0].box
 	for (let right = 1; right <= 4; right++) {
 		for (let down = 0; down <= 6; down++) {
 			const candidate = new Box(subject.maxX + gap + right * 160, subject.y + down * 24, size.w, size.h)

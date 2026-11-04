@@ -51,14 +51,21 @@ export const ReplyInThreadActionUtil = registerActionUtil(
 			const h = measureThreadHeight(editor, entries)
 			const page = editor.getShapePageBounds(id)!
 			const grown = new Box(page.x, page.y, thread.props.w, h)
-			const own = [id, thread.props.markShapeId, ...thread.props.targetIds].filter(Boolean) as TLShapeId[]
+			// A thread the user put inside a frame is not blocked by that frame.
+			const own = [id, thread.props.markShapeId, ...thread.props.targetIds, ...editor.getShapeAncestors(id).map((s) => s.id)].filter(
+				Boolean
+			) as TLShapeId[]
 			const view = editor.getViewportPageBounds()
 			let position = { x: thread.x, y: thread.y }
 			if (overlapsShapes(editor, grown, own) || (view.contains(page) && !view.contains(grown))) {
 				const markId = thread.props.markShapeId as TLShapeId
 				const subject = (markId && editor.getShapePageBounds(markId)) || editor.getShapePageBounds(id)!
 				const spot = findNoteSpot(editor, subject, { w: thread.props.w, h }, own)
-				if (spot) position = { x: spot.x, y: spot.y }
+				// The spot is on the page; the thread stores its place in its parent's space.
+				if (spot) {
+					const local = editor.getPointInParentSpace(id, { x: spot.x, y: spot.y })
+					position = { x: local.x, y: local.y }
+				}
 			}
 			editor.updateShape<ThreadShape>({ id, type: THREAD_TYPE, ...position, props: { entries } })
 		}
