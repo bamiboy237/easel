@@ -662,6 +662,16 @@
 	padding: 14px 16px 16px;
 }
 
+/*
+ * Chat scrolls stay in the chat: reaching the end never moves the board or the
+ * page. Text fades out at the edges instead of being cut by them.
+ */
+.chat-panel.tl-theme__light .chat-history {
+	overscroll-behavior: contain;
+	--fade: 16px;
+	mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade), #000 calc(100% - var(--fade)), transparent 100%);
+}
+
 .chat-panel--floating.tl-theme__light .chat-answer .chat-history-prompt-container {
 	position: static;
 	z-index: auto;
