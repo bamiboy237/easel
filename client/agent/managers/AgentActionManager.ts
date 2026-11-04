@@ -19,7 +19,12 @@ export const PROTECTED_FLASH_MS = 1600
 
 /** Where the agent is working on the board, and a short line about the step. */
 export interface AgentWork {
+	/** Everything the agent has changed in this request, as one box that only grows. */
 	bounds: BoxModel
+	/** The frame the agent is drawing in, if its work is inside one. */
+	frameId: string | null
+	frameName: string | null
+	/** The model's own note for the latest step. Kept for logs; not shown. */
 	step: string
 	/** The shapes the agent has changed in this request so far. */
 	shapeIds: string[]
@@ -131,7 +136,35 @@ export class AgentActionManager extends BaseAgentManager {
 		const shapeIds = [...new Set([...(previous?.shapeIds ?? []), ...ids])]
 		const created = Object.keys(changes.added).filter((id) => id.startsWith('shape:'))
 		const createdIds = [...new Set([...(previous?.createdIds ?? []), ...created])]
-		this.$work.set({ bounds: Box.Common(boxes).toJson(), step: intent || previous?.step || '', shapeIds, createdIds })
+		// The working place grows to hold every change, so it never jumps from shape to shape.
+		const bounds = Box.Common(previous ? [Box.From(previous.bounds), ...boxes] : boxes)
+		const frame = this.findWorkFrame(ids) ?? (previous?.frameId ? editor.getShape(previous.frameId as TLShapeId) : undefined)
+		const frameName = frame && frame.type === 'frame' ? ((frame.props as { name?: string }).name ?? '').trim() || null : null
+		this.$work.set({
+			bounds: bounds.toJson(),
+			frameId: frame?.id ?? null,
+			frameName,
+			step: intent || previous?.step || '',
+			shapeIds,
+			createdIds,
+		})
+	}
+
+	/** The frame the changed shapes sit in: a changed frame itself, or the frame holding the first of them. */
+	private findWorkFrame(ids: TLShapeId[]) {
+		const { editor } = this.agent
+		for (const id of ids) {
+			const shape = editor.getShape(id)
+			if (!shape) continue
+			if (shape.type === 'frame') return shape
+			const holder = editor.findShapeAncestor(shape, (ancestor) => ancestor.type === 'frame')
+			if (holder) return holder
+			// The agent may draw over a frame without putting its shapes in it.
+			const center = editor.getShapePageBounds(shape)?.center
+			const under = center && editor.getCurrentPageShapes().find((frame) => frame.type === 'frame' && editor.getShapePageBounds(frame)?.containsPoint(center))
+			if (under) return under
+		}
+		return undefined
 	}
 
 	/** The protected shapes the board outlines briefly after a protected rejection. */
