@@ -130,12 +130,13 @@ export class AgentService {
 			throw new Error('Model is a string, not a LanguageModel')
 		}
 
-		const { modelId, provider } = model
-		if (!isValidModelName(modelId)) {
-			throw new Error(`Model ${modelId} is not in AGENT_MODEL_DEFINITIONS`)
-		}
+		const { provider } = model
+		// The definition comes from the name the user picked, not the provider's
+		// model id: one model can be listed twice, billed by an API key or by a
+		// ChatGPT plan.
+		const modelId = modelName
 
-		const modelDefinition = getAgentModelDefinition(modelId)
+		const modelDefinition = getAgentModelDefinition(modelName)
 		const corePrompt = buildSystemPrompt(prompt)
 		// Loaded tool groups go after the stable core, so the core stays cached.
 		const loadedToolsPrompt = buildLoadedToolsPrompt(prompt)

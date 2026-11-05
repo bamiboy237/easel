@@ -13,6 +13,7 @@ import {
 } from 'tldraw'
 import { axisLabels, gridStep, parametersHeight } from './GraphShapeUtil'
 import { newTemplateId, saveTemplate, SceneTemplate } from './scene/templates'
+import { Box, LabelRequest, Obstacles, placeLabels, sampleStroke, textWidthPx, Vec } from './scene/labels'
 import { clampParameter, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import {
 	checkHolds,
@@ -219,7 +220,8 @@ function Scene({ shape }: { shape: SceneShape }) {
 							unitsPerPixel,
 							traces,
 							{ x: visibleX, y: visibleY },
-							preview
+							preview,
+							overlayBoxes(title, readouts.map(([, o]) => fillText(o.text, values.scope)), w, plotHeight, visibleX, visibleY, unitsPerPixel)
 						)}
 					</Mafs>
 					{title && <div className="scene-title">{title}</div>}
@@ -393,20 +395,6 @@ function sampleTraces(props: Pick<SceneProps, 'params' | 'objects'>, duration: n
 	return traces
 }
 
-/** Space between a label and what it names, in pixels, so it never sits on the line. */
-const LABEL_GAP = 10
-
-/**
- * Where a vector's label goes, relative to its tip: a little past the tip
- * along the vector, so it never sits on the arrowhead or the shaft.
- */
-function labelOffset(dx: number, dy: number, unitsPerPixel: number): [number, number] {
-	const length = Math.hypot(dx, dy)
-	const gap = (LABEL_GAP + 8) * unitsPerPixel
-	if (!(length > 0)) return [gap, gap]
-	return [(dx / length) * gap, (dy / length) * gap]
-}
-
 /** Draw order: areas and curves first, then lines, then points and labels on top. */
 const LAYER: Record<SceneObject['type'], number> = {
 	let: -1,
@@ -436,14 +424,9 @@ function renderObjects(
 	unitsPerPixel: number,
 	traces: Record<string, [number, number][]>,
 	view: { x: [number, number]; y: [number, number] },
-	readOnly: boolean
+	readOnly: boolean,
+	reserved: Box[] = []
 ): ReactNode[] {
-	// Text keeps this far inside the plot, so no label is cut at an edge.
-	const inset = 12 * unitsPerPixel
-	const textWidth = (text: string) => text.length * 7.5 * unitsPerPixel
-	const clampY = (y: number) => Math.min(view.y[1] - inset, Math.max(view.y[0] + inset, y))
-	const clampCenterX = (x: number, text: string) =>
-		Math.min(view.x[1] - inset - textWidth(text) / 2, Math.max(view.x[0] + inset + textWidth(text) / 2, x))
 	const finite = (p: [number, number]) => Number.isFinite(p[0]) && Number.isFinite(p[1])
 	const at = (fn: () => ReactNode) => {
 		try {
@@ -452,8 +435,9 @@ function renderObjects(
 			return null
 		}
 	}
-	return Object.entries(objects)
-		.filter(([, o]) => LAYER[o.type] >= 0 && isVisible(o, values.scope))
+	const visible = Object.entries(objects).filter(([, o]) => LAYER[o.type] >= 0 && isVisible(o, values.scope))
+	const labels = layoutLabels(visible, values, params, readOnly, unitsPerPixel, traces, duration, time, view, reserved)
+	const drawn = visible
 		.sort((a, b) => LAYER[a[1].type] - LAYER[b[1].type])
 		.map(([id, o]) => {
 			const color = SCENE_INKS[o.ink ?? 0]
@@ -465,20 +449,6 @@ function renderObjects(
 								const p = values.points[id]
 								if (!p || !finite(p)) return null
 								const drag = readOnly ? null : dragTargets(o, params)
-								const labelText = o.label ? fillText(o.label, values.scope) : ''
-								// Above and to the right, or to the left when the right edge is near.
-								const toLeft = p[0] + 6 * unitsPerPixel + textWidth(labelText) > view.x[1] - inset
-								const label = labelText ? (
-									<Text
-										x={p[0] + (toLeft ? -6 : 6) * unitsPerPixel}
-										y={clampY(p[1] + LABEL_GAP * unitsPerPixel)}
-										attach={toLeft ? 'w' : 'e'}
-										size={15}
-										color={color}
-									>
-										{labelText}
-									</Text>
-								) : null
 								if (drag) {
 									return (
 										<>
@@ -499,14 +469,12 @@ function renderObjects(
 													if (drag.y) setParam(drag.y.name, y)
 												}}
 											/>
-											{label}
 										</>
 									)
 								}
 								return (
 									<>
 										<Point x={p[0]} y={p[1]} color={color} />
-										{label}
 									</>
 								)
 							}
@@ -519,16 +487,6 @@ function renderObjects(
 								return (
 									<>
 										<Line.Segment point1={a} point2={b} color={color} />
-										{o.label && (
-											<Text
-												x={(a[0] + b[0]) / 2 + labelOffset(a[1] - b[1], b[0] - a[0], unitsPerPixel)[0]}
-												y={(a[1] + b[1]) / 2 + labelOffset(a[1] - b[1], b[0] - a[0], unitsPerPixel)[1]}
-												size={14}
-												color={color}
-											>
-												{fillText(o.label, values.scope)}
-											</Text>
-										)}
 									</>
 								)
 							}
@@ -549,16 +507,6 @@ function renderObjects(
 											<Line.Segment point1={tail} point2={tip} color={color} weight={2.5} />
 										) : (
 											<Vector tail={tail} tip={tip} color={color} weight={2.5} />
-										)}
-										{o.label && (
-											<Text
-												x={tip[0] + labelOffset(tip[0] - tail[0], tip[1] - tail[1], unitsPerPixel)[0]}
-												y={tip[1] + labelOffset(tip[0] - tail[0], tip[1] - tail[1], unitsPerPixel)[1]}
-												size={14}
-												color={color}
-											>
-												{fillText(o.label, values.scope)}
-											</Text>
 										)}
 									</>
 								)
@@ -607,16 +555,9 @@ function renderObjects(
 									/>
 								)
 							}
-							case 'label': {
-								const p = resolveRef(o.at, values)
-								if (!finite(p)) return null
-								const text = fillText(o.text, values.scope)
-								return (
-									<Text x={clampCenterX(p[0], text)} y={clampY(p[1])} size={15} color={color}>
-										{text}
-									</Text>
-								)
-							}
+							case 'label':
+								// Drawn on top, where the layout put it.
+								return null
 							default:
 								return null
 						}
@@ -624,6 +565,155 @@ function renderObjects(
 				</g>
 			)
 		})
+	// Labels go on top of everything, so no line or handle hides them.
+	drawn.push(
+		<g key="scene-labels" data-scene-labels="">
+			{labels.map((l) => (
+				<g key={l.id} data-scene-object={l.id}>
+					<Text x={l.center[0]} y={l.center[1]} size={l.size} color={l.color}>
+						{l.text}
+					</Text>
+				</g>
+			))}
+		</g>
+	)
+	return drawn
+}
+
+/** The title and the readouts sit over the plot's top corners, so labels keep out of them. */
+function overlayBoxes(
+	title: string,
+	readouts: string[],
+	width: number,
+	plotHeight: number,
+	visibleX: [number, number],
+	visibleY: [number, number],
+	u: number
+): Box[] {
+	const boxes: Box[] = []
+	if (title) {
+		const px = Math.min(width * 0.48, textWidthPx(title, 15) + 20)
+		boxes.push({ x0: visibleX[0], x1: visibleX[0] + px * u, y0: visibleY[1] - 32 * u, y1: visibleY[1] })
+	}
+	if (readouts.length) {
+		const px = Math.min(width * 0.48, Math.max(...readouts.map((r) => textWidthPx(r, 12))) + 24)
+		const tall = Math.min(plotHeight * 0.34, 10 + readouts.length * 20)
+		boxes.push({ x0: visibleX[1] - px * u, x1: visibleX[1], y0: visibleY[1] - tall * u, y1: visibleY[1] })
+	}
+	return boxes
+}
+
+/**
+ * Where every label in the scene goes: one layout for points, handles,
+ * vectors, segments, and label objects, so no two labels overlap and none
+ * sits on a handle, an arrowhead, or the title and readouts.
+ */
+function layoutLabels(
+	visible: [string, SceneObject][],
+	values: SceneValues,
+	params: Record<string, ShapeParameter>,
+	readOnly: boolean,
+	u: number,
+	traces: Record<string, [number, number][]>,
+	duration: number,
+	time: number,
+	view: { x: [number, number]; y: [number, number] },
+	reserved: Box[]
+): { id: string; center: Vec; text: string; size: number; color: string }[] {
+	const finite = (p: Vec) => Number.isFinite(p[0]) && Number.isFinite(p[1])
+	const requests: (LabelRequest & { color: string })[] = []
+	const obstacles: Obstacles = { discs: [], boxes: reserved, strokes: [], fills: [] }
+	const xs = (n: number) => Array.from({ length: n + 1 }, (_, i) => view.x[0] + ((view.x[1] - view.x[0]) * i) / n)
+	for (const [id, o] of visible) {
+		const color = SCENE_INKS[o.ink ?? 0]
+		try {
+			switch (o.type) {
+				case 'point': {
+					const p = values.points[id]
+					if (!p || !finite(p)) break
+					const handle = !readOnly && !!dragTargets(o, params)
+					const radius = handle ? 13 : 5
+					obstacles.discs.push({ center: p, radius })
+					const text = o.label ? fillText(o.label, values.scope) : ''
+					if (text) requests.push({ id, kind: handle ? 'handle' : 'point', text, size: 15, anchor: p, radius, color })
+					break
+				}
+				case 'segment':
+				case 'line': {
+					const a = resolveRef(o.from, values)
+					const b = resolveRef(o.to, values)
+					if (!finite(a) || !finite(b)) break
+					obstacles.strokes.push(...sampleStroke([a, b], u))
+					if (o.type === 'segment' && o.label) {
+						requests.push({ id, kind: 'segment', text: fillText(o.label, values.scope), size: 14, anchor: b, from: a, color })
+					}
+					break
+				}
+				case 'vector': {
+					const tail = resolveRef(o.from, values)
+					const tip: Vec = [tail[0] + evaluateIn(o.dx, values.scope), tail[1] + evaluateIn(o.dy, values.scope)]
+					if (!finite(tail) || !finite(tip) || Math.hypot(tip[0] - tail[0], tip[1] - tail[1]) / u < 2) break
+					obstacles.strokes.push(...sampleStroke([tail, tip], u))
+					obstacles.discs.push({ center: tip, radius: 8 })
+					if (o.label) requests.push({ id, kind: 'vector', text: fillText(o.label, values.scope), size: 14, anchor: tip, from: tail, color })
+					break
+				}
+				case 'circle': {
+					const c = resolveRef(o.center, values)
+					const r = evaluateIn(o.r, values.scope)
+					if (!finite(c) || !(r > 0)) break
+					const ring = Array.from({ length: 41 }, (_, i) => [c[0] + r * Math.cos((i / 40) * 2 * Math.PI), c[1] + r * Math.sin((i / 40) * 2 * Math.PI)] as Vec)
+					obstacles.strokes.push(...sampleStroke(ring, u))
+					if (o.fill) obstacles.fills.push({ x0: c[0] - r, x1: c[0] + r, y0: c[1] - r, y1: c[1] + r })
+					break
+				}
+				case 'polygon': {
+					const points = o.points.map((p) => resolveRef(p, values))
+					if (!points.every(finite)) break
+					obstacles.strokes.push(...sampleStroke([...points, points[0]], u))
+					if (o.fill) {
+						const xs = points.map((p) => p[0])
+						const ys = points.map((p) => p[1])
+						obstacles.fills.push({ x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) })
+					}
+					break
+				}
+				case 'plot': {
+					const points = xs(120).map((x) => [x, evaluateIn(o.y, { ...values.scope, x })] as Vec)
+					obstacles.strokes.push(...sampleStroke(points.filter((p) => finite(p) && p[1] >= view.y[0] && p[1] <= view.y[1]), u))
+					break
+				}
+				case 'curve': {
+					const from = evaluateIn(o.from, values.scope)
+					const to = evaluateIn(o.to, values.scope)
+					if (!Number.isFinite(from) || !Number.isFinite(to)) break
+					const points = Array.from({ length: 121 }, (_, i) => {
+						const sv = from + ((to - from) * i) / 120
+						return [evaluateIn(o.x, { ...values.scope, s: sv }), evaluateIn(o.y, { ...values.scope, s: sv })] as Vec
+					})
+					obstacles.strokes.push(...sampleStroke(points.filter(finite), u))
+					break
+				}
+				case 'trace': {
+					const samples = traces[id]
+					if (!samples || duration <= 0 || time <= 0) break
+					const upTo = samples.slice(0, Math.max(2, Math.ceil((time / duration) * (samples.length - 1)) + 1))
+					obstacles.strokes.push(...sampleStroke(upTo.filter(finite), u))
+					break
+				}
+				case 'label': {
+					const p = resolveRef(o.at, values)
+					if (finite(p)) requests.push({ id, kind: 'label', text: fillText(o.text, values.scope), size: 15, anchor: p, color })
+					break
+				}
+			}
+		} catch {
+			// An object that cannot be evaluated has nothing to place.
+		}
+	}
+	if (requests.length === 0) return []
+	const placed = placeLabels(requests, obstacles, view, u)
+	return requests.map((r, i) => ({ id: r.id, center: placed[i].center, text: r.text, size: r.size, color: r.color }))
 }
 
 function PlayGlyph() {

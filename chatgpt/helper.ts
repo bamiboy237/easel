@@ -195,7 +195,11 @@ async function signIn(credentials: Credentials): Promise<Credentials> {
 	}).toString()
 
 	console.log('Opening your browser to sign in with ChatGPT.')
-	execFile('open', [url.toString()])
+	// Where there is no browser, such as a cloud container, the link is printed:
+	// open it on any computer, and when the browser lands on a page that does
+	// not load, send that page's full address to this machine's callback port.
+	console.log(`If no browser opens, open this link:\n${url.toString()}`)
+	execFile('open', [url.toString()], () => {})
 
 	const { code, clientId } = await callback.result
 	const tokens = await requestTokens({
