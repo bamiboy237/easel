@@ -91,7 +91,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 		provider: 'chatgpt',
 		supportsPrefill: false,
 		supportsTemperature: false,
-		reasoningEffort: 'medium',
+		reasoningEffort: 'high',
 	},
 
 	// Anthropic models
@@ -172,7 +172,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 	},
 } as const
 
-export const DEFAULT_MODEL_NAME: AgentModelName = 'gpt-6.1-terra-plan'
+export const DEFAULT_MODEL_NAME: AgentModelName = 'gpt-6.1-sol'
 
 /**
  * Check if a string is a valid AgentModelName.
