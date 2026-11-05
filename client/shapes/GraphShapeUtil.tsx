@@ -60,8 +60,10 @@ function gridStep(range: number, pixels: number): number {
 	return ([1, 2, 5, 10].map((m) => m * power).find((step) => step >= raw) ?? 10 * power)
 }
 
-function axisLabel(value: number): string {
-	return String(Number(value.toPrecision(6)))
+/** Labels for an axis, with as many decimals as its step needs, so no two ticks read the same. */
+function axisLabels(step: number) {
+	const decimals = Math.max(0, -Math.floor(Math.log10(step)))
+	return (value: number) => (Math.round(value / step) * step).toFixed(decimals).replace(/^-0$/, '0')
 }
 
 /**
@@ -131,6 +133,8 @@ function Graph({ shape }: { shape: GraphShape }) {
 		[functions]
 	)
 	const scope = parameterScope(parameters)
+	const xStep = gridStep(xMax - xMin, w)
+	const yStep = gridStep(yMax - yMin, plotHeight)
 	const errors = compiled.filter((c) => c.error).map((c) => c.error)
 
 	return (
@@ -147,8 +151,8 @@ function Graph({ shape }: { shape: GraphShape }) {
 					>
 						<Coordinates.Cartesian
 							subdivisions={false}
-							xAxis={{ lines: gridStep(xMax - xMin, w), labels: axisLabel }}
-							yAxis={{ lines: gridStep(yMax - yMin, plotHeight), labels: axisLabel }}
+							xAxis={{ lines: xStep, labels: axisLabels(xStep) }}
+							yAxis={{ lines: yStep, labels: axisLabels(yStep) }}
 						/>
 						{compiled.map((c, i) =>
 							c.fn ? (
