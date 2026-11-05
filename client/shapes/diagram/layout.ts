@@ -28,6 +28,8 @@ export interface LayoutEdge {
 	/** The size of the edge's label, 0 by 0 for none. */
 	labelW: number
 	labelH: number
+	/** The label's text, which can say which side a branch goes to. */
+	label?: string
 }
 
 /** Space between boxes in a layer, and between layers, before labels. */
@@ -51,6 +53,8 @@ export type Bends = number[]
  * they close, and long edges route around the boxes in between.
  */
 export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
+	const snake = layoutSnake(nodes, edges) ?? layoutLoop(nodes, edges)
+	if (snake) return snake
 	// A label on a slanting arrow is squeezed when the arrow is wider than tall and
 	// too short for it; more room between layers makes such arrows steeper.
 	let bends: Bends = []
@@ -60,6 +64,191 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 		if (!edges.some((e, i) => isSqueezed(nodes, e, centers, bends[i]))) break
 	}
 	return bends
+}
+
+/** Where an edge's label puts its child: a "left" or "no" branch first, a "right" or "yes" branch last. */
+function sideOf(label: string) {
+	if (/^(l|left)\b/i.test(label.trim())) return 0
+	if (/^(r|right)\b/i.test(label.trim())) return 2
+	return 1
+}
+
+/**
+ * For a flow that is a tree, lay each node's children out left to right in the
+ * order of the edges into them, with an edge labeled left before one labeled
+ * right. Each child moves with its whole subtree, and the subtrees keep the
+ * same slots and gaps dagre gave them, so nothing new overlaps. Returns
+ * whether the flow is a tree.
+ */
+function orderSiblings(nodes: LayoutNode[], edges: LayoutEdge[], center: Map<string, Point>) {
+	if (edges.length !== nodes.length - 1) return false
+	const kids = new Map<string, { id: string; side: number; index: number }[]>(nodes.map((n) => [n.id, []]))
+	const parent = new Map<string, string>()
+	for (const [index, e] of edges.entries()) {
+		if (parent.has(e.to)) return false
+		parent.set(e.to, e.from)
+		kids.get(e.from)!.push({ id: e.to, side: sideOf(e.label ?? ''), index })
+	}
+	const roots = nodes.filter((n) => !parent.has(n.id))
+	if (roots.length !== 1) return false
+	const byId = new Map(nodes.map((n) => [n.id, n]))
+	const subtree = (id: string): string[] => [id, ...kids.get(id)!.flatMap((k) => subtree(k.id))]
+	const extent = (id: string) => {
+		const ids = subtree(id)
+		return {
+			min: Math.min(...ids.map((k) => center.get(k)!.x - byId.get(k)!.w / 2)),
+			max: Math.max(...ids.map((k) => center.get(k)!.x + byId.get(k)!.w / 2)),
+		}
+	}
+	const visit = (id: string) => {
+		const children = kids.get(id)!
+		const sameRank = children.every((k) => Math.abs(center.get(k.id)!.y - center.get(children[0].id)!.y) < 1)
+		if (children.length > 1 && sameRank) {
+			const blocks = children.map((k) => ({ ...k, ...extent(k.id) }))
+			const slots = [...blocks].sort((a, b) => a.min - b.min)
+			const gaps = slots.slice(1).map((b, i) => b.min - slots[i].max)
+			const wanted = [...blocks].sort((a, b) => a.side - b.side || a.index - b.index)
+			let x = slots[0].min
+			wanted.forEach((b, i) => {
+				const shift = x - b.min
+				for (const k of subtree(b.id)) center.get(k)!.x += shift
+				x += b.max - b.min + (gaps[i] ?? 0)
+			})
+		}
+		for (const k of children) visit(k.id)
+	}
+	visit(roots[0].id)
+	return true
+}
+
+/** A chain at least this long wraps into rows instead of one tall column. */
+const SNAKE_MIN = 6
+
+/**
+ * A long chain of steps, one after another with no branches, wrapped into rows
+ * that read left to right, then right to left, so each turn is a short step
+ * straight down (a boustrophedon, as process posters and timelines wrap). One
+ * column of ten or more boxes is far taller than a screen, so zoomed to fit,
+ * its text shrinks past reading size. Rows are chosen so the drawing comes out
+ * about as wide as a screen. A chain that closes into a loop keeps the dagre
+ * layout, which routes the closing arrow around the steps. Returns null for
+ * anything that is not such a chain.
+ */
+function layoutSnake(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
+	const n = nodes.length
+	if (n < SNAKE_MIN || edges.length !== n - 1) return null
+	const next = new Map<string, number>()
+	const into = new Map<string, number>()
+	for (const [i, e] of edges.entries()) {
+		if (next.has(e.from) || into.has(e.to)) return null
+		next.set(e.from, i)
+		into.set(e.to, i)
+	}
+	const start = nodes.find((node) => !into.has(node.id))
+	if (!start) return null
+	const byId = new Map(nodes.map((node) => [node.id, node]))
+	const order: LayoutNode[] = [start]
+	while (next.has(order[order.length - 1].id)) {
+		const node = byId.get(edges[next.get(order[order.length - 1].id)!].to)!
+		if (order.includes(node)) return null
+		order.push(node)
+	}
+	if (order.length !== n) return null
+	const cellW = Math.max(...nodes.map((node) => node.w))
+	const cellH = Math.max(...nodes.map((node) => node.h))
+	// The room between two boxes in a row, and between rows, each wide enough for its labels.
+	const edgeAfter = (k: number) => edges[next.get(order[k].id)!]
+	const across = (labelW: number) => (labelW > 0 ? labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 72)
+	const down = (labelH: number) => (labelH > 0 ? labelH + LABEL_ARROW_ROOM : 64)
+	// Columns: the count whose drawing is closest to a 16:10 screen, at least 3.
+	let best = { cols: 3, cost: Infinity, gapX: 0, gapY: 0 }
+	for (let cols = 3; cols <= Math.min(n, 6); cols++) {
+		let gapX = 0
+		let gapY = 0
+		for (let k = 0; k < n - 1; k++) {
+			const turn = (k + 1) % cols === 0
+			if (turn) gapY = Math.max(gapY, down(edgeAfter(k).labelH))
+			else gapX = Math.max(gapX, across(edgeAfter(k).labelW))
+		}
+		gapY = Math.max(gapY, 64)
+		gapX = Math.max(gapX, 72)
+		const rows = Math.ceil(n / cols)
+		const w = cols * cellW + (cols - 1) * gapX
+		const h = rows * cellH + (rows - 1) * gapY
+		const cost = Math.abs(Math.log(w / h / 1.6)) + (rows === 1 ? 0.5 : 0)
+		if (cost < best.cost) best = { cols, cost, gapX, gapY }
+	}
+	const { cols, gapX, gapY } = best
+	order.forEach((node, k) => {
+		const row = Math.floor(k / cols)
+		const col = row % 2 === 0 ? k % cols : cols - 1 - (k % cols)
+		node.x = col * (cellW + gapX) + (cellW - node.w) / 2
+		node.y = row * (cellH + gapY) + (cellH - node.h) / 2
+	})
+	// Every arrow runs straight: along a row, or down at a turn.
+	return edges.map(() => 0)
+}
+
+/**
+ * A flow that is one closed loop of six or more steps, such as blood through
+ * the heart or the water cycle as a process, goes clockwise around a
+ * rectangle: along the top, down the right side, back along the bottom, and up
+ * the left side, so every arrow, the one that closes the loop too, is a short
+ * straight step to a neighbor. dagre draws such a loop as one tall column with
+ * the closing arrow arcing back up its whole height. Returns null for anything
+ * else.
+ */
+function layoutLoop(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
+	const n = nodes.length
+	if (n < SNAKE_MIN || edges.length !== n) return null
+	const next = new Map<string, LayoutEdge>()
+	for (const e of edges) {
+		if (next.has(e.from)) return null
+		next.set(e.from, e)
+	}
+	const byId = new Map(nodes.map((node) => [node.id, node]))
+	// The loop starts at the first step the agent listed.
+	const order: LayoutNode[] = [nodes[0]]
+	for (let k = 1; k < n; k++) {
+		const e = next.get(order[k - 1].id)
+		const node = e && byId.get(e.to)
+		if (!node || order.includes(node)) return null
+		order.push(node)
+	}
+	if (next.get(order[n - 1].id)?.to !== order[0].id) return null
+	const cellW = Math.max(...nodes.map((node) => node.w))
+	const cellH = Math.max(...nodes.map((node) => node.h))
+	const gapX = Math.max(72, ...edges.map((e) => (e.labelW > 0 ? e.labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 0)))
+	const gapY = Math.max(64, ...edges.map((e) => (e.labelH > 0 ? e.labelH + LABEL_ARROW_ROOM : 0)))
+	// Columns and rows of the track: room for every step, at most one cell spare,
+	// and a drawing as close to a 16:10 screen as that allows.
+	let best: { cols: number; rows: number; cost: number } | null = null
+	for (let cols = 2; cols <= n; cols++) {
+		for (let rows = 2; rows <= n; rows++) {
+			const cells = 2 * cols + 2 * (rows - 2)
+			if (cells < n || cells > n + 1) continue
+			const w = cols * cellW + (cols - 1) * gapX
+			const h = rows * cellH + (rows - 1) * gapY
+			const cost = Math.abs(Math.log(w / h / 1.6))
+			if (!best || cost < best.cost) best = { cols, rows, cost }
+		}
+	}
+	if (!best) return null
+	const { cols, rows } = best
+	// The cells clockwise from the top left.
+	const cells: [number, number][] = []
+	for (let c = 0; c < cols; c++) cells.push([c, 0])
+	for (let r = 1; r < rows - 1; r++) cells.push([cols - 1, r])
+	for (let c = cols - 1; c >= 0; c--) cells.push([c, rows - 1])
+	for (let r = rows - 2; r >= 1; r--) cells.push([0, r])
+	// With one cell spare, the last step skips the cell just before the start.
+	const used = cells.length > n ? [...cells.slice(0, n - 1), cells[cells.length - 1]] : cells
+	order.forEach((node, k) => {
+		const [c, r] = used[k]
+		node.x = c * (cellW + gapX) + (cellW - node.w) / 2
+		node.y = r * (cellH + gapY) + (cellH - node.h) / 2
+	})
+	return edges.map(() => 0)
 }
 
 function layoutFlowOnce(nodes: LayoutNode[], edges: LayoutEdge[], rankGap: number, center: Map<string, Point>): Bends {
@@ -94,9 +283,17 @@ function layoutFlowOnce(nodes: LayoutNode[], edges: LayoutEdge[], rankGap: numbe
 	for (const n of nodes) {
 		const d = g.node(n.id) as { x: number; y: number }
 		center.set(n.id, { x: d.x, y: d.y })
-		n.x = d.x - n.w / 2
-		n.y = d.y - n.h / 2
 	}
+	// In a tree, siblings keep the order the agent gave them, so a binary tree's
+	// left child stays on the left. dagre reorders siblings to cut crossings,
+	// which a tree has none of, and that can swap them.
+	const tree = orderSiblings(nodes, edges, center)
+	for (const n of nodes) {
+		const c = center.get(n.id)!
+		n.x = c.x - n.w / 2
+		n.y = c.y - n.h / 2
+	}
+	if (tree) return placeBends(nodes, edges, center, edges.map(() => 0))
 	const preferred = edges.map((e, i) => {
 		const d = g.edge({ v: e.from, w: e.to, name: String(i) }) as {
 			x?: number
@@ -127,8 +324,18 @@ export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[], tries = MAP_
 	const tree = layoutTree(nodes, edges)
 	if (tree) return tree
 	let best: { score: number; centers: Map<string, Point>; bends: Bends } | null = null
-	for (let seed = 0; seed < tries; seed++) {
-		const centers = runForce(nodes, edges, seed)
+	// Stress layouts first, then force layouts from fixed starts; the best drawing wins.
+	const starts: (() => Map<string, Point>)[] = []
+	for (let seed = 0; seed < Math.min(tries, STRESS_TRIES); seed++) {
+		const stress = runStress(nodes, edges, seed)
+		starts.push(() => stress)
+		// Stress keeps every distance, so it draws roomier than a force layout; a
+		// compacted copy (as in FORBID's scaling step) competes on equal terms.
+		for (const scale of [0.8, 0.65]) starts.push(() => compact(stress, nodes, edges, scale))
+	}
+	for (let seed = 0; seed < tries; seed++) starts.push(() => runForce(nodes, edges, seed))
+	for (const start of starts) {
+		const centers = start()
 		const placed = nodes.map((n) => ({ ...n, x: centers.get(n.id)!.x - n.w / 2, y: centers.get(n.id)!.y - n.h / 2 }))
 		const preferred = edges.map((e, i) => {
 			const label = centers.get(labelKey(i))
@@ -156,36 +363,62 @@ export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[], tries = MAP_
  * the last for the widest label on the arrows into it. Returns null for a map
  * that is not a tree, which keeps the force layout.
  */
-function layoutTree(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
-	if (nodes.length < 4 || edges.length !== nodes.length - 1) return null
-	const byId = new Map(nodes.map((n) => [n.id, n]))
-	const neighbors = new Map<string, string[]>(nodes.map((n) => [n.id, []]))
+/**
+ * The shape of a map that is a tree: its root, each node's depth, and which of
+ * the root's branches each node belongs to (the root's is -1). Null for a map
+ * that is not a tree, or is too small to be a mind map.
+ */
+export interface TreeInfo {
+	root: string
+	depth: Map<string, number>
+	branch: Map<string, number>
+	children: Map<string, string[]>
+}
+
+export function treeOf(ids: string[], edges: { from: string; to: string }[]): TreeInfo | null {
+	if (ids.length < 4 || edges.length !== ids.length - 1) return null
+	const neighbors = new Map<string, string[]>(ids.map((id) => [id, []]))
 	const pairs = new Set<string>()
 	for (const e of edges) {
 		const key = [e.from, e.to].sort().join(' ')
-		if (pairs.has(key)) return null
+		if (pairs.has(key) || !neighbors.has(e.from) || !neighbors.has(e.to)) return null
 		pairs.add(key)
 		neighbors.get(e.from)!.push(e.to)
 		neighbors.get(e.to)!.push(e.from)
 	}
 	// The root: a node nothing points to, with the most branches.
 	const pointedTo = new Set(edges.map((e) => e.to))
-	const root = [...nodes]
-		.sort((a, b) => Number(pointedTo.has(a.id)) - Number(pointedTo.has(b.id)) || neighbors.get(b.id)!.length - neighbors.get(a.id)!.length)[0]
+	const root = [...ids].sort(
+		(a, b) => Number(pointedTo.has(a)) - Number(pointedTo.has(b)) || neighbors.get(b)!.length - neighbors.get(a)!.length
+	)[0]
 	// Walk the tree from the root; a tree with n - 1 edges that reaches every node is connected.
 	const children = new Map<string, string[]>()
-	const depth = new Map<string, number>([[root.id, 0]])
-	const queue = [root.id]
+	const depth = new Map<string, number>([[root, 0]])
+	const branch = new Map<string, number>([[root, -1]])
+	const queue = [root]
 	while (queue.length) {
 		const id = queue.shift()!
 		const kids = neighbors.get(id)!.filter((k) => !depth.has(k))
-		for (const k of kids) {
+		kids.forEach((k, i) => {
 			depth.set(k, depth.get(id)! + 1)
+			branch.set(k, id === root ? i : branch.get(id)!)
 			queue.push(k)
-		}
+		})
 		children.set(id, kids)
 	}
-	if (depth.size !== nodes.length) return null
+	if (depth.size !== ids.length) return null
+	return { root, depth, branch, children }
+}
+
+function layoutTree(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
+	const info = treeOf(
+		nodes.map((n) => n.id),
+		edges
+	)
+	if (!info) return null
+	const byId = new Map(nodes.map((n) => [n.id, n]))
+	const { depth, children } = info
+	const root = byId.get(info.root)!
 	const labelInto = new Map<string, number>()
 	for (const e of edges) {
 		const child = depth.get(e.to)! > depth.get(e.from)! ? e.to : e.from
@@ -337,6 +570,111 @@ function runForce(nodes: LayoutNode[], edges: LayoutEdge[], seed: number): Map<s
 	// Remove what overlap is left, as rectangles, moving things as little as needed.
 	for (let i = 0; i < 60; i++) if (!separate(bodies)) break
 	return new Map(bodies.map((b) => [b.key, { x: b.x!, y: b.y! }]))
+}
+
+const STRESS_TRIES = 4
+
+/**
+ * One stress layout (Gansner, Koren, and North, "Graph Drawing by Stress
+ * Majorization", 2004, the method behind Graphviz neato). Every pair of bodies
+ * wants to sit as far apart as the shortest path between them, where each step
+ * of a path is as long as its two ends need. Each labeled edge is split at a
+ * label body, as in runForce. Pairs are weighted by 1 / d², so near neighbors
+ * count most, which keeps linked boxes close and short arcs short: the long
+ * arcs a force layout leaves on a cyclic map are what this fixes. Seed 0 starts
+ * on a circle in the given order, the others from fixed scattered starts.
+ */
+function runStress(nodes: LayoutNode[], edges: LayoutEdge[], seed: number): Map<string, Point> {
+	type Body = { key: string; w: number; h: number; x: number; y: number }
+	const rand = random(seed + 101)
+	const bodies: Body[] = nodes.map((n) => ({ key: n.id, w: n.w, h: n.h, x: 0, y: 0 }))
+	const index = new Map(bodies.map((b, i) => [b.key, i]))
+	const reach = (b: Body) => Math.max(b.w, b.h) / 2
+	const links: [number, number, number][] = []
+	edges.forEach((e, i) => {
+		const a = index.get(e.from)!
+		const b = index.get(e.to)!
+		if (e.labelW <= 0) {
+			links.push([a, b, reach(bodies[a]) + reach(bodies[b]) + 90])
+			return
+		}
+		const label: Body = { key: labelKey(i), w: e.labelW + LABEL_MARGIN * 2, h: e.labelH + LABEL_MARGIN, x: 0, y: 0 }
+		bodies.push(label)
+		const l = bodies.length - 1
+		index.set(label.key, l)
+		const half = label.w / 2 + LABEL_ARROW_ROOM / 2
+		links.push([a, l, reach(bodies[a]) + half], [l, b, half + reach(bodies[b])])
+	})
+	const n = bodies.length
+	// Shortest paths (Floyd-Warshall; a board diagram has at most a few dozen bodies).
+	const d = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 0 : Infinity)))
+	for (const [a, b, len] of links) {
+		d[a][b] = Math.min(d[a][b], len)
+		d[b][a] = Math.min(d[b][a], len)
+	}
+	for (let k = 0; k < n; k++)
+		for (let i = 0; i < n; i++)
+			for (let j = 0; j < n; j++) if (d[i][k] + d[k][j] < d[i][j]) d[i][j] = d[i][k] + d[k][j]
+	// Parts that are not connected sit a fixed distance apart.
+	const finite = d.flat().filter((v) => Number.isFinite(v))
+	const far = Math.max(...finite, 200) * 1.2
+	for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (!Number.isFinite(d[i][j])) d[i][j] = far
+	// Start: nodes on a circle (or scattered), labels between their ends.
+	const spread = 160 * Math.sqrt(nodes.length)
+	nodes.forEach((_, i) => {
+		const angle = (2 * Math.PI * i) / nodes.length
+		bodies[i].x = seed === 0 ? Math.cos(angle) * spread : (rand() - 0.5) * 2 * spread
+		bodies[i].y = seed === 0 ? Math.sin(angle) * spread : (rand() - 0.5) * 2 * spread
+	})
+	edges.forEach((e, i) => {
+		const l = index.get(labelKey(i))
+		if (l === undefined) return
+		const a = bodies[index.get(e.from)!]
+		const b = bodies[index.get(e.to)!]
+		bodies[l].x = (a.x + b.x) / 2 + (rand() - 0.5) * 10
+		bodies[l].y = (a.y + b.y) / 2 + (rand() - 0.5) * 10
+	})
+	// Majorization, one body at a time (the localized update of the paper).
+	for (let iter = 0; iter < 300; iter++) {
+		let moved = 0
+		for (let i = 0; i < n; i++) {
+			let sx = 0
+			let sy = 0
+			let sw = 0
+			for (let j = 0; j < n; j++) {
+				if (i === j) continue
+				const w = 1 / (d[i][j] * d[i][j])
+				const dx = bodies[i].x - bodies[j].x
+				const dy = bodies[i].y - bodies[j].y
+				const dist = Math.hypot(dx, dy) || 1e-3
+				sx += w * (bodies[j].x + (d[i][j] * dx) / dist)
+				sy += w * (bodies[j].y + (d[i][j] * dy) / dist)
+				sw += w
+			}
+			const nx = sx / sw
+			const ny = sy / sw
+			moved += Math.hypot(nx - bodies[i].x, ny - bodies[i].y)
+			bodies[i].x = nx
+			bodies[i].y = ny
+		}
+		if (moved / n < 0.05) break
+	}
+	for (let i = 0; i < 80; i++) if (!separate(bodies)) break
+	return new Map(bodies.map((b) => [b.key, { x: b.x, y: b.y }]))
+}
+
+/**
+ * A layout drawn closer together: every center moves toward the middle by this
+ * scale, then overlap is removed again. The shape of the drawing stays; only
+ * the empty space shrinks (the scaling step of Giovannangeli et al., FORBID, 2022).
+ */
+function compact(centers: Map<string, Point>, nodes: LayoutNode[], edges: LayoutEdge[], scale: number) {
+	const bodies = [
+		...nodes.map((n) => ({ key: n.id, w: n.w, h: n.h })),
+		...edges.flatMap((e, i) => (e.labelW > 0 ? [{ key: labelKey(i), w: e.labelW + LABEL_MARGIN * 2, h: e.labelH + LABEL_MARGIN }] : [])),
+	].map((b) => ({ ...b, x: centers.get(b.key)!.x * scale, y: centers.get(b.key)!.y * scale }))
+	for (let i = 0; i < 120; i++) if (!separate(bodies)) break
+	return new Map(bodies.map((b) => [b.key, { x: b.x, y: b.y }]))
 }
 
 /**
