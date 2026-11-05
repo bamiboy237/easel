@@ -9,6 +9,7 @@ import canvasWorkSkill from './skills/canvas-work.md?raw'
 import designSkill from './skills/design.md?raw'
 import drawingSkill from './skills/drawing.md?raw'
 import explainingSkill from './skills/explaining.md?raw'
+import { BUILT_IN_TEMPLATES } from '../../client/shapes/scene/templates'
 
 /**
  * Build the system prompt for the agent.
@@ -42,6 +43,8 @@ export function buildSystemPrompt(
 		explainingSkill,
 		buildRulesPromptSection(flags),
 	]
+
+	if (modePart.actionTypes.includes('scene_template')) lines.push(buildTemplatesSection())
 
 	if (withSchema) {
 		lines.push(buildSchemaPromptSection(modePart))
@@ -104,6 +107,21 @@ export function buildLoadedToolsPrompt(prompt: AgentPrompt): string {
 			return `## Loaded tools: ${id}\n\n${schema}\n${TOOL_GROUP_GUIDES[id] ?? ''}`
 		})
 	return normalizeNewlines(`\n${sections.join('\n')}`)
+}
+
+/**
+ * The built-in scene templates. They never change, so they live in the cached
+ * system prompt; templates a user saved on the board come with each request.
+ */
+function buildTemplatesSection() {
+	const rows = BUILT_IN_TEMPLATES.map(
+		(t) => `  - ${t.id}: ${t.title}, for ${t.useFor}. Params: ${t.params.map((p) => `${p.name} (${p.min} to ${p.max})`).join(', ')}.`
+	)
+	return `## Scene templates
+
+Scene templates you can place with scene_template. These are checked and verified, so prefer one when it fits:
+${rows.join('\n')}
+`
 }
 
 function buildSchemaPromptSection(modePart: ModePart) {

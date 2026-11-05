@@ -8,7 +8,8 @@ export const TimePartUtil = registerPromptPartUtil(
 		override getPart(): TimePart {
 			return {
 				type: 'time',
-				time: new Date().toLocaleTimeString(),
+				// To the minute: seconds would change the prompt on every request for no use.
+				time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
 			}
 		}
 	}
