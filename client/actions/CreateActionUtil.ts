@@ -1,4 +1,5 @@
 import { IndexKey, TLShape, TLShapeId, toRichText } from 'tldraw'
+import { settleBlock } from '../agent/settleBlock'
 import {
 	convertPartialFocusedShapeToTldrawShape,
 	FOCUSED_TO_GEO_TYPES,
@@ -77,6 +78,9 @@ export const CreateActionUtil = registerActionUtil(
 			if (!result.shape) return
 
 			editor.createShape(result.shape)
+			// Text the agent writes keeps off the text and blocks it wrote earlier in
+			// this request, as equations and scenes do (see settleBlock).
+			if (result.shape.type === 'text' && result.shape.id) settleBlock(this.agent, result.shape.id)
 
 			// Handle arrow bindings if they exist
 			if (result.bindings) {
