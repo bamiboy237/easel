@@ -15,12 +15,17 @@ import { convertTldrawIdToSimpleId } from '../../../shared/format/convertTldrawS
 import { AgentCanvasLint } from '../../../shared/types/AgentCanvasLint'
 import { BaseAgentManager } from './BaseAgentManager'
 
+import { SCENE_TYPE, SceneShape } from '../../shapes/SceneShapeUtil'
+import { checkScene } from '../../shapes/scene/sceneModel'
+
 /**
  * Generate a unique key for a lint based on its type and shape IDs.
  */
 function getLintKey(lint: AgentCanvasLint): string {
 	const sortedIds = [...lint.shapeIds].sort().join(',')
-	return `${lint.type}:${sortedIds}`
+	// A scene's problems are part of its key, so a new problem in the same scene is surfaced.
+	const detail = lint.type === 'scene-problem' ? `:${(lint.texts ?? []).join('|')}` : ''
+	return `${lint.type}:${sortedIds}${detail}`
 }
 
 /**
@@ -66,6 +71,12 @@ export class AgentLintManager extends BaseAgentManager {
 			if (record.typeName === 'shape') {
 				this.createdShapeIds.add(id as TLShapeId)
 			}
+		}
+
+		// A scene the agent changed is checked as well as one it made, since an
+		// update can break a scene that worked.
+		for (const [id, [, after]] of Object.entries(diff.updated)) {
+			if (after.typeName === 'shape' && (after as TLShape).type === SCENE_TYPE) this.createdShapeIds.add(id as TLShapeId)
 		}
 
 		// Track removed shapes and remove from created set
@@ -172,6 +183,16 @@ export class AgentLintManager extends BaseAgentManager {
 				type: 'friendless-arrow',
 				shapeIds: [convertTldrawIdToSimpleId(arrow.id)],
 			})
+		}
+
+		for (const shape of shapes) {
+			if (shape.type !== SCENE_TYPE) continue
+			const scene = shape as SceneShape
+			const dropped = ((scene.meta.sceneDropped as string[] | undefined) ?? []).map((d) => `not drawn: ${d}`)
+			const problems = [...dropped, ...checkScene(scene.props)]
+			if (problems.length > 0) {
+				lints.push({ type: 'scene-problem', shapeIds: [convertTldrawIdToSimpleId(shape.id)], texts: problems })
+			}
 		}
 
 		return lints

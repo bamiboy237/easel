@@ -1496,6 +1496,55 @@
 	text-align: right;
 }
 
+/* The formulas behind a scene, opened by each viewer from the plot's corner. */
+.scene-formulas-toggle {
+	position: absolute;
+	right: 8px;
+	bottom: 8px;
+	padding: 2px 7px;
+	border: 1px solid var(--paper-rule);
+	border-radius: 4px;
+	background: var(--paper-card);
+	font: italic 13px 'Source Serif 4 Variable', Georgia, serif;
+	color: var(--tl-color-text-3);
+	cursor: pointer;
+	pointer-events: all;
+}
+
+.scene-formulas-toggle[aria-pressed='true'] {
+	color: var(--paper-ink);
+	border-color: var(--paper-ink);
+}
+
+.scene-formulas {
+	position: absolute;
+	left: 8px;
+	right: 52px;
+	bottom: 8px;
+	max-height: 45%;
+	overflow: auto;
+	padding: 6px 10px;
+	border: 1px solid var(--paper-rule);
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--paper-card) 94%, transparent);
+	font: 12px 'Inter', sans-serif;
+	font-variant-numeric: tabular-nums;
+	color: var(--paper-ink);
+	pointer-events: all;
+}
+
+.scene-formula {
+	line-height: 1.6;
+}
+
+.scene-formula-name {
+	font: italic 14px 'Source Serif 4 Variable', Georgia, serif;
+}
+
+.scene-formula-failing {
+	color: #ae3b2c;
+}
+
 /* A scene the agent is still writing: its controls wait until it lands. */
 .scene-preview .shape-parameters,
 .scene-preview .simulation-controls {
