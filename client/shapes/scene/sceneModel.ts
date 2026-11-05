@@ -76,6 +76,8 @@ export interface SceneProps {
 	axes?: boolean
 	/** A time every viewer's playback stops on, set by the agent while it explains a moment. */
 	pinnedTime?: number
+	/** Counts the agent's pins, so pinning the same time again still moves every viewer to it. */
+	pinCount?: number
 	params: Record<string, ShapeParameter>
 	objects: Record<string, SceneObject>
 }
@@ -113,6 +115,8 @@ export interface SceneValues {
 	points: Record<string, [number, number]>
 	/** Problems found while evaluating, by object id. */
 	errors: Record<string, string>
+	/** The time a stop event stopped the clock, or null. */
+	stoppedAt: number | null
 }
 
 /** Evaluate an expression in a scope, as a number or NaN. */
@@ -125,12 +129,19 @@ export function evaluateIn(source: string, scope: Scope): number {
  * ones before it. Points come after the lets, and can use them.
  */
 export function evaluateScene(props: Pick<SceneProps, 'params' | 'objects'>, t: number): SceneValues {
-	const scope: Scope = { t }
-	for (const p of Object.values(props.params)) scope[p.name] = p.value
+	const params = paramScope(props)
+	const scope: Scope = { ...params, t }
 	const errors: Record<string, string> = {}
 	// State variables, when the scene has any, come from integrating to time t.
+	// Once a stop event stops the clock, time itself holds there too.
+	let stoppedAt: number | null = null
 	const system = steppedSystemOf(props)
-	if (system) Object.assign(scope, stateAt(system, paramScope(props), t, integrationKey(props)))
+	if (system) {
+		const stepped = stateAt(system, params, t, integrationKey(props))
+		Object.assign(scope, stepped.state)
+		stoppedAt = stepped.stoppedAt
+		if (stoppedAt !== null) scope.t = Math.min(t, stoppedAt)
+	}
 	for (const [id, object] of letsInOrder(props.objects)) {
 		try {
 			scope[id] = evaluateIn(object.expr, scope)
@@ -148,7 +159,7 @@ export function evaluateScene(props: Pick<SceneProps, 'params' | 'objects'>, t: 
 			errors[id] = (error as Error).message
 		}
 	}
-	return { scope, points, errors }
+	return { scope, points, errors, stoppedAt }
 }
 
 function paramScope(props: Pick<SceneProps, 'params'>): Scope {
@@ -168,14 +179,17 @@ function steppedSystemOf(props: Pick<SceneProps, 'objects'>): SteppedSystem | nu
 		.map(([name, o]) => ({ name, init: (o as Extract<SceneObject, { type: 'state' }>).init, rate: (o as Extract<SceneObject, { type: 'state' }>).rate }))
 	const events = entries
 		.filter(([, o]) => o.type === 'event')
-		.map(([id, o]) => ({ id, ...(o as Extract<SceneObject, { type: 'event' }>) }))
+		.map(([id, o]) => {
+			const { when, set, stop } = o as Extract<SceneObject, { type: 'event' }>
+			return { id, when, set, stop }
+		})
 	const lets = letsInOrder(props.objects)
 	const system: SteppedSystem | null =
 		variables.length === 0
 			? null
 			: {
 					variables,
-					events: events.map((e) => ({ id: e.id, when: e.when, set: e.set, stop: e.stop })),
+					events,
 					withLets: (scope) => {
 						const out = { ...scope }
 						for (const [id, o] of lets) {

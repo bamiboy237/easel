@@ -78,6 +78,7 @@ export class SceneShapeUtil extends ShapeUtil<SceneShape> {
 		duration: T.number,
 		axes: T.boolean.optional(),
 		pinnedTime: T.number.optional(),
+		pinCount: T.number.optional(),
 		params: T.dict(T.string, shapeParameterValidator),
 		objects: T.dict(T.string, T.jsonValue) as never,
 	}
@@ -121,13 +122,19 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const plotHeight = Math.max(60, h - sceneChromeHeight(shape.props))
 	const [t, setT] = usePlayback(duration)
 	// When the agent pins a time, every viewer stops on it.
-	const { pinnedTime } = shape.props
+	const { pinnedTime, pinCount } = shape.props
 	useEffect(() => {
 		if (typeof pinnedTime === 'number' && Number.isFinite(pinnedTime)) {
 			setT({ time: Math.min(Math.max(0, pinnedTime), duration), playing: false })
 		}
-	}, [pinnedTime, duration, setT])
+	}, [pinnedTime, pinCount, duration, setT])
 	const values = useMemo(() => evaluateScene({ params, objects }, t.time), [params, objects, t.time])
+	// A stop event stops playback where it stopped the clock.
+	useEffect(() => {
+		if (t.playing && values.stoppedAt !== null && t.time >= values.stoppedAt) {
+			setT({ time: values.stoppedAt, playing: false })
+		}
+	}, [t.playing, t.time, values.stoppedAt, setT])
 	// Each trace is sampled once whenever the scene changes, not every frame.
 	const traces = useMemo(() => sampleTraces({ params, objects }, duration), [params, objects, duration])
 	// Each viewer can open the formulas behind the picture, as in Desmos.

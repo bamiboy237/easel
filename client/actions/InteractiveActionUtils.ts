@@ -252,7 +252,13 @@ export const SceneActionUtil = registerActionUtil(
 				yMax,
 				duration,
 				axes: typeof action.axes === 'boolean' ? action.axes : (existing?.props.axes ?? true),
-				...(Number.isFinite(action.pinTime) ? { pinnedTime: Math.min(Math.max(0, action.pinTime!), duration) } : {}),
+				// A pin is set only by the action that asks for it; any other update clears it.
+				...(Number.isFinite(action.pinTime)
+					? {
+							pinnedTime: Math.min(Math.max(0, action.pinTime!), duration),
+							pinCount: (existing?.props.pinCount ?? 0) + 1,
+						}
+					: { pinnedTime: undefined }),
 				params,
 				objects,
 				w,

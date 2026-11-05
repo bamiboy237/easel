@@ -44,7 +44,8 @@ interface Checkpoint {
 	state: number[]
 	/** Each event's condition at this time, so an event fires only as its condition turns true. */
 	armed: boolean[]
-	stopped: boolean
+	/** The time a stop event stopped the clock, or null while it runs. */
+	stoppedAt: number | null
 }
 
 interface Integration {
@@ -59,7 +60,12 @@ const cache = new WeakMap<object, Integration>()
  * changes whenever the scene's parameters or objects change, so a cached
  * integration is never reused for a different scene.
  */
-export function stateAt(system: SteppedSystem, base: Scope, t: number, key: object): Scope {
+export function stateAt(
+	system: SteppedSystem,
+	base: Scope,
+	t: number,
+	key: object
+): { state: Scope; stoppedAt: number | null } {
 	const integration = getIntegration(system, base, key)
 	const target = Math.min(Math.max(0, t), MAX_TIME)
 	const { checkpoints } = integration
@@ -76,7 +82,7 @@ export function stateAt(system: SteppedSystem, base: Scope, t: number, key: obje
 	}
 	const scope: Scope = {}
 	system.variables.forEach((v, i) => (scope[v.name] = current.state[i]))
-	return scope
+	return { state: scope, stoppedAt: current.stoppedAt }
 }
 
 function getIntegration(system: SteppedSystem, base: Scope, key: object): Integration {
@@ -106,7 +112,7 @@ function getIntegration(system: SteppedSystem, base: Scope, key: object): Integr
 		scope[v.name] = value
 		return value
 	})
-	const start: Checkpoint = { t: 0, state, armed: [], stopped: false }
+	const start: Checkpoint = { t: 0, state, armed: [], stoppedAt: null }
 	start.armed = compiled.events.map((e) => e.when(fullScope(system, base, start.t, start.state)) !== 0)
 	const integration = { checkpoints: [start], compiled }
 	cache.set(key, integration)
@@ -127,7 +133,7 @@ function rates(system: SteppedSystem, integration: Integration, base: Scope, t: 
 /** One RK4 step, then events: a stopped clock keeps its state from then on. */
 function step(system: SteppedSystem, integration: Integration, base: Scope, from: Checkpoint): Checkpoint {
 	const t = from.t + STEP
-	if (from.stopped) return { ...from, t }
+	if (from.stoppedAt !== null) return { ...from, t }
 	const h = STEP
 	const y = from.state
 	const add = (a: number[], b: number[], k: number) => a.map((v, i) => v + b[i] * k)
@@ -136,23 +142,28 @@ function step(system: SteppedSystem, integration: Integration, base: Scope, from
 	const k3 = rates(system, integration, base, from.t + h / 2, add(y, k2, h / 2))
 	const k4 = rates(system, integration, base, t, add(y, k3, h))
 	let state = y.map((v, i) => v + (h / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]))
-	let stopped = false
+	let stoppedAt: number | null = null
 	const armed = [...from.armed]
+	let scope = fullScope(system, base, t, state)
 	integration.compiled.events.forEach((event, i) => {
-		const now = event.when(fullScope(system, base, t, state)) !== 0
+		const now = event.when(scope) !== 0
 		// An event fires as its condition turns true, not on every step it stays true.
 		if (now && !armed[i]) {
-			const scope = fullScope(system, base, t, state)
 			const next = [...state]
 			for (const [index, value] of event.set) next[index] = value(scope)
 			state = next
-			if (system.events[i].stop) stopped = true
+			scope = fullScope(system, base, t, state)
+			if (system.events[i].stop) stoppedAt = t
+			// A reset can make the condition false again, such as a bounce that puts
+			// the ball back on the floor, so the event is armed for the next time.
+			armed[i] = event.when(scope) !== 0
+		} else {
+			armed[i] = now
 		}
-		armed[i] = now
 	})
-	return { t, state, armed, stopped }
+	return { t, state, armed, stoppedAt }
 }
 
 function cloneCheckpoint(c: Checkpoint): Checkpoint {
-	return { t: c.t, state: [...c.state], armed: [...c.armed], stopped: c.stopped }
+	return { t: c.t, state: [...c.state], armed: [...c.armed], stoppedAt: c.stoppedAt }
 }
