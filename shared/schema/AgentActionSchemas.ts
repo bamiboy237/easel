@@ -2,6 +2,7 @@ import z from 'zod'
 import { FocusedColor } from '../format/FocusedColor'
 import { FocusedFillSchema } from '../format/FocusedFill'
 import { FocusedShapeSchema, FocusedTextAnchorSchema } from '../format/FocusedShape'
+import { TOOL_GROUP_IDS } from '../toolGroups'
 import { SimpleShapeIdSchema, TodoIdSchema } from '../types/ids-schema'
 
 /**
@@ -332,6 +333,21 @@ export const ThinkAction = z
 	.meta({ title: 'Think', description: 'The AI describes its intent or reasoning.' })
 
 export type ThinkAction = z.infer<typeof ThinkAction>
+
+// Load Tools Action
+export const LoadToolsAction = z
+	.object({
+		_type: z.literal('load_tools'),
+		intent: z.string(),
+		groups: z.array(z.enum(TOOL_GROUP_IDS as [string, ...string[]])),
+	})
+	.meta({
+		title: 'Load Tools',
+		description:
+			'The AI loads tool groups it needs before using them, such as the pen and its drawing guide. They load from the next pass on and stay for the rest of the conversation. intent is the task to continue once they load. Only load a group that is listed as not loaded.',
+	})
+
+export type LoadToolsAction = z.infer<typeof LoadToolsAction>
 
 // Todo List Action
 export const UpsertPersonalTodoItemAction = z

@@ -1,5 +1,6 @@
 import { buildResponseSchema } from '../../shared/schema/buildResponseSchema'
 import type { ModePart } from '../../shared/schema/PromptPartDefinitions'
+import { GROUPED_ACTIONS, TOOL_GROUP_IDS, TOOL_GROUPS, ToolGroupId } from '../../shared/toolGroups'
 import { AgentPrompt } from '../../shared/types/AgentPrompt'
 import { getSystemPromptFlags } from './getSystemPromptFlags'
 import { buildIntroPromptSection } from './sections/intro-section'
@@ -38,14 +39,13 @@ export function buildSystemPrompt(
 	const lines = [
 		buildIntroPromptSection(flags),
 		canvasWorkSkill,
-		drawingSkill,
-		designSkill,
 		explainingSkill,
 		buildRulesPromptSection(flags),
 	]
 
 	if (withSchema) {
 		lines.push(buildSchemaPromptSection(modePart))
+		lines.push(buildToolGroupsIndexSection(modePart))
 	}
 
 	const result = normalizeNewlines(lines.join('\n'))
@@ -53,8 +53,60 @@ export function buildSystemPrompt(
 	return result
 }
 
+/** The guide each tool group brings with it, if any. */
+const TOOL_GROUP_GUIDES: Partial<Record<ToolGroupId, string>> = {
+	drawing: drawingSkill,
+	design: designSkill,
+}
+
+/**
+ * The always-loaded actions: every action outside a tool group. This part of
+ * the prompt does not depend on which groups are loaded, so it stays cached.
+ */
+function getCoreActionTypes(modePart: ModePart) {
+	return modePart.actionTypes.filter((type) => !GROUPED_ACTIONS.has(type))
+}
+
+function buildToolGroupsIndexSection(modePart: ModePart) {
+	if (!modePart.actionTypes.includes('load_tools')) return ''
+	const rows = TOOL_GROUP_IDS.map((id) => {
+		const actions = TOOL_GROUPS[id].actions as readonly string[]
+		const names = actions.length ? ` Actions: ${actions.map((a) => `\`${a}\``).join(', ')}.` : ''
+		return `- \`${id}\`: ${TOOL_GROUPS[id].useWhen}.${names}`
+	})
+	return `## Tool groups
+
+Some tools load only when a task needs them, each with its schema and guide. Groups loaded in this conversation are described under "Loaded tools" at the end of this prompt; any other group is not loaded. Before work that needs a group that is not loaded, send one \`load_tools\` action with the groups and the task as its intent, and nothing else. You continue in the next pass with them loaded.
+
+${rows.join('\n')}
+`
+}
+
+/**
+ * The schemas and guides of the tool groups loaded in this conversation, in
+ * the order they loaded. This goes after the stable system prompt and only
+ * grows at its end, so the cached part of the prompt does not change.
+ */
+export function buildLoadedToolsPrompt(prompt: AgentPrompt): string {
+	const modePart = prompt.mode
+	const loaded = modePart?.loadedToolGroups ?? []
+	if (!modePart || loaded.length === 0) return ''
+	const sections = loaded
+		.filter((id) => TOOL_GROUPS[id])
+		.map((id) => {
+			const actions = (TOOL_GROUPS[id].actions as readonly string[]).filter((a) =>
+				modePart.actionTypes.includes(a as ModePart['actionTypes'][number])
+			) as ModePart['actionTypes']
+			const schema = actions.length
+				? `These actions are now available, in the same response format:\n\n${JSON.stringify(buildResponseSchema(actions, modePart.modeType))}\n`
+				: ''
+			return `## Loaded tools: ${id}\n\n${schema}\n${TOOL_GROUP_GUIDES[id] ?? ''}`
+		})
+	return normalizeNewlines(`\n${sections.join('\n')}`)
+}
+
 function buildSchemaPromptSection(modePart: ModePart) {
-	const schema = buildResponseSchema(modePart.actionTypes, modePart.modeType)
+	const schema = buildResponseSchema(getCoreActionTypes(modePart), modePart.modeType)
 
 	return `## JSON schema
 

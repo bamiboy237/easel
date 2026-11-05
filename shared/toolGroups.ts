@@ -1,5 +1,3 @@
-import type { AgentAction } from './types/AgentAction'
-
 /**
  * Groups of agent actions and guides that load only when a task needs them,
  * so every request does not pay for them. The prompt always lists each group
@@ -8,6 +6,8 @@ import type { AgentAction } from './types/AgentAction'
  * holds. Loaded groups stay loaded for the conversation.
  *
  * Visual actions are not here: they are the product, and always loaded.
+ * Action names here are plain strings, because the action schemas import
+ * this file and a typed import here would be circular.
  */
 export const TOOL_GROUPS = {
 	drawing: {
@@ -22,7 +22,7 @@ export const TOOL_GROUPS = {
 		useWhen: 'aligning, distributing, stacking, or placing several shapes relative to each other',
 		actions: ['place', 'stack', 'align', 'distribute'],
 	},
-} as const satisfies Record<string, { useWhen: string; actions: readonly AgentAction['_type'][] }>
+} as const satisfies Record<string, { useWhen: string; actions: readonly string[] }>
 
 export type ToolGroupId = keyof typeof TOOL_GROUPS
 
