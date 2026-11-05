@@ -1,4 +1,5 @@
 import { compileExpression, CompiledExpression, expressionNames, functionNames, Scope } from '../math/expression'
+import { SteppedSystem, stateAt } from './stepped'
 import { clampParameter, ShapeParameter } from '../math/parameters'
 
 /**
@@ -37,6 +38,8 @@ export type SceneObject = SceneObjectBase &
 		| { type: 'label'; at: SceneRef; text: string }
 		| { type: 'readout'; text: string }
 		| { type: 'check'; expr: string; text: string }
+		| { type: 'state'; init: string; rate: string }
+		| { type: 'event'; when: string; set: Record<string, string>; stop: boolean }
 	)
 
 export type SceneObjectType = SceneObject['type']
@@ -55,6 +58,8 @@ export const SCENE_OBJECT_TYPES: SceneObjectType[] = [
 	'label',
 	'readout',
 	'check',
+	'state',
+	'event',
 ]
 
 export interface SceneProps {
@@ -69,6 +74,8 @@ export interface SceneProps {
 	duration: number
 	/** Whether to draw the coordinate grid and axes. Diagrams such as free-body diagrams leave them out. */
 	axes?: boolean
+	/** A time every viewer's playback stops on, set by the agent while it explains a moment. */
+	pinnedTime?: number
 	params: Record<string, ShapeParameter>
 	objects: Record<string, SceneObject>
 }
@@ -121,6 +128,9 @@ export function evaluateScene(props: Pick<SceneProps, 'params' | 'objects'>, t: 
 	const scope: Scope = { t }
 	for (const p of Object.values(props.params)) scope[p.name] = p.value
 	const errors: Record<string, string> = {}
+	// State variables, when the scene has any, come from integrating to time t.
+	const system = steppedSystemOf(props)
+	if (system) Object.assign(scope, stateAt(system, paramScope(props), t, integrationKey(props)))
 	for (const [id, object] of letsInOrder(props.objects)) {
 		try {
 			scope[id] = evaluateIn(object.expr, scope)
@@ -139,6 +149,58 @@ export function evaluateScene(props: Pick<SceneProps, 'params' | 'objects'>, t: 
 		}
 	}
 	return { scope, points, errors }
+}
+
+function paramScope(props: Pick<SceneProps, 'params'>): Scope {
+	const scope: Scope = {}
+	for (const p of Object.values(props.params)) scope[p.name] = p.value
+	return scope
+}
+
+const systemCache = new WeakMap<object, SteppedSystem | null>()
+
+/** The scene's state variables and events, or null when it has none. */
+function steppedSystemOf(props: Pick<SceneProps, 'objects'>): SteppedSystem | null {
+	if (systemCache.has(props.objects)) return systemCache.get(props.objects)!
+	const entries = Object.entries(props.objects)
+	const variables = entries
+		.filter(([, o]) => o.type === 'state')
+		.map(([name, o]) => ({ name, init: (o as Extract<SceneObject, { type: 'state' }>).init, rate: (o as Extract<SceneObject, { type: 'state' }>).rate }))
+	const events = entries
+		.filter(([, o]) => o.type === 'event')
+		.map(([id, o]) => ({ id, ...(o as Extract<SceneObject, { type: 'event' }>) }))
+	const lets = letsInOrder(props.objects)
+	const system: SteppedSystem | null =
+		variables.length === 0
+			? null
+			: {
+					variables,
+					events: events.map((e) => ({ id: e.id, when: e.when, set: e.set, stop: e.stop })),
+					withLets: (scope) => {
+						const out = { ...scope }
+						for (const [id, o] of lets) {
+							try {
+								out[id] = evaluateIn(o.expr, out)
+							} catch {
+								out[id] = NaN
+							}
+						}
+						return out
+					},
+				}
+	systemCache.set(props.objects, system)
+	return system
+}
+
+const keyCache = new WeakMap<object, WeakMap<object, object>>()
+
+/** One key per pair of parameters and objects, so an integration is reused only for the same scene. */
+function integrationKey(props: Pick<SceneProps, 'params' | 'objects'>): object {
+	let byObjects = keyCache.get(props.params)
+	if (!byObjects) keyCache.set(props.params, (byObjects = new WeakMap()))
+	let key = byObjects.get(props.objects)
+	if (!key) byObjects.set(props.objects, (key = {}))
+	return key
 }
 
 const letOrderCache = new WeakMap<object, [string, Extract<SceneObject, { type: 'let' }>][]>()
@@ -224,13 +286,18 @@ export function describeScene(props: SceneProps): string {
 		.map((o) => fillText(o.text, values.scope))
 		.join('; ')
 	const objects = Object.entries(props.objects)
-		.filter(([, o]) => o.type !== 'let' && o.type !== 'readout' && o.type !== 'check')
+		.filter(([, o]) => !['let', 'readout', 'check', 'state', 'event'].includes(o.type))
 		.map(([id, o]) => `${id} (${o.type})`)
 		.join(', ')
 	const errors = Object.entries({ ...values.errors, ...findUndefinedNames(props) }).map(([id, e]) => `${id}: ${e}`)
+	const states = Object.entries(props.objects)
+		.filter(([, o]) => o.type === 'state')
+		.map(([id, o]) => `${id} = ${formatNumber(values.scope[id])}, changing at ${(o as Extract<SceneObject, { type: 'state' }>).rate} per second`)
+		.join('; ')
 	return [
 		`Scene "${props.title}", x from ${props.xMin} to ${props.xMax}, y from ${props.yMin} to ${props.yMax}${props.duration > 0 ? `, time runs 0 to ${props.duration} s` : ''}.`,
 		params && `Parameters: ${params}.`,
+		states && `State at t = 0, stepped forward in time: ${states}.`,
 		lets && `Values at t = 0: ${lets}.`,
 		readouts && `Readouts: ${readouts}.`,
 		objects && `Objects: ${objects}.`,
@@ -316,6 +383,33 @@ export function sanitizeSceneObject(raw: unknown): { object: SceneObject } | { e
 		case 'readout':
 			object = { ...base, type, text: str('text') }
 			break
+		case 'state': {
+			// The value it starts at, and how fast it changes, per second.
+			const init = str('init') || str('initial') || str('start') || '0'
+			const rate = str('rate') || str('derivative') || str('d')
+			if (!rate) return { error: 'state needs a rate: how fast it changes, per second' }
+			object = { ...base, type, init, rate }
+			break
+		}
+		case 'event': {
+			const when = str('when') || str('if')
+			if (!when) return { error: 'event needs a when condition' }
+			const set: Record<string, string> = {}
+			// A list of {name, value}, as the schema sends it, or a plain map.
+			if (Array.isArray(o.set)) {
+				for (const entry of o.set as { name?: unknown; value?: unknown }[]) {
+					if (typeof entry?.name === 'string' && (typeof entry.value === 'string' || typeof entry.value === 'number')) {
+						set[entry.name] = String(entry.value)
+					}
+				}
+			} else if (o.set && typeof o.set === 'object') {
+				for (const [name, value] of Object.entries(o.set as Record<string, unknown>)) {
+					if (typeof value === 'string' || typeof value === 'number') set[name] = String(value)
+				}
+			}
+			object = { ...base, type, when, set, stop: o.stop === true }
+			break
+		}
 		case 'check': {
 			const expr = str('expr') || str('expression') || str('formula')
 			if (!expr) return { error: 'check needs an expr that should hold' }
@@ -360,13 +454,17 @@ function expressionsOf(object: SceneObject): string[] {
 			return [...own, ...refs(object.at)]
 		case 'check':
 			return [...own, object.expr]
+		case 'state':
+			return [...own, object.init, object.rate]
+		case 'event':
+			return [...own, object.when, ...Object.values(object.set)]
 		default:
 			return own
 	}
 }
 
 /** Names expressions already use for something else, so an object id cannot take them. */
-const RESERVED_NAMES = new Set(['t', 'x', 's', 'pi', 'e', 'if', ...functionNames()])
+const RESERVED_NAMES = new Set(['t', 'x', 's', 'pi', 'e', 'if', 'and', 'or', 'not', ...functionNames()])
 
 /**
  * Why an object id cannot be used, or null. Ids are names other expressions
@@ -387,7 +485,11 @@ export function checkSceneObjectId(id: string, params: Record<string, ShapeParam
  */
 export function findUndefinedNames(props: Pick<SceneProps, 'params' | 'objects'>): Record<string, string> {
 	const problems: Record<string, string> = {}
-	const known = new Set<string>(['t', ...Object.keys(props.params)])
+	const known = new Set<string>([
+		't',
+		...Object.keys(props.params),
+		...Object.entries(props.objects).filter(([, o]) => o.type === 'state').map(([id]) => id),
+	])
 	const points = new Set(Object.entries(props.objects).filter(([, o]) => o.type === 'point').map(([id]) => id))
 	const check = (id: string, sources: string[], extra: string[] = []) => {
 		const missing = new Set<string>()
@@ -411,6 +513,13 @@ export function findUndefinedNames(props: Pick<SceneProps, 'params' | 'objects'>
 		if (o.type === 'readout' || o.type === 'label') {
 			check(id, [...textExpressions(o.text), ...(o.type === 'label' ? refExpressions(o.at) : []), ...(o.visible ? [o.visible] : [])])
 			continue
+		}
+		if (o.type === 'event') {
+			const unknown = Object.keys(o.set).filter((name) => props.objects[name]?.type !== 'state')
+			if (unknown.length > 0) {
+				problems[id] = `sets ${unknown.map((n) => `"${n}"`).join(', ')}, which ${unknown.length === 1 ? 'is' : 'are'} not a state`
+				continue
+			}
 		}
 		if (o.type === 'trace' && !points.has(o.of)) {
 			problems[id] = `traces "${o.of}", which is not a point`

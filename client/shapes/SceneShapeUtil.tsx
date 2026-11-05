@@ -77,6 +77,7 @@ export class SceneShapeUtil extends ShapeUtil<SceneShape> {
 		yMax: T.number,
 		duration: T.number,
 		axes: T.boolean.optional(),
+		pinnedTime: T.number.optional(),
 		params: T.dict(T.string, shapeParameterValidator),
 		objects: T.dict(T.string, T.jsonValue) as never,
 	}
@@ -119,6 +120,13 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const parameters = sceneParameters(shape.props)
 	const plotHeight = Math.max(60, h - sceneChromeHeight(shape.props))
 	const [t, setT] = usePlayback(duration)
+	// When the agent pins a time, every viewer stops on it.
+	const { pinnedTime } = shape.props
+	useEffect(() => {
+		if (typeof pinnedTime === 'number' && Number.isFinite(pinnedTime)) {
+			setT({ time: Math.min(Math.max(0, pinnedTime), duration), playing: false })
+		}
+	}, [pinnedTime, duration, setT])
 	const values = useMemo(() => evaluateScene({ params, objects }, t.time), [params, objects, t.time])
 	// Each trace is sampled once whenever the scene changes, not every frame.
 	const traces = useMemo(() => sampleTraces({ params, objects }, duration), [params, objects, duration])
@@ -303,8 +311,9 @@ function formulaRows(objects: Record<string, SceneObject>, scope: Record<string,
 	return rows
 }
 
-/** How many samples a trace takes over the whole duration. */
-const TRACE_SAMPLES = 240
+/** How many samples a trace takes per second of the clock, and at most in all. */
+const TRACE_SAMPLES_PER_SECOND = 60
+const MAX_TRACE_SAMPLES = 2400
 
 /** The positions each traced point passes through, sampled evenly from time 0 to the end. */
 function sampleTraces(props: Pick<SceneProps, 'params' | 'objects'>, duration: number) {
@@ -312,8 +321,9 @@ function sampleTraces(props: Pick<SceneProps, 'params' | 'objects'>, duration: n
 	const traced = Object.entries(props.objects).filter(([, o]) => o.type === 'trace') as [string, Extract<SceneObject, { type: 'trace' }>][]
 	if (traced.length === 0 || duration <= 0) return traces
 	for (const [id] of traced) traces[id] = []
-	for (let i = 0; i <= TRACE_SAMPLES; i++) {
-		const values = evaluateScene(props, (duration * i) / TRACE_SAMPLES)
+	const count = Math.min(MAX_TRACE_SAMPLES, Math.max(120, Math.ceil(duration * TRACE_SAMPLES_PER_SECOND)))
+	for (let i = 0; i <= count; i++) {
+		const values = evaluateScene(props, (duration * i) / count)
 		for (const [id, o] of traced) traces[id].push(values.points[o.of] ?? [NaN, NaN])
 	}
 	return traces
@@ -338,6 +348,8 @@ const LAYER: Record<SceneObject['type'], number> = {
 	let: -1,
 	readout: -1,
 	check: -1,
+	state: -1,
+	event: -1,
 	polygon: 0,
 	circle: 0,
 	plot: 1,

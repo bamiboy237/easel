@@ -252,6 +252,7 @@ export const SceneActionUtil = registerActionUtil(
 				yMax,
 				duration,
 				axes: typeof action.axes === 'boolean' ? action.axes : (existing?.props.axes ?? true),
+				...(Number.isFinite(action.pinTime) ? { pinnedTime: Math.min(Math.max(0, action.pinTime!), duration) } : {}),
 				params,
 				objects,
 				w,

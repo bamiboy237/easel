@@ -41,6 +41,9 @@ const MULTI_FUNCTIONS: Record<string, { arity: [number, number]; fn: (...values:
 
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E }
 
+/** Words that join conditions, so they are never read as names. */
+const LOGIC_WORDS = new Set(['and', 'or', 'not'])
+
 /** Own keys only, so names such as toString or constructor never reach Object.prototype. */
 const has = (table: object, name: string) => Object.hasOwn(table, name)
 
@@ -59,6 +62,8 @@ type Node =
 	| { kind: 'compare'; op: Comparison; left: Node; right: Node }
 	| { kind: 'call'; fn: string; args: Node[] }
 	| { kind: 'if'; test: Node; then: Node; else: Node }
+	| { kind: 'logic'; op: 'and' | 'or'; left: Node; right: Node }
+	| { kind: 'not'; arg: Node }
 
 export type Scope = Record<string, number>
 export type CompiledExpression = (scope: Scope) => number
@@ -67,7 +72,8 @@ export type CompiledExpression = (scope: Scope) => number
  * Compile an expression, or throw an Error that says what is wrong with it.
  * A name before parentheses multiplies, as on a graphing calculator, so
  * `a(x+1)` is a times (x+1); a name that is not in scope is not a number.
- * A comparison gives 1 or 0, and `if(test, a, b)` gives a when test is not 0.
+ * A comparison gives 1 or 0, conditions join with and, or, and not, and
+ * `if(test, a, b)` gives a when test is not 0.
  */
 export function compileExpression(source: string): CompiledExpression {
 	const node = parse(source)
@@ -90,8 +96,12 @@ export function expressionNames(source: string): string[] {
 				break
 			case 'binary':
 			case 'compare':
+			case 'logic':
 				visit(node.left)
 				visit(node.right)
+				break
+			case 'not':
+				visit(node.arg)
 				break
 			case 'call':
 				node.args.forEach(visit)
@@ -131,6 +141,13 @@ function evaluate(node: Node, scope: Scope): number {
 		}
 		case 'if':
 			return evaluate(node.test, scope) !== 0 ? evaluate(node.then, scope) : evaluate(node.else, scope)
+		case 'logic': {
+			const left = evaluate(node.left, scope) !== 0
+			if (node.op === 'and') return left && evaluate(node.right, scope) !== 0 ? 1 : 0
+			return left || evaluate(node.right, scope) !== 0 ? 1 : 0
+		}
+		case 'not':
+			return evaluate(node.arg, scope) === 0 ? 1 : 0
 		case 'compare': {
 			const left = evaluate(node.left, scope)
 			const right = evaluate(node.right, scope)
@@ -219,6 +236,31 @@ function parse(source: string): Node {
 	const peek = () => tokens[position]
 	const isOp = (value: string) => peek()?.type === 'op' && peek()!.value === value
 
+	// Lowest precedence: or, then and, then not, then comparisons.
+	const isWord = (word: string) => peek()?.type === 'name' && peek()!.value === word
+	const logicOr = (): Node => {
+		let node = logicAnd()
+		while (isWord('or')) {
+			position++
+			node = { kind: 'logic', op: 'or', left: node, right: logicAnd() }
+		}
+		return node
+	}
+	const logicAnd = (): Node => {
+		let node = logicNot()
+		while (isWord('and')) {
+			position++
+			node = { kind: 'logic', op: 'and', left: node, right: logicNot() }
+		}
+		return node
+	}
+	const logicNot = (): Node => {
+		if (isWord('not')) {
+			position++
+			return { kind: 'not', arg: logicNot() }
+		}
+		return comparison()
+	}
 	const comparison = (): Node => {
 		const left = expression()
 		const token = peek()
@@ -238,7 +280,12 @@ function parse(source: string): Node {
 	}
 	const startsFactor = () => {
 		const token = peek()
-		return !!token && (token.type === 'number' || token.type === 'name' || (token.type === 'op' && token.value === '('))
+		return (
+			!!token &&
+			(token.type === 'number' ||
+				(token.type === 'name' && !LOGIC_WORDS.has(token.value)) ||
+				(token.type === 'op' && token.value === '('))
+		)
 	}
 	const term = (): Node => {
 		let node = unary()
@@ -269,10 +316,10 @@ function parse(source: string): Node {
 	const argumentList = (fn: string): Node[] => {
 		if (!isOp('(')) throw new Error(`${fn} needs parentheses in "${source}"`)
 		position++
-		const args = [comparison()]
+		const args = [logicOr()]
 		while (isOp(',')) {
 			position++
-			args.push(comparison())
+			args.push(logicOr())
 		}
 		if (!isOp(')')) throw new Error(`Missing ")" in "${source}"`)
 		position++
@@ -305,11 +352,12 @@ function parse(source: string): Node {
 				}
 				return { kind: 'call', fn: token.value, args }
 			}
+			if (LOGIC_WORDS.has(token.value)) throw new Error(`"${token.value}" needs a condition on each side in "${source}"`)
 			return { kind: 'name', name: token.value }
 		}
 		if (token.value === '(') {
 			position++
-			const inner = comparison()
+			const inner = logicOr()
 			if (!isOp(')')) throw new Error(`Missing ")" in "${source}"`)
 			position++
 			return inner
@@ -317,7 +365,7 @@ function parse(source: string): Node {
 		throw new Error(`Unexpected "${token.value}" in "${source}"`)
 	}
 
-	const node = comparison()
+	const node = logicOr()
 	if (position < tokens.length) throw new Error(`Unexpected "${(tokens[position] as Token).value}" in "${source}"`)
 	return node
 }
