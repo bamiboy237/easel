@@ -54,11 +54,23 @@ export function ParameterSliders<S extends TLShape & { props: { parameters: Shap
 }) {
 	const editor = useEditor()
 	const { parameters } = shape.props
-	if (parameters.length === 0) return null
 	const set = (name: string, value: number) => {
 		const next = parameters.map((p) => (p.name === name ? { ...p, value: clampParameter(p, value) } : p))
 		editor.updateShape({ id: shape.id, type: shape.type, props: { parameters: next } } as never)
 	}
+	return <SliderRows parameters={parameters} onSet={set} />
+}
+
+/** The slider rows themselves, for any shape that stores its parameters its own way. */
+export function SliderRows({
+	parameters,
+	onSet,
+}: {
+	parameters: ShapeParameter[]
+	onSet: (name: string, value: number) => void
+}) {
+	const editor = useEditor()
+	if (parameters.length === 0) return null
 	return (
 		<div
 			className="shape-parameters"
@@ -79,7 +91,7 @@ export function ParameterSliders<S extends TLShape & { props: { parameters: Shap
 						max={p.max}
 						step={p.step > 0 ? p.step : 'any'}
 						value={p.value}
-						onChange={(e) => set(p.name, Number(e.currentTarget.value))}
+						onChange={(e) => onSet(p.name, Number(e.currentTarget.value))}
 						aria-label={p.name}
 					/>
 					<span className="shape-parameter-value">{round(p.value)}</span>

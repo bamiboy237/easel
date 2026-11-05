@@ -101,6 +101,41 @@ function sameValue(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * Shape types whose edits are checked field by field, so a person and the agent
+ * can change different parts of one shape at once: the user drags a scene's
+ * slider while the agent adds an object to it. Other shapes are checked whole.
+ */
+const FIELD_LEVEL_TYPES: ReadonlySet<string> = new Set(['scene'])
+
+/** Separates the keys of a field path. Keys are names and ids, which never hold it. */
+const PATH_SEPARATOR = '\u001f'
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * The fields that differ between two versions of a record, as paths into nested
+ * objects. Arrays and other values compare whole. An empty path is the whole record.
+ */
+function changedPaths(a: unknown, b: unknown, prefix = ''): string[] {
+	if (sameValue(a, b)) return []
+	if (!isPlainObject(a) || !isPlainObject(b)) return [prefix]
+	const paths: string[] = []
+	for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+		paths.push(...changedPaths(a[key], b[key], prefix ? `${prefix}${PATH_SEPARATOR}${key}` : key))
+	}
+	return paths
+}
+
+/** Whether two field paths touch the same data: equal, or one inside the other. */
+function pathsOverlap(a: string, b: string): boolean {
+	return (
+		a === b || a === '' || b === '' || a.startsWith(b + PATH_SEPARATOR) || b.startsWith(a + PATH_SEPARATOR)
+	)
+}
+
+/**
  * Three-way merge for one record: take each property back to `before` when the
  * reverted change set it and nothing changed it since. Properties changed
  * since keep their current value. Returns the merged record and whether any
@@ -108,7 +143,7 @@ function sameValue(a: unknown, b: unknown): boolean {
  */
 function mergeBack<R extends TLRecord>(before: R, after: R, current: R): { record: R; keptNewer: boolean } {
 	let keptNewer = false
-	const mergeLevel = (b: any, a: any, c: any): any => {
+	const mergeLevel = (b: any, a: any, c: any, depth = 0): any => {
 		const result = { ...c }
 		const keys = new Set([...Object.keys(b ?? {}), ...Object.keys(a ?? {})])
 		for (const key of keys) {
@@ -117,8 +152,15 @@ function mergeBack<R extends TLRecord>(before: R, after: R, current: R): { recor
 			if (sameValue(c?.[key], a?.[key])) {
 				if (b && key in b) result[key] = b[key]
 				else delete result[key]
-			} else if ((key === 'props' || key === 'meta') && c?.[key] && typeof c[key] === 'object') {
-				result[key] = mergeLevel(b?.[key], a?.[key], c[key])
+			} else if (
+				(depth > 0 || key === 'props' || key === 'meta') &&
+				isPlainObject(c?.[key]) &&
+				(b?.[key] === undefined || isPlainObject(b[key])) &&
+				(a?.[key] === undefined || isPlainObject(a[key]))
+			) {
+				// Merge nested objects key by key, so a reverted change to one part
+				// keeps newer changes to the others, such as a user's slider value.
+				result[key] = mergeLevel(b?.[key], a?.[key], c[key], depth + 1)
 			} else {
 				keptNewer = true
 			}
@@ -139,6 +181,8 @@ export class BoardCommandManager {
 	private rev = 0
 	/** The last revision at which a user or voice command changed each record. */
 	private humanRevs = new Map<string, number>()
+	/** For field-level shapes, the last revision a person changed each field. */
+	private humanPathRevs = new Map<string, Map<string, number>>()
 	private pendingUserChanges = emptyChanges()
 	private recordingDepth = 0
 	/** The origin of the command being executed, used to stamp the shapes it creates. */
@@ -204,11 +248,10 @@ export class BoardCommandManager {
 		}
 		this.rev = Math.max(0, ...restored.map((command) => command.rev ?? 0))
 		this.humanRevs.clear()
+		this.humanPathRevs.clear()
 		for (const command of restored) {
 			if (command.status !== 'applied' || !isHumanCommand(command.origin, command.type)) continue
-			for (const id of [command.payload.added, command.payload.updated, command.payload.removed].flatMap(Object.keys)) {
-				this.humanRevs.set(id, command.rev!)
-			}
+			this.noteHumanChange(command.payload as RecordsDiff<TLRecord>, command.rev!)
 		}
 		this.history.set(restored)
 	}
@@ -614,13 +657,43 @@ export class BoardCommandManager {
 
 	// Every record a command touches is a target. Creating a record on a new ID
 	// never conflicts, because no human command can have changed it.
+	/** Remember which records, and for field-level shapes which fields, a person changed. */
+	private noteHumanChange(changes: RecordsDiff<TLRecord>, rev: number) {
+		for (const id of [...Object.keys(changes.added), ...Object.keys(changes.removed)]) {
+			this.humanRevs.set(id, rev)
+			this.humanPathRevs.delete(id)
+		}
+		for (const [id, [before, after]] of Object.entries(changes.updated)) {
+			this.humanRevs.set(id, rev)
+			if (!FIELD_LEVEL_TYPES.has((after as { type?: string }).type ?? '')) continue
+			const paths = this.humanPathRevs.get(id) ?? new Map<string, number>()
+			for (const path of changedPaths(before, after)) paths.set(path, rev)
+			this.humanPathRevs.set(id, paths)
+		}
+	}
+
+	/**
+	 * The records an agent command would change that a person changed after the
+	 * command's base revision. For field-level shapes, only a change to the same
+	 * fields counts, so the user's slider drag does not reject the agent's edit to
+	 * another part of the scene.
+	 */
 	private getStaleRecordIds(changes: RecordsDiff<TLRecord>, baseRev: number): string[] {
 		const ids = [
 			...Object.keys(changes.added),
 			...Object.keys(changes.updated),
 			...Object.keys(changes.removed),
 		]
-		return ids.filter((id) => (this.humanRevs.get(id) ?? -1) > baseRev)
+		return ids.filter((id) => {
+			if ((this.humanRevs.get(id) ?? -1) <= baseRev) return false
+			const update = changes.updated[id as TLRecord['id']]
+			const humanPaths = this.humanPathRevs.get(id)
+			if (!update || !humanPaths || !FIELD_LEVEL_TYPES.has((update[1] as { type?: string }).type ?? '')) return true
+			const agentPaths = changedPaths(update[0], update[1])
+			return agentPaths.some((path) =>
+				[...humanPaths].some(([humanPath, rev]) => rev > baseRev && pathsOverlap(path, humanPath))
+			)
+		})
 	}
 
 	private record(
@@ -689,7 +762,7 @@ export class BoardCommandManager {
 			}
 			this.rev++
 			if (isHumanCommand(origin, type)) {
-				for (const id of ids) this.humanRevs.set(id, this.rev)
+				this.noteHumanChange(command.payload as RecordsDiff<TLRecord>, this.rev)
 			}
 		}
 		this.history.update((history) => [...history, command])

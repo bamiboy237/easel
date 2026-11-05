@@ -15,6 +15,7 @@ import { DiagramActionUtil } from '../actions/DiagramActionUtil'
 import {
 	EquationActionUtil,
 	GraphActionUtil,
+	SceneActionUtil,
 	SetParameterActionUtil,
 	SimulationActionUtil,
 } from '../actions/InteractiveActionUtils'
@@ -165,6 +166,7 @@ export const AGENT_MODE_DEFINITIONS = [
 			DiagramActionUtil.type,
 			GraphActionUtil.type,
 			SimulationActionUtil.type,
+			SceneActionUtil.type,
 			SetParameterActionUtil.type,
 
 			// Individual shapes

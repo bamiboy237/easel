@@ -54,16 +54,21 @@ export function describeGraph(props: GraphShapeProps): string {
  * The space between grid lines for a range drawn across so many pixels: a
  * round 1, 2, or 5 times a power of ten, with labels at least 48 pixels apart.
  */
-function gridStep(range: number, pixels: number): number {
+export function gridStep(range: number, pixels: number): number {
 	const raw = (range * 48) / Math.max(pixels, 1)
 	const power = Math.pow(10, Math.floor(Math.log10(raw)))
 	return ([1, 2, 5, 10].map((m) => m * power).find((step) => step >= raw) ?? 10 * power)
 }
 
 /** Labels for an axis, with as many decimals as its step needs, so no two ticks read the same. */
-function axisLabels(step: number) {
+export function axisLabels(step: number, visible?: [number, number], unitsPerPixel = 0) {
 	const decimals = Math.max(0, -Math.floor(Math.log10(step)))
-	return (value: number) => (Math.round(value / step) * step).toFixed(decimals).replace(/^-0$/, '0')
+	// A number within this many units of the plot's edge would be cut, so it is left out.
+	const margin = unitsPerPixel * 10
+	return (value: number) => {
+		if (visible && (value - visible[0] < margin || visible[1] - value < margin)) return ''
+		return (Math.round(value / step) * step).toFixed(decimals).replace(/^-0$/, '0')
+	}
 }
 
 /**
@@ -151,8 +156,8 @@ function Graph({ shape }: { shape: GraphShape }) {
 					>
 						<Coordinates.Cartesian
 							subdivisions={false}
-							xAxis={{ lines: xStep, labels: axisLabels(xStep) }}
-							yAxis={{ lines: yStep, labels: axisLabels(yStep) }}
+							xAxis={{ lines: xStep, labels: axisLabels(xStep, [xMin, xMax], (xMax - xMin) / w) }}
+							yAxis={{ lines: yStep, labels: axisLabels(yStep, [yMin, yMax], (yMax - yMin) / plotHeight) }}
 						/>
 						{compiled.map((c, i) =>
 							c.fn ? (

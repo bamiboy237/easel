@@ -1453,6 +1453,53 @@
 	pointer-events: all;
 }
 
+/* Scenes: the title in the plot's top-left corner, and computed readouts in its top-right. */
+.scene-title {
+	position: absolute;
+	top: 8px;
+	left: 10px;
+	max-width: 55%;
+	padding: 0 6px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--paper-card) 85%, transparent);
+	font: italic 15px 'Source Serif 4 Variable', Georgia, serif;
+	color: var(--paper-ink);
+	pointer-events: none;
+}
+
+.scene-readouts {
+	position: absolute;
+	top: 8px;
+	right: 10px;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 2px;
+	pointer-events: none;
+}
+
+.scene-readout {
+	padding: 1px 6px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--paper-card) 85%, transparent);
+	font: 500 12px 'Inter', sans-serif;
+	font-variant-numeric: tabular-nums;
+	color: var(--paper-ink);
+}
+
+/* Labels keep a halo of the sheet's color, so they read where they cross a line. */
+.scene-container .mafs-shadow {
+	stroke: var(--paper-card);
+	stroke-width: 4px;
+	stroke-linejoin: round;
+	paint-order: stroke;
+}
+
+.scene-container .graph-plot .MafsView {
+	--mafs-blue: #2f5d8c;
+	--mafs-red: #ae3b2c;
+}
+
 .graph-sheet {
 	display: flex;
 	flex-direction: column;
