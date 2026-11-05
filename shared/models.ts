@@ -76,6 +76,15 @@ export const AGENT_MODEL_DEFINITIONS = {
 	},
 
 	// ChatGPT plan models, served through chatgpt/helper.ts
+	// Terra billed to the ChatGPT plan instead of the API key.
+	'gpt-5.6-terra-plan': {
+		name: 'gpt-5.6-terra-plan',
+		id: 'gpt-5.6-terra',
+		provider: 'chatgpt',
+		supportsPrefill: false,
+		supportsTemperature: false,
+		reasoningEffort: 'medium',
+	},
 	'gpt-6.1-sol': {
 		name: 'gpt-6.1-sol',
 		id: 'gpt-6.1-sol',
