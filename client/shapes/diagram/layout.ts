@@ -103,7 +103,8 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 }
 
 /**
- * Map layout: a force layout by d3-force on the graph with each labeled edge
+ * Map layout. A map that is a tree gets a mind-map layout (see layoutTree).
+ * Any other map gets a force layout by d3-force on the graph with each labeled edge
  * split at a label node, as in Hu's vPRISM, so labels get room of their own and
  * push other labels and boxes away. Force layouts can settle tangled, so it
  * runs from several fixed starts and keeps the drawing with the fewest
@@ -112,6 +113,8 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
  * out the same way.
  */
 export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
+	const tree = layoutTree(nodes, edges)
+	if (tree) return tree
 	let best: { score: number; centers: Map<string, Point>; bends: Bends } | null = null
 	for (let seed = 0; seed < MAP_TRIES; seed++) {
 		const centers = runForce(nodes, edges, seed)
@@ -132,6 +135,125 @@ export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 		n.y = centers.get(n.id)!.y - n.h / 2 - minY
 	}
 	return bends
+}
+
+/**
+ * Mind map layout, for a map that is a tree: the root in the middle and its
+ * branches split to the left and right, each side a tidy tree growing outward
+ * in columns, as mind-map tools draw them. Each subtree takes the height its
+ * leaves need, so branches never cross, and each column sits far enough from
+ * the last for the widest label on the arrows into it. Returns null for a map
+ * that is not a tree, which keeps the force layout.
+ */
+function layoutTree(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
+	if (nodes.length < 4 || edges.length !== nodes.length - 1) return null
+	const byId = new Map(nodes.map((n) => [n.id, n]))
+	const neighbors = new Map<string, string[]>(nodes.map((n) => [n.id, []]))
+	const pairs = new Set<string>()
+	for (const e of edges) {
+		const key = [e.from, e.to].sort().join(' ')
+		if (pairs.has(key)) return null
+		pairs.add(key)
+		neighbors.get(e.from)!.push(e.to)
+		neighbors.get(e.to)!.push(e.from)
+	}
+	// The root: a node nothing points to, with the most branches.
+	const pointedTo = new Set(edges.map((e) => e.to))
+	const root = [...nodes]
+		.sort((a, b) => Number(pointedTo.has(a.id)) - Number(pointedTo.has(b.id)) || neighbors.get(b.id)!.length - neighbors.get(a.id)!.length)[0]
+	// Walk the tree from the root; a tree with n - 1 edges that reaches every node is connected.
+	const children = new Map<string, string[]>()
+	const depth = new Map<string, number>([[root.id, 0]])
+	const queue = [root.id]
+	while (queue.length) {
+		const id = queue.shift()!
+		const kids = neighbors.get(id)!.filter((k) => !depth.has(k))
+		for (const k of kids) {
+			depth.set(k, depth.get(id)! + 1)
+			queue.push(k)
+		}
+		children.set(id, kids)
+	}
+	if (depth.size !== nodes.length) return null
+	const labelInto = new Map<string, number>()
+	for (const e of edges) {
+		const child = depth.get(e.to)! > depth.get(e.from)! ? e.to : e.from
+		labelInto.set(child, e.labelW)
+	}
+	// Split the root's branches into two sides of about the same height, keeping their order.
+	const leaves = (id: string): number => {
+		const kids = children.get(id)!
+		return kids.length ? kids.reduce((s, k) => s + leaves(k), 0) : 1
+	}
+	const branches = children.get(root.id)!
+	const total = branches.reduce((s, k) => s + leaves(k), 0)
+	const right: string[] = []
+	const left: string[] = []
+	let used = 0
+	for (const k of branches) {
+		if (used < total / 2 || left.length + right.length === 0) {
+			right.push(k)
+			used += leaves(k)
+		} else left.push(k)
+	}
+	const centers = new Map<string, Point>([[root.id, { x: 0, y: 0 }]])
+	const ROW_GAP = 22
+	const placeSide = (side: string[], dir: 1 | -1) => {
+		// Columns by depth: each as wide as its widest box, after room for the labels into it.
+		const columns: string[][] = []
+		const collect = (id: string) => {
+			const d = depth.get(id)!
+			;(columns[d] ??= []).push(id)
+			for (const k of children.get(id)!) collect(k)
+		}
+		for (const k of side) collect(k)
+		const columnX = new Map<number, number>()
+		let edgeX = root.w / 2
+		for (let d = 1; d < columns.length; d++) {
+			const ids = columns[d] ?? []
+			const widest = Math.max(...ids.map((id) => byId.get(id)!.w))
+			const label = Math.max(0, ...ids.map((id) => labelInto.get(id) ?? 0))
+			const gap = label > 0 ? label + LABEL_ARROW_ROOM + 16 : 72
+			columnX.set(d, edgeX + gap + widest / 2)
+			edgeX += gap + widest
+		}
+		// Rows: each subtree takes the height of its leaves; a parent is centered on its children.
+		const height = (id: string): number => {
+			const kids = children.get(id)!
+			const own = byId.get(id)!.h
+			if (!kids.length) return own
+			return Math.max(own, kids.reduce((s, k) => s + height(k), 0) + ROW_GAP * (kids.length - 1))
+		}
+		const place = (id: string, top: number) => {
+			const h = height(id)
+			centers.set(id, { x: dir * columnX.get(depth.get(id)!)!, y: top + h / 2 })
+			const kids = children.get(id)!
+			const span = kids.reduce((s, k) => s + height(k), 0) + ROW_GAP * (kids.length - 1)
+			let y = top + (h - span) / 2
+			for (const k of kids) {
+				place(k, y)
+				y += height(k) + ROW_GAP
+			}
+		}
+		const sideHeight = side.reduce((s, k) => s + height(k), 0) + ROW_GAP * 2 * (side.length - 1)
+		let y = -sideHeight / 2
+		for (const k of side) {
+			place(k, y)
+			y += height(k) + ROW_GAP * 2
+		}
+	}
+	placeSide(right, 1)
+	placeSide(left, -1)
+	const minX = Math.min(...nodes.map((n) => centers.get(n.id)!.x - n.w / 2))
+	const minY = Math.min(...nodes.map((n) => centers.get(n.id)!.y - n.h / 2))
+	for (const n of nodes) {
+		const c = centers.get(n.id)!
+		c.x -= minX
+		c.y -= minY
+		n.x = c.x - n.w / 2
+		n.y = c.y - n.h / 2
+	}
+	return placeBends(nodes, edges, centers, edges.map(() => 0))
 }
 
 type Point = { x: number; y: number }
