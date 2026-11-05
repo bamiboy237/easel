@@ -84,7 +84,9 @@ export function SliderRows({
 		>
 			{parameters.map((p) => (
 				<label key={p.name} className="shape-parameter">
-					<span className="shape-parameter-name">{p.name}</span>
+					<span className="shape-parameter-name" title={p.name}>
+						{p.name}
+					</span>
 					<input
 						type="range"
 						min={p.min}

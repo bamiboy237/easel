@@ -41,6 +41,14 @@ const MULTI_FUNCTIONS: Record<string, { arity: [number, number]; fn: (...values:
 
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E }
 
+/** Own keys only, so names such as toString or constructor never reach Object.prototype. */
+const has = (table: object, name: string) => Object.hasOwn(table, name)
+
+/** Every function name, so callers can keep object names apart from them. */
+export function functionNames(): string[] {
+	return [...Object.keys(FUNCTIONS), ...Object.keys(MULTI_FUNCTIONS)]
+}
+
 type Comparison = '<' | '>' | '<=' | '>=' | '==' | '!='
 
 type Node =
@@ -63,7 +71,10 @@ export type CompiledExpression = (scope: Scope) => number
  */
 export function compileExpression(source: string): CompiledExpression {
 	const node = parse(source)
-	return (scope) => evaluate(node, scope)
+	return (scope) => {
+		const value = evaluate(node, scope)
+		return typeof value === 'number' ? value : NaN
+	}
 }
 
 /** The names an expression reads, other than constants and functions. */
@@ -72,7 +83,7 @@ export function expressionNames(source: string): string[] {
 	const visit = (node: Node) => {
 		switch (node.kind) {
 			case 'name':
-				if (!(node.name in CONSTANTS)) names.add(node.name)
+				if (!has(CONSTANTS, node.name)) names.add(node.name)
 				break
 			case 'unary':
 				visit(node.arg)
@@ -106,8 +117,8 @@ function evaluate(node: Node, scope: Scope): number {
 		case 'number':
 			return node.value
 		case 'name': {
-			if (node.name in scope) return scope[node.name]
-			if (node.name in CONSTANTS) return CONSTANTS[node.name]
+			if (has(scope, node.name)) return scope[node.name]
+			if (has(CONSTANTS, node.name)) return CONSTANTS[node.name]
 			return NaN
 		}
 		case 'unary': {
@@ -116,7 +127,7 @@ function evaluate(node: Node, scope: Scope): number {
 		}
 		case 'call': {
 			const args = node.args.map((arg) => evaluate(arg, scope))
-			return node.fn in FUNCTIONS ? FUNCTIONS[node.fn](args[0]) : MULTI_FUNCTIONS[node.fn].fn(...args)
+			return has(FUNCTIONS, node.fn) ? FUNCTIONS[node.fn](args[0]) : MULTI_FUNCTIONS[node.fn].fn(...args)
 		}
 		case 'if':
 			return evaluate(node.test, scope) !== 0 ? evaluate(node.then, scope) : evaluate(node.else, scope)
@@ -281,12 +292,12 @@ function parse(source: string): Node {
 				if (args.length !== 3) throw new Error(`if takes a test and two values in "${source}"`)
 				return { kind: 'if', test: args[0], then: args[1], else: args[2] }
 			}
-			if (token.value in FUNCTIONS) {
+			if (has(FUNCTIONS, token.value)) {
 				const args = argumentList(token.value)
 				if (args.length !== 1) throw new Error(`${token.value} takes one value in "${source}"`)
 				return { kind: 'call', fn: token.value, args }
 			}
-			if (token.value in MULTI_FUNCTIONS) {
+			if (has(MULTI_FUNCTIONS, token.value)) {
 				const args = argumentList(token.value)
 				const [least, most] = MULTI_FUNCTIONS[token.value].arity
 				if (args.length < least || args.length > most) {

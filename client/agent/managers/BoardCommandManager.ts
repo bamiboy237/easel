@@ -155,11 +155,13 @@ function mergeBack<R extends TLRecord>(before: R, after: R, current: R): { recor
 			} else if (
 				(depth > 0 || key === 'props' || key === 'meta') &&
 				isPlainObject(c?.[key]) &&
-				(b?.[key] === undefined || isPlainObject(b[key])) &&
-				(a?.[key] === undefined || isPlainObject(a[key]))
+				isPlainObject(b?.[key]) &&
+				isPlainObject(a?.[key])
 			) {
 				// Merge nested objects key by key, so a reverted change to one part
 				// keeps newer changes to the others, such as a user's slider value.
+				// Only when the object existed on both sides: an object the reverted
+				// change added, and someone changed since, is kept whole below.
 				result[key] = mergeLevel(b?.[key], a?.[key], c[key], depth + 1)
 			} else {
 				keptNewer = true
@@ -168,6 +170,30 @@ function mergeBack<R extends TLRecord>(before: R, after: R, current: R): { recor
 		return result
 	}
 	return { record: mergeLevel(before, after, current) as R, keptNewer }
+}
+
+/**
+ * A merge can take a parameter's range back while keeping the user's newer
+ * value, such as a max of 10 with a value of 150. Bring such values back into
+ * range, for shapes that keep sliders: scenes (a map) and graphs and
+ * simulations (a list).
+ */
+function clampParameterValues<R extends TLRecord>(record: R): R {
+	const props = (record as { props?: Record<string, unknown> }).props
+	if (!props) return record
+	const clamp = (p: unknown) => {
+		if (!isPlainObject(p)) return p
+		const { value, min, max } = p as { value?: unknown; min?: unknown; max?: unknown }
+		if (typeof value !== 'number' || typeof min !== 'number' || typeof max !== 'number') return p
+		return value < min || value > max ? { ...p, value: Math.min(max, Math.max(min, value)) } : p
+	}
+	const next = { ...props }
+	if (isPlainObject(props.params)) {
+		next.params = Object.fromEntries(Object.entries(props.params).map(([k, p]) => [k, clamp(p)]))
+	}
+	if (Array.isArray(props.parameters)) next.parameters = props.parameters.map(clamp)
+	// A new record only when a value moved, so an unchanged record stays the same object.
+	return sameValue(next, props) ? record : ({ ...record, props: next } as R)
 }
 
 function overlaps(a: Box, b: Box): boolean {
@@ -420,7 +446,8 @@ export class BoardCommandManager {
 			if (keptNewer && humanChangedSince(after.id, lastRev.get(after.id) ?? firstRev)) {
 				kept.push({ id: after.id, reason: 'edited' })
 			}
-			if (!sameValue(record, current)) toPut.push(record)
+			const clamped = clampParameterValues(record)
+			if (!sameValue(clamped, current)) toPut.push(clamped)
 		}
 
 		for (const record of Object.values(diff.removed)) {
@@ -679,11 +706,10 @@ export class BoardCommandManager {
 	 * another part of the scene.
 	 */
 	private getStaleRecordIds(changes: RecordsDiff<TLRecord>, baseRev: number): string[] {
-		const ids = [
-			...Object.keys(changes.added),
-			...Object.keys(changes.updated),
-			...Object.keys(changes.removed),
-		]
+		// Records the command creates did not exist when the agent read the board.
+		// A person may have touched a streaming preview of one, but that preview is
+		// not a record the agent read, so it does not make the creation stale.
+		const ids = [...Object.keys(changes.updated), ...Object.keys(changes.removed)]
 		return ids.filter((id) => {
 			if ((this.humanRevs.get(id) ?? -1) <= baseRev) return false
 			const update = changes.updated[id as TLRecord['id']]

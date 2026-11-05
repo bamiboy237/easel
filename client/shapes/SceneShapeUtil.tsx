@@ -1,4 +1,4 @@
-import { Circle, Coordinates, Line, Mafs, MovablePoint, Plot, Point, Polygon, Text, Vector } from 'mafs'
+import { Circle, Coordinates, Line, Mafs, MovablePoint, Plot, Point, Polygon, Polyline, Text, Vector } from 'mafs'
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
 	Geometry2d,
@@ -115,8 +115,10 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const plotHeight = Math.max(60, h - sceneChromeHeight(shape.props))
 	const [t, setT] = usePlayback(duration)
 	const values = useMemo(() => evaluateScene({ params, objects }, t.time), [params, objects, t.time])
-	const xStep = gridStep(xMax - xMin, w)
-	const yStep = gridStep(yMax - yMin, plotHeight)
+	// Each trace is sampled once whenever the scene changes, not every frame.
+	const traces = useMemo(() => sampleTraces({ params, objects }, duration), [params, objects, duration])
+	const xStep = gridStep(xMax - xMin, w, Math.max(Math.abs(xMin), Math.abs(xMax)))
+	const yStep = gridStep(yMax - yMin, plotHeight, Math.max(Math.abs(yMin), Math.abs(yMax)))
 	// Both axes share one scale, set by whichever range is tighter, so the plot
 	// shows a little more than the range on the other axis.
 	const unitsPerPixel = Math.max((xMax - xMin) / w, (yMax - yMin) / plotHeight)
@@ -182,7 +184,9 @@ function Scene({ shape }: { shape: SceneShape }) {
 							setParam,
 							duration,
 							t.time,
-							unitsPerPixel
+							unitsPerPixel,
+							traces,
+							{ x: visibleX, y: visibleY }
 						)}
 					</Mafs>
 					{title && <div className="scene-title">{title}</div>}
@@ -225,7 +229,7 @@ function Scene({ shape }: { shape: SceneShape }) {
 
 /** Local playback: time runs from 0 to the duration, and stops there. */
 function usePlayback(duration: number) {
-	const [state, setState] = useState({ time: duration > 0 ? 0 : 0, playing: false })
+	const [state, setState] = useState({ time: 0, playing: false })
 	const frame = useRef(0)
 	useEffect(() => setState((s) => ({ ...s, time: Math.min(s.time, duration) })), [duration])
 	useEffect(() => {
@@ -244,6 +248,22 @@ function usePlayback(duration: number) {
 		return () => cancelAnimationFrame(frame.current)
 	}, [state.playing, duration])
 	return [state, setState] as const
+}
+
+/** How many samples a trace takes over the whole duration. */
+const TRACE_SAMPLES = 240
+
+/** The positions each traced point passes through, sampled evenly from time 0 to the end. */
+function sampleTraces(props: Pick<SceneProps, 'params' | 'objects'>, duration: number) {
+	const traces: Record<string, [number, number][]> = {}
+	const traced = Object.entries(props.objects).filter(([, o]) => o.type === 'trace') as [string, Extract<SceneObject, { type: 'trace' }>][]
+	if (traced.length === 0 || duration <= 0) return traces
+	for (const [id] of traced) traces[id] = []
+	for (let i = 0; i <= TRACE_SAMPLES; i++) {
+		const values = evaluateScene(props, (duration * i) / TRACE_SAMPLES)
+		for (const [id, o] of traced) traces[id].push(values.points[o.of] ?? [NaN, NaN])
+	}
+	return traces
 }
 
 /** Space between a label and what it names, in pixels, so it never sits on the line. */
@@ -283,8 +303,16 @@ function renderObjects(
 	setParam: (name: string, value: number) => void,
 	duration: number,
 	time: number,
-	unitsPerPixel: number
+	unitsPerPixel: number,
+	traces: Record<string, [number, number][]>,
+	view: { x: [number, number]; y: [number, number] }
 ): ReactNode[] {
+	// Text keeps this far inside the plot, so no label is cut at an edge.
+	const inset = 12 * unitsPerPixel
+	const textWidth = (text: string) => text.length * 7.5 * unitsPerPixel
+	const clampY = (y: number) => Math.min(view.y[1] - inset, Math.max(view.y[0] + inset, y))
+	const clampCenterX = (x: number, text: string) =>
+		Math.min(view.x[1] - inset - textWidth(text) / 2, Math.max(view.x[0] + inset + textWidth(text) / 2, x))
 	const finite = (p: [number, number]) => Number.isFinite(p[0]) && Number.isFinite(p[1])
 	const at = (fn: () => ReactNode) => {
 		try {
@@ -306,15 +334,18 @@ function renderObjects(
 								const p = values.points[id]
 								if (!p || !finite(p)) return null
 								const drag = dragTargets(o, params)
-								const label = o.label ? (
+								const labelText = o.label ? fillText(o.label, values.scope) : ''
+								// Above and to the right, or to the left when the right edge is near.
+								const toLeft = p[0] + 6 * unitsPerPixel + textWidth(labelText) > view.x[1] - inset
+								const label = labelText ? (
 									<Text
-										x={p[0] + 6 * unitsPerPixel}
-										y={p[1] + LABEL_GAP * unitsPerPixel}
-										attach="e"
-										size={14}
+										x={p[0] + (toLeft ? -6 : 6) * unitsPerPixel}
+										y={clampY(p[1] + LABEL_GAP * unitsPerPixel)}
+										attach={toLeft ? 'w' : 'e'}
+										size={15}
 										color={color}
 									>
-										{fillText(o.label, values.scope)}
+										{labelText}
 									</Text>
 								) : null
 								if (drag) {
@@ -375,9 +406,17 @@ function renderObjects(
 									tail[1] + evaluateIn(o.dy, values.scope),
 								]
 								if (!finite(tail) || !finite(tip)) return null
+								const pixels = Math.hypot(tip[0] - tail[0], tip[1] - tail[1]) / unitsPerPixel
+								// A vector too short to see is left out; a short one is a plain line,
+								// since an arrowhead alone would overshoot its tail.
+								if (pixels < 2) return null
 								return (
 									<>
-										<Vector tail={tail} tip={tip} color={color} weight={2.5} />
+										{pixels < 16 ? (
+											<Line.Segment point1={tail} point2={tip} color={color} weight={2.5} />
+										) : (
+											<Vector tail={tail} tip={tip} color={color} weight={2.5} />
+										)}
 										{o.label && (
 											<Text
 												x={tip[0] + labelOffset(tip[0] - tail[0], tip[1] - tail[1], unitsPerPixel)[0]}
@@ -419,28 +458,29 @@ function renderObjects(
 							}
 							case 'trace': {
 								// The path a point has followed from time 0 to now.
-								const point = objects[o.of]
-								if (!point || point.type !== 'point' || duration <= 0 || time <= 0) return null
+								const samples = traces[id]
+								if (!samples || duration <= 0 || time <= 0) return null
+								const upTo = samples.slice(0, Math.max(2, Math.ceil((time / duration) * (samples.length - 1)) + 1))
+								const path = upTo.filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))
+								if (path.length < 2) return null
 								return (
-									<Plot.Parametric
-										domain={[0, time]}
-										xy={(tt) => {
-											const v = evaluateScene({ params, objects }, tt)
-											return v.points[o.of] ?? [NaN, NaN]
-										}}
+									<Polyline
+										points={path}
 										color={color}
 										weight={1.5}
-										style="dashed"
-										opacity={0.7}
+										strokeStyle="dashed"
+										fillOpacity={0}
+										strokeOpacity={0.7}
 									/>
 								)
 							}
 							case 'label': {
 								const p = resolveRef(o.at, values)
 								if (!finite(p)) return null
+								const text = fillText(o.text, values.scope)
 								return (
-									<Text x={p[0]} y={p[1]} size={15} color={color}>
-										{fillText(o.text, values.scope)}
+									<Text x={clampCenterX(p[0], text)} y={clampY(p[1])} size={15} color={color}>
+										{text}
 									</Text>
 								)
 							}

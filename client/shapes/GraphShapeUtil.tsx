@@ -52,22 +52,36 @@ export function describeGraph(props: GraphShapeProps): string {
 
 /**
  * The space between grid lines for a range drawn across so many pixels: a
- * round 1, 2, or 5 times a power of ten, with labels at least 48 pixels apart.
+ * round 1, 2, or 5 times a power of ten. Labels are at least 48 pixels apart,
+ * and further for long numbers, so they never run into each other.
  */
-export function gridStep(range: number, pixels: number): number {
-	const raw = (range * 48) / Math.max(pixels, 1)
+export function gridStep(range: number, pixels: number, largest = 0): number {
+	const chars = Math.max(2, formatTick(largest || range, range / 10).length)
+	const gap = Math.max(48, chars * 7 + 16)
+	const raw = (range * gap) / Math.max(pixels, 1)
 	const power = Math.pow(10, Math.floor(Math.log10(raw)))
 	return ([1, 2, 5, 10].map((m) => m * power).find((step) => step >= raw) ?? 10 * power)
 }
 
-/** Labels for an axis, with as many decimals as its step needs, so no two ticks read the same. */
-export function axisLabels(step: number, visible?: [number, number], unitsPerPixel = 0) {
+/**
+ * A tick value as text: plain with the decimals the step needs, or with an
+ * exponent for very large or very small numbers, such as 1.5e7.
+ */
+function formatTick(value: number, step: number): string {
+	const rounded = Math.round(value / step) * step
+	if (rounded === 0) return '0'
+	if (Math.abs(rounded) >= 1e5 || step < 1e-3) return Number(rounded.toPrecision(3)).toExponential().replace('e+', 'e')
 	const decimals = Math.max(0, -Math.floor(Math.log10(step)))
+	return rounded.toFixed(decimals).replace(/^-0$/, '0')
+}
+
+/** Labels for an axis, so no two ticks read the same, and none is cut at the edge. */
+export function axisLabels(step: number, visible?: [number, number], unitsPerPixel = 0) {
 	// A number within this many units of the plot's edge would be cut, so it is left out.
 	const margin = unitsPerPixel * 10
 	return (value: number) => {
 		if (visible && (value - visible[0] < margin || visible[1] - value < margin)) return ''
-		return (Math.round(value / step) * step).toFixed(decimals).replace(/^-0$/, '0')
+		return formatTick(value, step)
 	}
 }
 
@@ -138,8 +152,8 @@ function Graph({ shape }: { shape: GraphShape }) {
 		[functions]
 	)
 	const scope = parameterScope(parameters)
-	const xStep = gridStep(xMax - xMin, w)
-	const yStep = gridStep(yMax - yMin, plotHeight)
+	const xStep = gridStep(xMax - xMin, w, Math.max(Math.abs(xMin), Math.abs(xMax)))
+	const yStep = gridStep(yMax - yMin, plotHeight, Math.max(Math.abs(yMin), Math.abs(yMax)))
 	const errors = compiled.filter((c) => c.error).map((c) => c.error)
 
 	return (

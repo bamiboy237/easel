@@ -13,7 +13,7 @@ import { compileExpression } from '../shapes/math/expression'
 import { clampParameter, ShapeParameter } from '../shapes/math/parameters'
 import { EQUATION_TYPE, EquationShape, measureEquation } from '../shapes/EquationShapeUtil'
 import { describeSceneShape, SCENE_TYPE, sceneChromeHeight, SceneShape } from '../shapes/SceneShapeUtil'
-import { SceneObject, sanitizeSceneObject } from '../shapes/scene/sceneModel'
+import { checkSceneObjectId, SceneObject, sanitizeSceneObject } from '../shapes/scene/sceneModel'
 import { describeGraph, GRAPH_TYPE, GraphShape, parametersHeight } from '../shapes/GraphShapeUtil'
 import {
 	describeSimulation,
@@ -202,6 +202,10 @@ export const SceneActionUtil = registerActionUtil(
 			const finished = <T,>(list: T[] | undefined) => (streaming ? (list ?? []).slice(0, -1) : (list ?? []))
 			const { editor } = this
 			const { id, existing } = resolveTarget<SceneShape>(helpers, action.shapeId, SCENE_TYPE)
+			// Only a new scene previews. A preview of an existing scene is taken back
+			// by writing the old record over it, which would undo the user's slider
+			// moves made while the agent writes.
+			if (streaming && existing) return
 
 			const params = { ...(existing?.props.params ?? {}) }
 			for (const p of sanitizeParameters(finished(action.params))) {
@@ -215,6 +219,11 @@ export const SceneActionUtil = registerActionUtil(
 			for (const raw of finished(action.objects)) {
 				const objectId = String(raw?.id ?? '').trim()
 				if (!objectId) continue
+				const idProblem = checkSceneObjectId(objectId, params)
+				if (idProblem) {
+					dropped.push(`${objectId}: ${idProblem}`)
+					continue
+				}
 				const result = sanitizeSceneObject(raw)
 				if ('error' in result) dropped.push(`${objectId}: ${result.error}`)
 				else objects[objectId] = result.object
@@ -227,8 +236,13 @@ export const SceneActionUtil = registerActionUtil(
 			const [xMin, xMax] = range(action.xMin, action.xMax, existing ? [existing.props.xMin, existing.props.xMax] : [-5, 5])
 			const [yMin, yMax] = range(action.yMin, action.yMax, existing ? [existing.props.yMin, existing.props.yMax] : [-4, 4])
 			const duration = Number.isFinite(action.duration) && action.duration! > 0 ? Math.min(action.duration!, 120) : 0
-			const plotW = Math.min(900, Math.max(200, action.width || existing?.props.w || 420))
-			const plotH = Math.min(700, Math.max(120, action.height || 300))
+			// A new scene takes the size the agent asks for. An existing one keeps its
+			// size, so the user's resize stands, and grows only by the rows it gains.
+			const chrome = sceneChromeHeight({ duration, params })
+			const w = existing ? existing.props.w : Math.min(900, Math.max(200, action.width || 420))
+			const h = existing
+				? existing.props.h - sceneChromeHeight(existing.props) + chrome
+				: Math.min(700, Math.max(120, action.height || 300)) + chrome
 			const props = {
 				title: String(action.title ?? existing?.props.title ?? ''),
 				xMin,
@@ -239,8 +253,8 @@ export const SceneActionUtil = registerActionUtil(
 				axes: typeof action.axes === 'boolean' ? action.axes : (existing?.props.axes ?? true),
 				params,
 				objects,
-				w: plotW,
-				h: plotH + sceneChromeHeight({ duration, params }),
+				w,
+				h,
 			}
 			const meta = { sceneDropped: streaming ? [] : dropped }
 			if (existing) {

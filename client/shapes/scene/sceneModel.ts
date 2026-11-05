@@ -1,4 +1,4 @@
-import { compileExpression, CompiledExpression, Scope } from '../math/expression'
+import { compileExpression, CompiledExpression, expressionNames, functionNames, Scope } from '../math/expression'
 import { clampParameter, ShapeParameter } from '../math/parameters'
 
 /**
@@ -194,7 +194,7 @@ export function describeScene(props: SceneProps): string {
 		.filter(([, o]) => o.type !== 'let' && o.type !== 'readout')
 		.map(([id, o]) => `${id} (${o.type})`)
 		.join(', ')
-	const errors = Object.entries(values.errors).map(([id, e]) => `${id}: ${e}`)
+	const errors = Object.entries({ ...values.errors, ...findUndefinedNames(props) }).map(([id, e]) => `${id}: ${e}`)
 	return [
 		`Scene "${props.title}", x from ${props.xMin} to ${props.xMax}, y from ${props.yMin} to ${props.yMax}${props.duration > 0 ? `, time runs 0 to ${props.duration} s` : ''}.`,
 		params && `Parameters: ${params}.`,
@@ -318,6 +318,78 @@ function expressionsOf(object: SceneObject): string[] {
 		default:
 			return own
 	}
+}
+
+/** Names expressions already use for something else, so an object id cannot take them. */
+const RESERVED_NAMES = new Set(['t', 'x', 's', 'pi', 'e', 'if', ...functionNames()])
+
+/**
+ * Why an object id cannot be used, or null. Ids are names other expressions
+ * use, so they must be identifiers, and not a parameter, a function, or a
+ * reserved name such as t. Numeric ids would also change the evaluation order.
+ */
+export function checkSceneObjectId(id: string, params: Record<string, ShapeParameter>): string | null {
+	if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(id)) return 'an id must be a name made of letters, digits, and _, starting with a letter'
+	if (RESERVED_NAMES.has(id)) return `"${id}" is a reserved name`
+	if (Object.hasOwn(params, id)) return `"${id}" is already a parameter`
+	return null
+}
+
+/**
+ * Names an object uses that are not defined where it is evaluated: not a
+ * parameter, not an earlier let, not t, x in a plot, or s in a curve. Each one
+ * would quietly give NaN, so they are reported to the agent.
+ */
+export function findUndefinedNames(props: Pick<SceneProps, 'params' | 'objects'>): Record<string, string> {
+	const problems: Record<string, string> = {}
+	const known = new Set<string>(['t', ...Object.keys(props.params)])
+	const points = new Set(Object.entries(props.objects).filter(([, o]) => o.type === 'point').map(([id]) => id))
+	const check = (id: string, sources: string[], extra: string[] = []) => {
+		const missing = new Set<string>()
+		for (const source of sources) {
+			try {
+				for (const name of expressionNames(source)) if (!known.has(name) && !extra.includes(name)) missing.add(name)
+			} catch {
+				// Parse errors are reported where the object is read.
+			}
+		}
+		if (missing.size > 0) {
+			problems[id] = `uses ${[...missing].map((n) => `"${n}"`).join(', ')}, which ${missing.size === 1 ? 'is' : 'are'} not defined here (a let can only use earlier lets)`
+		}
+	}
+	for (const [id, o] of Object.entries(props.objects)) {
+		if (o.type === 'let') {
+			check(id, [o.expr])
+			known.add(id)
+		}
+	}
+	for (const [id, o] of Object.entries(props.objects)) {
+		if (o.type === 'let') continue
+		if (o.type === 'readout' || o.type === 'label') {
+			check(id, [...textExpressions(o.text), ...(o.type === 'label' ? refExpressions(o.at) : []), ...(o.visible ? [o.visible] : [])])
+			continue
+		}
+		if (o.type === 'trace' && !points.has(o.of)) {
+			problems[id] = `traces "${o.of}", which is not a point`
+			continue
+		}
+		const refs = [o.type === 'segment' || o.type === 'line' ? [o.from, o.to] : [], o.type === 'vector' ? [o.from] : [], o.type === 'circle' ? [o.center] : [], o.type === 'polygon' ? o.points : []].flat()
+		const missingPoint = refs.find((r) => typeof r === 'string' && !points.has(r))
+		if (missingPoint) {
+			problems[id] = `refers to "${missingPoint}", which is not a point`
+			continue
+		}
+		check(id, expressionsOf(o), o.type === 'plot' ? ['x'] : o.type === 'curve' ? ['s'] : [])
+	}
+	return problems
+}
+
+function textExpressions(text: string): string[] {
+	return [...text.matchAll(/\{([^{}]+)\}/g)].map((m) => m[1])
+}
+
+function refExpressions(ref: SceneRef): string[] {
+	return typeof ref === 'string' ? [] : ref
 }
 
 /** A draggable point moves the parameters its coordinates name. */

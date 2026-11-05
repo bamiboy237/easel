@@ -1458,7 +1458,10 @@
 	position: absolute;
 	top: 8px;
 	left: 10px;
-	max-width: 55%;
+	max-width: 48%;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
 	padding: 0 6px;
 	border-radius: 4px;
 	background: color-mix(in srgb, var(--paper-card) 85%, transparent);
@@ -1471,6 +1474,10 @@
 	position: absolute;
 	top: 8px;
 	right: 10px;
+	max-width: 48%;
+	/* Readouts never take more than the top third of the plot. */
+	max-height: 34%;
+	overflow: hidden;
 	display: flex;
 	flex-direction: column;
 	align-items: flex-end;
@@ -1487,6 +1494,11 @@
 	color: var(--paper-ink);
 	white-space: pre-wrap;
 	text-align: right;
+}
+
+/* Object labels in the board's serif, like the title and the slider names. */
+.scene-container [data-scene-object] text {
+	font-family: 'Source Serif 4 Variable', Georgia, serif;
 }
 
 /* Labels keep a halo of the sheet's color, so they read where they cross a line. */
@@ -1553,6 +1565,9 @@
 }
 
 .shape-parameter-name {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
 	font-family: 'Source Serif 4 Variable', Georgia, serif;
 	font-style: italic;
 	font-size: 14px;
