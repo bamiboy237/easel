@@ -11,9 +11,10 @@ import {
 	AgentModelName,
 	getAgentModelDefinition,
 	isValidModelName,
+	OpenAIReasoningEffort,
 } from '../../shared/models'
 import { buildResponseSchema } from '../../shared/schema/buildResponseSchema'
-import { DebugPart } from '../../shared/schema/PromptPartDefinitions'
+import { DebugPart, ModelNamePart } from '../../shared/schema/PromptPartDefinitions'
 import { AgentAction } from '../../shared/types/AgentAction'
 import { AgentPrompt } from '../../shared/types/AgentPrompt'
 import { Streaming } from '../../shared/types/Streaming'
@@ -198,7 +199,7 @@ export class AgentService {
 				maxOutputTokens: MAX_OUTPUT_TOKENS,
 				// Opus 4.7+ removed `temperature` (and top_p/top_k); sending it returns a 400.
 				...(modelDefinition.supportsTemperature ? { temperature: 0 } : {}),
-				providerOptions: getProviderOptions(modelDefinition),
+				providerOptions: getProviderOptions(modelDefinition, (prompt.modelName as ModelNamePart | undefined)?.reasoningEffort),
 				// Raw events let us log how a provider stream ended when it ends without finishing
 				includeRawChunks: true,
 				experimental_output: usesNativeJsonSchema
@@ -259,7 +260,7 @@ export class AgentService {
 						// One line per request, so prompt size and caching can be measured.
 						const usage = part.totalUsage
 						console.log(
-							`[usage] model=${modelId} actions=${prompt.mode.actionTypes.length} groups=${prompt.mode.loadedToolGroups?.join('+') || 'none'} systemChars=${systemPrompt.length} loadedChars=${loadedToolsPrompt.length} input=${usage.inputTokens ?? '?'} cached=${usage.cachedInputTokens ?? 0} output=${usage.outputTokens ?? '?'} reasoning=${usage.reasoningTokens ?? 0}`
+							`[usage] model=${modelId} effort=${(prompt.modelName as ModelNamePart | undefined)?.reasoningEffort ?? ('reasoningEffort' in modelDefinition ? modelDefinition.reasoningEffort : '-')} actions=${prompt.mode.actionTypes.length} groups=${prompt.mode.loadedToolGroups?.join('+') || 'none'} systemChars=${systemPrompt.length} loadedChars=${loadedToolsPrompt.length} input=${usage.inputTokens ?? '?'} cached=${usage.cachedInputTokens ?? 0} output=${usage.outputTokens ?? '?'} reasoning=${usage.reasoningTokens ?? 0}`
 						)
 						break
 					}
@@ -295,7 +296,7 @@ type StreamTextProviderOptions = NonNullable<Parameters<typeof streamText>[0]['p
  * Map a model definition's reasoning preferences to AI SDK provider options.
  * Only the matching provider's options are set; the SDK ignores the rest.
  */
-function getProviderOptions(definition: AgentModelDefinition): StreamTextProviderOptions {
+function getProviderOptions(definition: AgentModelDefinition, effort?: OpenAIReasoningEffort): StreamTextProviderOptions {
 	switch (definition.provider) {
 		case 'anthropic':
 			return {
@@ -318,7 +319,7 @@ function getProviderOptions(definition: AgentModelDefinition): StreamTextProvide
 		case 'chatgpt':
 			return {
 				openai: {
-					reasoningEffort: definition.reasoningEffort,
+					reasoningEffort: effort ?? definition.reasoningEffort,
 				} satisfies OpenAIResponsesProviderOptions,
 			}
 	}
