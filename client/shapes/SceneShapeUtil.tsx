@@ -353,7 +353,9 @@ function renderObjects(
 										<>
 											<MovablePoint
 												point={p}
-												color={SCENE_INKS[1]}
+												// A handle is red unless the agent gives it an ink, so its notes
+												// can name it by color ("drag the blue tip").
+												color={o.ink !== undefined ? color : SCENE_INKS[1]}
 												constrain={
 													drag.x && drag.y
 														? undefined
