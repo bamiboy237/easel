@@ -113,16 +113,70 @@ The agent's tools are commands:
 
 **Models.** The backend is provider-agnostic: one interface over Claude Opus 5.5, GPT-6.1 Sol, and Gemini 4 Argon, so the same session can be compared across models. A frontier model writes maps and new visualization code.
 
-## Visualization (proposed)
+## Visualization
 
-The agent picks one of four ways to show something, from fastest to most flexible.
+The agent picks the fastest way that can show something, and loads the instructions for a slower way only when it needs it.
 
 | Approach | Good for | How it is produced |
 | --- | --- | --- |
-| Catalog shapes | Graphs, standard simulations, equations | The model picks a shape and sets its props. Renders immediately |
-| Declarative specs | Charts and diagrams | The model writes a Vega-Lite or Mermaid spec, rendered in a `SpecShape` |
-| Generated code | Visuals no catalog shape covers | The model writes a small HTML and JS program that runs in a sandboxed iframe shape. It exposes its parameters and state through a typed bridge, so both sides can inspect and change it. It gets no access to the native bridge or the filesystem. A preview screenshot is checked, with a bounded number of repair attempts |
+| Native and catalog shapes | Equations, graphs, the projectile simulation, laid-out diagrams, free-body sketches, mockups | The model creates a shape and sets its props. Renders immediately, and the user can edit every part |
+| Templates | Common topics, such as a projectile, a pendulum, or a wave | The model instantiates a hand-written scene and sets a few parameters. Renders within about 3 seconds |
+| Scenes | New visuals made of geometry, formulas, and motion | The model writes a declarative scene, one object at a time (see below). First object within about 5 seconds, complete within about 15 |
+| Generated code | Visuals a scene cannot express: custom interaction, pixel work, 3D, a clickable prototype from a mockup | A background job, like Manim. The model writes a small HTML and JS program that runs in a sandboxed iframe shape behind a placeholder. See "Generated code" below |
 | Manim | Polished animations to keep. A low-resolution render and representative frames are reviewed for layout before the final render, and content correctness is checked separately | `render_animation`, in the background |
+
+Vega-Lite charts wait until a session needs real data charts. Mermaid is not used: the native `diagram` action lays out boxes and bound arrows the user can move, which a static Mermaid SVG cannot match.
+
+### Scenes
+
+A scene is one `scene` shape holding declarative data, in the style of Desmos and GeoGebra. Easel defines only the JSON envelope, and renders it with Mafs.
+
+- **Primitives**, about 12:
+  - `param`: a named number with a range, step, and unit. It is the same parameter type the graph and simulation use, so board sliders and `set_parameter` work unchanged.
+  - `let`: a named derived value.
+  - `point`: a position from expressions. A draggable point is an input, like a slider.
+  - `segment`, `line`, `vector`, `circle`, `polygon`.
+  - `plot`: y = f(x), parametric curves, and inequality regions.
+  - `trace`: the path of a point over time.
+  - `label` and `readout`: text, LaTeX, or a computed number, anchored to an object.
+- **Fields on every object:** an `id`, which doubles as the part ID for pointing (`s1.velocity`), plus `visible`, `reveal` for predict, and an ink index. Scenes keep the paper look.
+- **Time:** two deterministic modes.
+  - Closed form, the default: objects use `t`, and playback scrubs it.
+  - Stepped: a state block with step rules over `dt`, a fixed-step RK4 integrator, and stop and bounce events, for pendulums, damping, and orbits.
+
+  Playback is local to each viewer. An optional shared pinned time lets the agent stop both views on the moment it explains.
+- **Streaming:** the agent creates the scene, then adds or updates one object per action. Objects land one at a time, and each is its own command.
+- **Data layout:** `params` and `objects` are stored as maps keyed by name and id, so a user's slider drag and an agent's edit to another object do not conflict. Stale checks and revert work at the level of the changed field for interactive shapes. A slider drag never makes an agent edit to another part of the scene stale, and reverting the agent's edit keeps the user's values.
+
+### Correct, not only pretty
+
+A screenshot catches layout problems, not wrong physics. So:
+
+- Numbers come from the evaluator, never from the model's prose. The agent reads a scene as computed values, and quotes them.
+- Each scene carries checks the agent writes, such as `range == v0^2*sin(2*theta)/g` or "energy drift under 1 percent". Failures come back to the agent in its next pass.
+- Automatic lints catch values that break at a parameter's minimum, middle, or maximum, objects outside the view, zero-length vectors, and degree and radian or unit mixups.
+- A "show formulas" toggle lets the learner see what is drawn.
+- Templates keep their checks, with a note of the session each was verified on.
+
+### Generated code
+
+Generated code is a background job with a placeholder. Its minimum safeguards are:
+
+- An opaque-origin sandbox: `allow-scripts` without `allow-same-origin`, no network, a strict CSP, and libraries vendored locally.
+- Every message from the frame is checked against a schema, with size and rate caps.
+- A loop guard. `WKWebView` may not isolate iframes in their own process, so one infinite loop could freeze the board.
+- A `snapshot()` call, because the agent's screenshot cannot see inside the frame.
+
+The widget owns no durable state. It declares its params and state, receives them as props, and asks the host for changes. The host applies each change as an ordinary command.
+
+### Agent actions and context
+
+The model returns one JSON object of actions. It does not use native tool calls, so provider tool search does not apply. Context stays small this way:
+
+- Unused actions are removed. Every remaining action keeps a one-line entry in the prompt, and the visual actions are always loaded, because they are the product.
+- Long manuals, such as the scene language and the generated-code bridge, load on demand in groups. They are appended after the stable, cached part of the prompt, never edited into it, so prompt caching holds. A loaded group stays loaded for the conversation.
+- Groups load up front from signals the client already has: a scene in view or selected, a frame the plan tagged as a scene, or a request to simulate or animate. A `load_tools` action is the fallback, and costs one extra model pass.
+- The response schema keeps every action name, so OpenAI's and Meta's strict schemas do not change between requests.
 
 Pointing while talking comes from Clicky. Clicky's model appends a tag like `[POINT:x,y:label:screen2]` to its reply. The app strips the tag with a regex, sends the rest to text-to-speech, and flies a cursor in a transparent overlay to the coordinates along a curved path. Clicky needs pixel coordinates because it points at arbitrary apps. On the canvas every target has a shape or part ID, so tags reference those directly, for example `[HL:g1.curve]`. The first version points at the phrase level: a tag fires when its sentence starts playing. Word-level timing needs audio alignment, such as text-to-speech that streams character timestamps. The AI has its own visible cursor on the board that moves between targets.
 
@@ -224,7 +278,14 @@ The phases keep their numbers, but after Phase 4 they are built in this order, s
 **Gate:** interrupting stops speech and obsolete actions.
 10. **Context and proactive behavior.** Debounced checks, canceled on new interaction, ignoring agent-originated changes.\
 **Gate:** no self-triggering loops and no interruptions during active work.
-11. **Declarative and generated visuals.** Catalog objects, then Vega-Lite and Mermaid specs, then sandboxed generated widgets with the typed bridge.
+11. **Declarative and generated visuals.** In order, each step with its own check:
+    1. Agent context: a selection eval of about 40 prompts from the two sessions, token and cache metrics, removed actions, the system prompt split into cache blocks, then on-demand manuals with signal preloading. Check: selection accuracy at or above the baseline, prompt tokens down, and no extra model pass in at least 90 percent of requests.
+    2. Scenes: expression parser v2 (multi-argument functions and conditionals), the `scene` shape with params, draggable points, the static primitives and closed-form time, computed descriptions, and field-level stale checks and revert. Check: the agent builds a projectile, a free-body diagram, and a wave, with the first object within 5 seconds and the scene within 15. A slider drag during an agent edit is not rejected, and revert keeps the user's values.
+    3. Streaming and correctness: one action per object, agent-written checks, and automatic lints. Check: of 10 seeded wrong scenes, at least 8 are caught and repaired within one pass.
+    4. Stepped time. Check: a large-angle pendulum, a damped oscillator, and an orbit, with energy drift under 1 percent over 10 periods, and identical frames for both participants.
+    5. About 10 hand-written templates, and saving any scene as one. Check: a template renders within 3 seconds, and the agent prefers a fitting template to a fresh scene.
+    6. Generated code as a background job, only when a session needs it. Check: no network, no access to the parent page, an infinite loop does not freeze the board, state goes through commands and revert, and the agent sees the snapshot.\
+**Gate:** on both sessions, the agent shows a new concept as a live scene within 15 seconds, both participants change it, and its numbers pass their checks.
 12. **Manim and `VideoShape`.** Background rendering with progress, cancellation, cached outputs, and isolated jobs.
 13. **Mac shell and screen capture.** `WKWebView` wrapper, hotkey, floating window, ScreenCaptureKit, with captures feeding the annotation flow.\
 **Gate:** focus, multiple displays, and permissions work without a second interaction system.
