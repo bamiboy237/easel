@@ -551,6 +551,31 @@ export const SceneAction = z
 
 export type SceneAction = z.infer<typeof SceneAction>
 
+// Widget Action
+export const WidgetAction = z
+	.object({
+		_type: z.literal('widget'),
+		intent: z.string(),
+		shapeId: SimpleShapeIdSchema,
+		title: z.string(),
+		brief: z.string(),
+		x: z.number(),
+		y: z.number(),
+		width: z.number(),
+		height: z.number(),
+		params: z.array(ParameterSchema),
+		state: z.array(z.object({ key: z.string(), value: z.union([z.string(), z.number(), z.boolean()]) })),
+	})
+	.meta({
+		title: 'Widget',
+		description: [
+			'The AI starts a widget: a small interactive program, written in HTML and JavaScript in the background and run in a sandbox on the board, behind a placeholder. Reach for it only when a scene, a graph, or a diagram cannot do the job: a clickable prototype of a mockup, custom interaction such as sorting cards or stepping through an algorithm, pixel work, or 3D. It takes a minute to write, so tell the user it is on its way and carry on.',
+			'brief: everything the program must show and do, in plain words, as the full spec for the writer, who sees nothing else: layout, controls, what each control changes, colours and labels. params: named numbers shown as sliders under the widget that the user and you can change (use set_parameter), each with value, min, max, step. state: the other values the widget keeps on the board, each with a key and a starting value, such as {key: "screen", value: "signup"} or {key: "count", value: 0}; the widget may change only these, and the board records each change. width and height are the widget area in pixels. You see the widget as a snapshot in your view of the board, with its parameter and state values. To rewrite a widget, send it again with its shapeId and a new brief.',
+		].join(' '),
+	})
+
+export type WidgetAction = z.infer<typeof WidgetAction>
+
 // Scene Object Action
 export const SceneObjectAction = z
 	.object({

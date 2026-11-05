@@ -1,0 +1,440 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+	Geometry2d,
+	HTMLContainer,
+	Rectangle2d,
+	RecordProps,
+	ShapeUtil,
+	T,
+	TLShape,
+	TLShapeId,
+	useEditor,
+	useValue,
+} from 'tldraw'
+import { parametersHeight } from './GraphShapeUtil'
+import { clampParameter, describeParameters, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
+import { MAX_DROPPED, MAX_STATE_CHARS, RateLimiter, readWidgetMessage } from './widget/bridge'
+import { buildWidgetDocument } from './widget/sandbox'
+
+export const WIDGET_TYPE = 'widget'
+
+export type WidgetStatus = 'writing' | 'ready' | 'failed'
+
+export interface WidgetProps {
+	w: number
+	h: number
+	title: string
+	/** What the widget should do, as the agent asked for it. */
+	brief: string
+	html: string
+	css: string
+	js: string
+	status: WidgetStatus
+	/** Why writing the widget failed, for the agent and the user. */
+	error: string
+	params: Record<string, ShapeParameter>
+	/** The widget's declared state. A widget may only set keys declared here. */
+	state: Record<string, unknown>
+}
+
+declare module 'tldraw' {
+	export interface TLGlobalShapePropsMap {
+		[WIDGET_TYPE]: WidgetProps
+	}
+}
+
+export type WidgetShape = TLShape<typeof WIDGET_TYPE>
+
+/** The title row above the frame. */
+const TITLE_BAR = 28
+/** How long a running frame may go without a heartbeat before it is stopped, in milliseconds. */
+const HEARTBEAT_TIMEOUT_MS = 3000
+/** The shortest time between two edits a frame asks for, in milliseconds. */
+const FLUSH_MS = 50
+/** Changes further apart than this are separate undo steps, in milliseconds. */
+const UNDO_GAP_MS = 600
+/** How long a frame may take to start. */
+const START_TIMEOUT_MS = 6000
+
+export function widgetChromeHeight(props: Pick<WidgetProps, 'params'>): number {
+	return TITLE_BAR + parametersHeight(Object.values(props.params))
+}
+
+/** What the agent reads about a widget: what it is for, its values, and how it is doing. */
+export function describeWidget(props: WidgetProps): string {
+	const params = describeParameters(Object.values(props.params))
+	let state = JSON.stringify(props.state)
+	if (state.length > 400) state = state.slice(0, 400) + '...'
+	const status =
+		props.status === 'writing'
+			? 'still being written in the background'
+			: props.status === 'failed'
+				? `failed: ${props.error}`
+				: 'running'
+	return `Widget "${props.title}", ${status}. It shows: ${props.brief}.${params ? ` Parameters: ${params}.` : ''} State: ${state}.`
+}
+
+/**
+ * Each mounted widget's way to take a snapshot, so the board's image export,
+ * which the agent sees, can show what is inside the frame.
+ */
+const snapshots = new Map<TLShapeId, { request: () => Promise<string | null>; last: string | null }>()
+
+/**
+ * A widget on the board: HTML and JavaScript the model wrote, run in a sandboxed
+ * frame. The frame owns no durable state. Its parameters and state are the
+ * shape's props, and every change it asks for is an ordinary edit of the shape,
+ * so it is a recorded command that undo and revert handle.
+ */
+export class WidgetShapeUtil extends ShapeUtil<WidgetShape> {
+	static override type = WIDGET_TYPE
+	static override props: RecordProps<WidgetShape> = {
+		w: T.number,
+		h: T.number,
+		title: T.string,
+		brief: T.string,
+		html: T.string,
+		css: T.string,
+		js: T.string,
+		status: T.literalEnum('writing', 'ready', 'failed'),
+		error: T.string,
+		params: T.dict(T.string, shapeParameterValidator),
+		state: T.dict(T.string, T.jsonValue) as never,
+	}
+
+	override getDefaultProps(): WidgetProps {
+		return { w: 420, h: 320, title: '', brief: '', html: '', css: '', js: '', status: 'writing', error: '', params: {}, state: {} }
+	}
+
+	override getGeometry(shape: WidgetShape): Geometry2d {
+		return new Rectangle2d({ width: shape.props.w, height: shape.props.h, isFilled: true })
+	}
+
+	override onResize(shape: WidgetShape, info: { scaleX: number; scaleY: number }) {
+		const chrome = widgetChromeHeight(shape.props)
+		const frame = Math.max(80, (shape.props.h - chrome) * Math.abs(info.scaleY))
+		return { props: { w: Math.max(160, shape.props.w * Math.abs(info.scaleX)), h: frame + chrome } }
+	}
+
+	override getText(shape: WidgetShape) {
+		return describeWidget(shape.props)
+	}
+
+	override component(shape: WidgetShape) {
+		return <Widget shape={shape} />
+	}
+
+	override getIndicatorPath(shape: WidgetShape) {
+		const path = new Path2D()
+		path.roundRect(0, 0, shape.props.w, shape.props.h, 6)
+		return path
+	}
+
+	/** The export shows the frame's latest snapshot, so the agent sees inside it. */
+	override async toSvg(shape: WidgetShape) {
+		const { w, h, title } = shape.props
+		const frameHeight = Math.max(40, h - widgetChromeHeight(shape.props))
+		const entry = snapshots.get(shape.id)
+		let image: string | null = null
+		if (entry) {
+			image = await Promise.race([entry.request(), new Promise<null>((r) => setTimeout(() => r(null), 1500))])
+			image = image ?? entry.last
+		}
+		return (
+			<g>
+				<rect width={w} height={h} rx={6} fill="#fffdf8" stroke="#d8d2c4" />
+				<text x={10} y={19} fontSize={14} fontStyle="italic" fontFamily="Georgia, serif" fill="#302f2a">
+					{title}
+				</text>
+				{image ? (
+					<image href={image} x={0} y={TITLE_BAR} width={w} height={frameHeight} preserveAspectRatio="xMidYMid meet" />
+				) : (
+					<text x={w / 2} y={TITLE_BAR + frameHeight / 2} fontSize={13} textAnchor="middle" fill="#8a8578">
+						{shape.props.status === 'writing' ? 'Writing the widget...' : 'Widget'}
+					</text>
+				)}
+			</g>
+		)
+	}
+}
+
+type Phase = { kind: 'starting' } | { kind: 'running' } | { kind: 'stopped'; reason: string }
+
+function Widget({ shape }: { shape: WidgetShape }) {
+	const editor = useEditor()
+	const { w, h, title, status, params } = shape.props
+	const parameters = Object.values(params)
+	const frameHeight = Math.max(40, h - widgetChromeHeight(shape.props))
+	// The frame takes pointer events once the widget is selected, so a first
+	// click selects it and the title bar always moves it.
+	const interactive = useValue(
+		'widget interactive',
+		() => editor.getOnlySelectedShapeId() === shape.id || editor.getEditingShapeId() === shape.id,
+		[editor, shape.id]
+	)
+
+	const setParam = (name: string, value: number) => {
+		const current = editor.getShape<WidgetShape>(shape.id)
+		const p = current?.props.params[name]
+		if (!current || !p || editor.getIsReadonly()) return
+		const next = clampParameter(p, value)
+		if (next === p.value) return
+		editor.updateShape<WidgetShape>({
+			id: shape.id,
+			type: WIDGET_TYPE,
+			props: { params: { ...current.props.params, [name]: { ...p, value: next } } },
+		})
+	}
+
+	return (
+		<HTMLContainer className="graph-container widget-container">
+			<div className="graph-sheet" style={{ width: w, height: h }}>
+				<div className="widget-title" style={{ height: TITLE_BAR }}>
+					{title}
+				</div>
+				<div className="widget-frame" style={{ height: frameHeight }}>
+					{status === 'ready' ? (
+						<WidgetFrame shape={shape} height={frameHeight} interactive={interactive} />
+					) : (
+						<div className="widget-placeholder">
+							{status === 'writing' ? (
+								<>
+									<div className="widget-placeholder-head">Writing the widget</div>
+									<div className="widget-placeholder-brief">{shape.props.brief}</div>
+								</>
+							) : (
+								<>
+									<div className="widget-placeholder-head">This widget could not be written</div>
+									<div className="widget-placeholder-brief">{shape.props.error}</div>
+								</>
+							)}
+						</div>
+					)}
+				</div>
+				<SliderRows parameters={parameters} onSet={setParam} />
+			</div>
+		</HTMLContainer>
+	)
+}
+
+function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; height: number; interactive: boolean }) {
+	const editor = useEditor()
+	const frameRef = useRef<HTMLIFrameElement>(null)
+	const [phase, setPhase] = useState<Phase>({ kind: 'starting' })
+	const [restarts, setRestarts] = useState(0)
+	const [scriptError, setScriptError] = useState<string | null>(null)
+	const { html, css, js, params, state } = shape.props
+
+	const values = useMemo(
+		() => ({ params: Object.fromEntries(Object.values(params).map((p) => [p.name, p.value])), state }),
+		[params, state]
+	)
+	const valuesRef = useRef(values)
+	valuesRef.current = values
+
+	// The document is built only when the code changes or the user restarts it,
+	// never on a value change, so the frame keeps running as values arrive.
+	const built = useMemo(
+		() => buildWidgetDocument({ html, css, js }, valuesRef.current),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[html, css, js, restarts]
+	)
+
+	const stop = (reason: string) => setPhase((p) => (p.kind === 'stopped' ? p : { kind: 'stopped', reason }))
+	const post = (message: unknown) => frameRef.current?.contentWindow?.postMessage(message, '*')
+
+	// Messages from the frame: checked, rate capped, then applied as edits of the shape.
+	const lastBeat = useRef(performance.now())
+	const lastEditAt = useRef(0)
+	const pendingSnapshots = useRef(new Map<string, (url: string | null) => void>())
+	useEffect(() => {
+		if (phase.kind === 'stopped') return
+		const limiter = new RateLimiter()
+		// Changes the frame asks for are batched, at most one edit of the shape per
+		// interval, so a widget that sets values on every frame does not flood the
+		// board's history.
+		const pending: { params: Record<string, number>; state: Record<string, unknown> } = { params: {}, state: {} }
+		let flushTimer: ReturnType<typeof setTimeout> | null = null
+		const scheduleFlush = () => {
+			flushTimer ??= setTimeout(flush, FLUSH_MS)
+		}
+		const flush = () => {
+			flushTimer = null
+			const current = editor.getShape<WidgetShape>(shape.id)
+			const { params: asked, state: askedState } = pending
+			pending.params = {}
+			pending.state = {}
+			if (!current || editor.getIsReadonly()) return
+			const params = { ...current.props.params }
+			let changed = false
+			for (const [name, value] of Object.entries(asked)) {
+				const p = params[name]
+				if (!p) continue
+				const next = clampParameter(p, value)
+				if (next === p.value) continue
+				params[name] = { ...p, value: next }
+				changed = true
+			}
+			const state = { ...current.props.state }
+			for (const [key, value] of Object.entries(askedState)) {
+				// A widget may set only the state it declared.
+				if (!Object.hasOwn(state, key)) {
+					console.warn(`Widget ${shape.id} tried to set undeclared state "${key}".`)
+					continue
+				}
+				if (JSON.stringify(state[key]) === JSON.stringify(value)) continue
+				state[key] = value
+				changed = true
+			}
+			if (!changed) return
+			if (JSON.stringify(state).length > MAX_STATE_CHARS) {
+				console.warn(`Widget ${shape.id} state would pass ${MAX_STATE_CHARS} characters.`)
+				return
+			}
+			// One undo step per burst of changes, such as one drag inside the frame.
+			const now = performance.now()
+			if (now - lastEditAt.current > UNDO_GAP_MS) editor.markHistoryStoppingPoint('widget change')
+			lastEditAt.current = now
+			editor.updateShape<WidgetShape>({ id: shape.id, type: WIDGET_TYPE, props: { params, state } })
+		}
+		const onMessage = (event: MessageEvent) => {
+			if (!frameRef.current || event.source !== frameRef.current.contentWindow) return
+			if (!limiter.take()) {
+				if (limiter.dropped > MAX_DROPPED) stop('It sent too many messages.')
+				return
+			}
+			const read = readWidgetMessage(event.data)
+			if ('refused' in read) {
+				console.warn(`Widget ${shape.id} message refused: ${read.refused}`)
+				return
+			}
+			const message = read.message
+			lastBeat.current = performance.now()
+			switch (message.type) {
+				case 'ready':
+					setPhase({ kind: 'running' })
+					post({ type: 'values', ...valuesRef.current })
+					break
+				case 'heartbeat':
+					break
+				case 'set-param':
+					pending.params[message.name] = message.value
+					scheduleFlush()
+					break
+				case 'set-state':
+					pending.state[message.key] = message.value
+					scheduleFlush()
+					break
+				case 'snapshot': {
+					const resolve = pendingSnapshots.current.get(message.id)
+					pendingSnapshots.current.delete(message.id)
+					resolve?.(message.dataUrl)
+					break
+				}
+				case 'error':
+					if (message.kind === 'loop') stop(message.message)
+					else setScriptError(message.message)
+					break
+			}
+		}
+		window.addEventListener('message', onMessage)
+		return () => {
+			window.removeEventListener('message', onMessage)
+			// Changes asked for just before the frame's phase changed still land.
+			if (flushTimer) {
+				clearTimeout(flushTimer)
+				flush()
+			}
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [phase.kind, shape.id, editor])
+
+	// New values go to the running frame.
+	useEffect(() => {
+		if (phase.kind === 'running') post({ type: 'values', ...values })
+	}, [values, phase.kind])
+
+	// The watchdog: a frame that stops sending heartbeats is stopped. Where the
+	// frame has its own process, this ends a loop the guard did not catch.
+	useEffect(() => {
+		if (phase.kind === 'stopped') return
+		const startedAt = performance.now()
+		lastBeat.current = startedAt
+		const timer = setInterval(() => {
+			const now = performance.now()
+			if (phase.kind === 'starting' && now - startedAt > START_TIMEOUT_MS) stop('It did not start.')
+			if (phase.kind === 'running' && now - lastBeat.current > HEARTBEAT_TIMEOUT_MS) stop('It stopped responding.')
+		}, 500)
+		return () => clearInterval(timer)
+	}, [phase.kind, restarts])
+
+	// Snapshots for the board's image export.
+	useEffect(() => {
+		const entry = {
+			last: snapshots.get(shape.id)?.last ?? null,
+			request: () =>
+				new Promise<string | null>((resolve) => {
+					if (!frameRef.current?.contentWindow) return resolve(null)
+					const id = crypto.randomUUID()
+					pendingSnapshots.current.set(id, (url) => {
+						if (url) entry.last = url
+						resolve(url)
+					})
+					post({ type: 'snapshot-request', id })
+				}),
+		}
+		snapshots.set(shape.id, entry)
+		return () => {
+			if (snapshots.get(shape.id) === entry) snapshots.delete(shape.id)
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [shape.id])
+
+	// A frame that loads a second page navigated away from its own document.
+	const loads = useRef(0)
+	useEffect(() => {
+		loads.current = 0
+	}, [built, restarts])
+
+	if ('error' in built) {
+		return <div className="widget-placeholder"><div className="widget-placeholder-head">This widget could not run</div><div className="widget-placeholder-brief">{built.error}</div></div>
+	}
+	if (phase.kind === 'stopped') {
+		return (
+			<div className="widget-placeholder">
+				<div className="widget-placeholder-head">This widget was stopped</div>
+				<div className="widget-placeholder-brief">{phase.reason}</div>
+				<button
+					className="widget-restart"
+					onPointerDown={(e) => e.stopPropagation()}
+					onClick={() => {
+						setScriptError(null)
+						setPhase({ kind: 'starting' })
+						setRestarts((n) => n + 1)
+					}}
+				>
+					Restart
+				</button>
+			</div>
+		)
+	}
+	return (
+		<>
+			<iframe
+				key={restarts}
+				ref={frameRef}
+				title={shape.props.title || 'Widget'}
+				sandbox="allow-scripts"
+				referrerPolicy="no-referrer"
+				allow=""
+				srcDoc={built.doc}
+				style={{ width: '100%', height, border: 0, display: 'block', pointerEvents: interactive ? 'all' : 'none' }}
+				onLoad={() => {
+					loads.current++
+					if (loads.current > 1) stop('It tried to leave its own page.')
+				}}
+			/>
+			{scriptError && <div className="widget-error">{scriptError}</div>}
+		</>
+	)
+}

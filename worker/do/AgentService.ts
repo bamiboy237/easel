@@ -5,7 +5,7 @@ import {
 	GoogleGenerativeAIProviderOptions,
 } from '@ai-sdk/google'
 import { createOpenAI, OpenAIProvider, OpenAIResponsesProviderOptions } from '@ai-sdk/openai'
-import { jsonSchema, LanguageModel, ModelMessage, Output, streamText } from 'ai'
+import { generateText, jsonSchema, LanguageModel, ModelMessage, Output, streamText } from 'ai'
 import {
 	AgentModelDefinition,
 	AgentModelName,
@@ -21,6 +21,7 @@ import { Environment } from '../environment'
 import { buildMessages } from '../prompt/buildMessages'
 import { buildLoadedToolsPrompt, buildSystemPrompt } from '../prompt/buildSystemPrompt'
 import { getModelName } from '../prompt/getModelName'
+import { WIDGET_SYSTEM_PROMPT } from '../prompt/widgetPrompt'
 import { ActionStream } from './ActionStream'
 
 /**
@@ -28,6 +29,25 @@ import { ActionStream } from './ActionStream'
  * small budget can end before the first action on a hard prompt.
  */
 const MAX_OUTPUT_TOKENS = 16384
+
+/** What the board sends to have a widget written. */
+export interface WidgetRequest {
+	modelName: string
+	title: string
+	brief: string
+	width: number
+	height: number
+	params: { name: string; value: number; min: number; max: number; step: number }[]
+	state: Record<string, unknown>
+	/** What was wrong with the last attempt, for a retry. */
+	problem?: string
+}
+
+export interface WidgetCode {
+	html: string
+	css: string
+	js: string
+}
 
 export class AgentService {
 	openai: OpenAIProvider
@@ -56,6 +76,39 @@ export class AgentService {
 		const modelDefinition = getAgentModelDefinition(modelName)
 		const provider = modelDefinition.provider
 		return this[provider](modelDefinition.id)
+	}
+
+	/** Write a widget's HTML, CSS, and JavaScript from a brief, in one model call. */
+	async writeWidget(request: WidgetRequest): Promise<WidgetCode> {
+		const modelName = isValidModelName(request.modelName) ? request.modelName : getModelName({} as AgentPrompt)
+		const model = this.getModel(modelName)
+		const definition = getAgentModelDefinition(modelName)
+		const params = request.params.length
+			? request.params.map((p) => `${p.name} = ${p.value} (from ${p.min} to ${p.max}, step ${p.step})`).join('; ')
+			: 'none'
+		const prompt = [
+			`Title: ${request.title}`,
+			`Size: ${Math.round(request.width)} by ${Math.round(request.height)} pixels.`,
+			`Parameters: ${params}.`,
+			`State, with starting values: ${JSON.stringify(request.state)}.`,
+			`Brief: ${request.brief}`,
+			request.problem ? `Your last attempt had this problem, so fix it: ${request.problem}` : '',
+		]
+			.filter(Boolean)
+			.join('\n')
+		const started = Date.now()
+		const { text, usage } = await generateText({
+			model,
+			system: WIDGET_SYSTEM_PROMPT,
+			prompt,
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			...(definition.supportsTemperature ? { temperature: 0 } : {}),
+			providerOptions: getProviderOptions(definition),
+		})
+		console.log(
+			`[widget] model=${modelName} seconds=${Math.round((Date.now() - started) / 1000)} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0}`
+		)
+		return parseWidgetCode(text)
 	}
 
 	async *stream(prompt: AgentPrompt): AsyncGenerator<Streaming<AgentAction>> {
@@ -267,4 +320,16 @@ function getProviderOptions(definition: AgentModelDefinition): StreamTextProvide
 				} satisfies OpenAIResponsesProviderOptions,
 			}
 	}
+}
+
+/** The widget code from a reply: one JSON object, perhaps inside a code fence. */
+function parseWidgetCode(text: string): WidgetCode {
+	const start = text.indexOf('{')
+	const end = text.lastIndexOf('}')
+	if (start < 0 || end <= start) throw new Error('The reply had no JSON object.')
+	const parsed = JSON.parse(text.slice(start, end + 1)) as Partial<WidgetCode>
+	const str = (v: unknown) => (typeof v === 'string' ? v : '')
+	const code = { html: str(parsed.html), css: str(parsed.css), js: str(parsed.js) }
+	if (!code.html && !code.js) throw new Error('The reply had no HTML or JavaScript.')
+	return code
 }
