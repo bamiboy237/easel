@@ -1,11 +1,13 @@
 import { Box, clamp, TLShapeId } from 'tldraw'
 import { ClearSpacePart } from '../../shared/schema/PromptPartDefinitions'
 import { AgentRequest } from '../../shared/types/AgentRequest'
-import { findClearSpaceBeside, findClearSpaceInView } from '../agent/findClearSpace'
+import { findClearSpaceBeside, findClearSpaceInView, findNoteSpot } from '../agent/findClearSpace'
 import { AgentHelpers } from '../AgentHelpers'
 import { PromptPartUtil, registerPromptPartUtil } from './PromptPartUtil'
 
 const DEFAULT_SIZE = { w: 640, h: 480 }
+/** Room for a short answer about a small selection: a few lines and a small figure or formula. */
+const ANSWER_SIZE = { w: 420, h: 240 }
 
 /**
  * Where new work fits. For a request about selected shapes or context, that is
@@ -35,8 +37,14 @@ export const ClearSpacePartUtil = registerPromptPartUtil(
 
 			let space: Box | null = null
 			if (subject) {
-				const size = { w: clamp(subject.w, 400, 900), h: clamp(subject.h, 300, 800) }
-				space = findClearSpaceBeside(editor, subject, size)
+				// A small selection, such as one line of an equation, gets an answer the
+				// size of a short note, in the nearest clear space on any side, scored by
+				// how far the eye travels from the selection to it, as threads are placed.
+				// Its own frame's empty space counts. A larger subject gets room beside it
+				// as big as itself.
+				const small = subject.w <= 600 && subject.h <= 400
+				const size = small ? ANSWER_SIZE : { w: clamp(subject.w, 400, 900), h: clamp(subject.h, 300, 800) }
+				space = (small ? findNoteSpot(editor, subject, size) : null) ?? findClearSpaceBeside(editor, subject, size)
 			} else {
 				space = findClearSpaceInView(editor, DEFAULT_SIZE)
 			}

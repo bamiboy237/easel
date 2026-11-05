@@ -1626,6 +1626,29 @@
 	--mafs-font-family: 'Inter', sans-serif;
 }
 
+/* Axis titles and curve names, set on the plot with a halo of the sheet so a grid line never cuts them. */
+.graph-label {
+	position: absolute;
+	white-space: nowrap;
+	pointer-events: none;
+	font-family: 'Source Serif 4 Variable', Georgia, serif;
+	line-height: 1.3;
+	text-shadow:
+		0 0 3px var(--paper-card),
+		0 0 3px var(--paper-card),
+		0 0 2px var(--paper-card);
+}
+
+.graph-label-axis {
+	font-size: 15px;
+	font-style: italic;
+}
+
+.graph-label-curve {
+	font-size: 15px;
+	font-weight: 500;
+}
+
 .graph-error {
 	position: absolute;
 	left: 10px;

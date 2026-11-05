@@ -445,6 +445,9 @@ export const GraphAction = z
 		width: z.number(),
 		height: z.number(),
 		functions: z.array(z.string()),
+		labels: z.array(z.string()),
+		xLabel: z.string(),
+		yLabel: z.string(),
 		parameters: z.array(ParameterSchema),
 		xMin: z.number(),
 		xMax: z.number(),
@@ -454,7 +457,7 @@ export const GraphAction = z
 	.meta({
 		title: 'Graph',
 		description:
-			'The AI draws a live graph of functions of x, which the user can explore with sliders. Use it whenever a relationship between quantities should be seen, instead of drawing a curve with the pen. Functions: y as an expression of x and the parameters, such as "a*sin(b*x)" or "x^2 - c"; allowed are + - * / ^, parentheses, pi, e, and sin cos tan exp ln log sqrt abs. Parameters: each named number in the functions, with its starting value, its range, and its slider step; the user drags them, and the board shows their current values. To change an existing graph, use its shapeId. Width and height: the plot area in pixels; the sliders are added below it.',
+			'The AI draws a live graph of functions of x, which the user can explore with sliders. Use it whenever a relationship between quantities should be seen, instead of drawing a curve with the pen. Functions: y as an expression of x and the parameters, such as "a*sin(b*x)" or "x^2 - c"; allowed are + - * / ^, parentheses, pi, e, and sin cos tan exp ln log sqrt abs. Labels: a short name for each function, in the same order, written at the end of its curve in its color, such as "demand", "height h", or "y = eˣ"; "" for none. With two or more curves, name every one. xLabel and yLabel: what each axis measures, with its unit, such as "t (s)" and "h (m)", or "x" and "y" for pure math. Pick ranges that show the interesting part, such as one or two periods of a wave, with the curves filling most of the plot. Parameters: each named number in the functions, with its starting value, its range, and its slider step; the user drags them, and the board shows their current values. To change an existing graph, use its shapeId. Width and height: the plot area in pixels; the sliders are added below it.',
 	})
 
 export type GraphAction = z.infer<typeof GraphAction>
