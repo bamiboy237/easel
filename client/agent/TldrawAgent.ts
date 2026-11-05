@@ -1,3 +1,4 @@
+import type { OpenAIReasoningEffort } from '../../shared/models'
 import { cancelWidgetJobs } from '../shapes/widget/jobs'
 import { Editor, RecordsDiff, reverseRecordsDiff, structuredClone, TLRecord, TLShapeId } from 'tldraw'
 import { convertTldrawShapeToFocusedShape } from '../../shared/format/convertTldrawShapeToFocusedShape'
@@ -281,6 +282,9 @@ export class TldrawAgent {
 	getAllowedShapeIds(): ReadonlySet<TLShapeId> {
 		return this.allowedShapeIds
 	}
+
+	/** A reasoning effort for every request, for measuring; null uses the policy. */
+	reasoningEffortOverride: OpenAIReasoningEffort | null = null
 
 	/** The user's own words in the current user request, kept through follow-up passes. */
 	private requestUserText = ''

@@ -11,9 +11,10 @@ import {
 	AgentModelName,
 	getAgentModelDefinition,
 	isValidModelName,
+	OpenAIReasoningEffort,
 } from '../../shared/models'
 import { buildResponseSchema } from '../../shared/schema/buildResponseSchema'
-import { DebugPart } from '../../shared/schema/PromptPartDefinitions'
+import { DebugPart, ModelNamePart } from '../../shared/schema/PromptPartDefinitions'
 import { AgentAction } from '../../shared/types/AgentAction'
 import { AgentPrompt } from '../../shared/types/AgentPrompt'
 import { Streaming } from '../../shared/types/Streaming'
@@ -22,7 +23,6 @@ import { buildMessages } from '../prompt/buildMessages'
 import { buildLoadedToolsPrompt, buildSystemPrompt } from '../prompt/buildSystemPrompt'
 import { getModelName } from '../prompt/getModelName'
 import { WIDGET_SYSTEM_PROMPT } from '../prompt/widgetPrompt'
-import { parseWidgetCode, WidgetCode } from './widgetCode'
 import { ActionStream } from './ActionStream'
 
 /**
@@ -30,6 +30,9 @@ import { ActionStream } from './ActionStream'
  * small budget can end before the first action on a hard prompt.
  */
 const MAX_OUTPUT_TOKENS = 16384
+
+/** How hard an OpenAI model reasons while writing a widget's code. */
+const WIDGET_WRITER_EFFORT: OpenAIReasoningEffort = 'medium'
 
 /** What the board sends to have a widget written. */
 export interface WidgetRequest {
@@ -74,8 +77,11 @@ export class AgentService {
 		return this[provider](modelDefinition.id)
 	}
 
-	/** Write a widget's HTML, CSS, and JavaScript from a brief, in one model call. */
-	async writeWidget(request: WidgetRequest): Promise<WidgetCode> {
+	/**
+	 * Write a widget's HTML, CSS, and JavaScript from a brief, in one model call,
+	 * streamed as it is written: the board shows the layout before the script.
+	 */
+	streamWidget(request: WidgetRequest): AsyncIterable<string> {
 		const modelName = isValidModelName(request.modelName) ? request.modelName : getModelName({} as AgentPrompt)
 		const model = this.getModel(modelName)
 		const definition = getAgentModelDefinition(modelName)
@@ -93,20 +99,24 @@ export class AgentService {
 			.filter(Boolean)
 			.join('\n')
 		const started = Date.now()
-		// Streamed, then collected: the ChatGPT plan only answers as a stream.
 		const result = streamText({
 			model,
 			system: WIDGET_SYSTEM_PROMPT,
 			prompt,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			...(definition.supportsTemperature ? { temperature: 0 } : {}),
-			providerOptions: getProviderOptions(definition),
+			// The brief is already a full spec, so the writer needs less reasoning
+			// than the agent that planned it.
+			providerOptions: getProviderOptions(definition, WIDGET_WRITER_EFFORT),
 		})
-		const [text, usage] = await Promise.all([result.text, result.usage])
-		console.log(
-			`[widget] model=${modelName} seconds=${Math.round((Date.now() - started) / 1000)} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0}`
-		)
-		return parseWidgetCode(text)
+		void Promise.resolve(result.usage)
+			.then((usage) =>
+				console.log(
+					`[widget] model=${modelName} seconds=${Math.round((Date.now() - started) / 1000)} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0}`
+				)
+			)
+			.catch(() => {})
+		return result.textStream
 	}
 
 	async *stream(prompt: AgentPrompt): AsyncGenerator<Streaming<AgentAction>> {
@@ -198,7 +208,7 @@ export class AgentService {
 				maxOutputTokens: MAX_OUTPUT_TOKENS,
 				// Opus 4.7+ removed `temperature` (and top_p/top_k); sending it returns a 400.
 				...(modelDefinition.supportsTemperature ? { temperature: 0 } : {}),
-				providerOptions: getProviderOptions(modelDefinition),
+				providerOptions: getProviderOptions(modelDefinition, (prompt.modelName as ModelNamePart | undefined)?.reasoningEffort),
 				// Raw events let us log how a provider stream ended when it ends without finishing
 				includeRawChunks: true,
 				experimental_output: usesNativeJsonSchema
@@ -259,7 +269,7 @@ export class AgentService {
 						// One line per request, so prompt size and caching can be measured.
 						const usage = part.totalUsage
 						console.log(
-							`[usage] model=${modelId} actions=${prompt.mode.actionTypes.length} groups=${prompt.mode.loadedToolGroups?.join('+') || 'none'} systemChars=${systemPrompt.length} loadedChars=${loadedToolsPrompt.length} input=${usage.inputTokens ?? '?'} cached=${usage.cachedInputTokens ?? 0} output=${usage.outputTokens ?? '?'} reasoning=${usage.reasoningTokens ?? 0}`
+							`[usage] model=${modelId} effort=${(prompt.modelName as ModelNamePart | undefined)?.reasoningEffort ?? ('reasoningEffort' in modelDefinition ? modelDefinition.reasoningEffort : '-')} actions=${prompt.mode.actionTypes.length} groups=${prompt.mode.loadedToolGroups?.join('+') || 'none'} systemChars=${systemPrompt.length} loadedChars=${loadedToolsPrompt.length} input=${usage.inputTokens ?? '?'} cached=${usage.cachedInputTokens ?? 0} output=${usage.outputTokens ?? '?'} reasoning=${usage.reasoningTokens ?? 0}`
 						)
 						break
 					}
@@ -295,7 +305,7 @@ type StreamTextProviderOptions = NonNullable<Parameters<typeof streamText>[0]['p
  * Map a model definition's reasoning preferences to AI SDK provider options.
  * Only the matching provider's options are set; the SDK ignores the rest.
  */
-function getProviderOptions(definition: AgentModelDefinition): StreamTextProviderOptions {
+function getProviderOptions(definition: AgentModelDefinition, effort?: OpenAIReasoningEffort): StreamTextProviderOptions {
 	switch (definition.provider) {
 		case 'anthropic':
 			return {
@@ -318,7 +328,7 @@ function getProviderOptions(definition: AgentModelDefinition): StreamTextProvide
 		case 'chatgpt':
 			return {
 				openai: {
-					reasoningEffort: definition.reasoningEffort,
+					reasoningEffort: effort ?? definition.reasoningEffort,
 				} satisfies OpenAIResponsesProviderOptions,
 			}
 	}

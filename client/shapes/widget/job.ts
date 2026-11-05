@@ -1,8 +1,12 @@
 import { TLShapeId } from 'tldraw'
 import type { TldrawAgent } from '../../agent/TldrawAgent'
 import { WIDGET_TYPE, widgetChromeHeight, WidgetShape } from '../WidgetShapeUtil'
-import { runningWidgetJobs } from './jobs'
+import { closedWidgetBlocks, parseWidgetCode, WIDGET_STREAM_ERROR } from '../../../shared/widgetCode'
+import { runningWidgetJobs, setWidgetPreview } from './jobs'
 import { guardLoops } from './sandbox'
+
+/** How often a growing preview is redrawn, in milliseconds: each redraw reloads its frame. */
+const PREVIEW_EVERY_MS = 2000
 
 /** How many times the job asks again when the code does not parse. */
 const RETRIES = 1
@@ -51,14 +55,49 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 				body: JSON.stringify(request),
 				signal: controller.signal,
 			})
-			const body = (await response.json()) as { html?: string; css?: string; js?: string; error?: string }
-			if (!response.ok || body.error) {
-				outcome = { error: body.error ?? `The writer returned ${response.status}.` }
+			if (!response.ok || !response.body) {
+				outcome = { error: (await response.text()) || `The writer returned ${response.status}.` }
+				request.problem = outcome.error
+				continue
+			}
+			// Read the reply as it is written, and show the layout as soon as its
+			// html and css blocks are both closed.
+			const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+			let text = ''
+			let shownAt = 0
+			let shownLength = 0
+			for (;;) {
+				const { done, value } = await reader.read()
+				if (done) break
+				text += value
+				const blocks = closedWidgetBlocks(text)
+				// Once the style sheet is done, the markup shows as it arrives, a few
+				// times as it grows: html without its css would read as a bare page.
+				const markup = blocks.html ?? blocks.htmlSoFar
+				if (blocks.css !== null && markup && markup.length > shownLength) {
+					const now = performance.now()
+					if (blocks.html !== null || (markup.length > 400 && now - shownAt > PREVIEW_EVERY_MS)) {
+						shownAt = now
+						shownLength = markup.length
+						setWidgetPreview(id, { html: markup, css: blocks.css })
+					}
+				}
+			}
+			const failed = text.indexOf(WIDGET_STREAM_ERROR)
+			if (failed >= 0) {
+				outcome = { error: text.slice(failed + WIDGET_STREAM_ERROR.length) || 'The writer failed.' }
 				// The retry is told what went wrong, so it does not repeat it.
 				request.problem = outcome.error
 				continue
 			}
-			const code = { html: body.html ?? '', css: body.css ?? '', js: body.js ?? '' }
+			let code: { html: string; css: string; js: string }
+			try {
+				code = parseWidgetCode(text)
+			} catch (error) {
+				outcome = { error: (error as Error).message }
+				request.problem = outcome.error
+				continue
+			}
 			const guarded = guardLoops(code.js)
 			if ('error' in guarded) {
 				outcome = guarded
@@ -68,11 +107,15 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 			outcome = code
 			break
 		} catch (error) {
-			if (controller.signal.aborted) return
+			if (controller.signal.aborted) {
+				setWidgetPreview(id, null)
+				return
+			}
 			outcome = { error: (error as Error).message }
 		}
 	}
 
+	setWidgetPreview(id, null)
 	if (controller.signal.aborted) return
 	runningWidgetJobs.update((jobs) => {
 		const next = new Map(jobs)

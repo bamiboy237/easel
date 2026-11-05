@@ -3,7 +3,7 @@ import { BoxModel, JsonValue } from 'tldraw'
 import { BlurryShape } from '../format/BlurryShape'
 import { FocusedShape } from '../format/FocusedShape'
 import { PeripheralShapeCluster } from '../format/PeripheralShapesCluster'
-import { AgentModelName } from '../models'
+import { AgentModelName, OpenAIReasoningEffort } from '../models'
 import type { AgentAction } from '../types/AgentAction'
 import { AgentCanvasLint } from '../types/AgentCanvasLint'
 import { AgentMessage, AgentMessageContent } from '../types/AgentMessage'
@@ -53,6 +53,11 @@ export interface MessagesPart {
 export interface ModelNamePart {
 	type: 'modelName'
 	modelName: AgentModelName
+	/**
+	 * How hard an OpenAI model reasons on this request, when it should differ
+	 * from the model's own setting: light for small follow-ups, full for new work.
+	 */
+	reasoningEffort?: OpenAIReasoningEffort
 }
 
 export interface PeripheralShapesPart {

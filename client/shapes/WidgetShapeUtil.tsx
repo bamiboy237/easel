@@ -14,7 +14,7 @@ import {
 import { parametersHeight } from './GraphShapeUtil'
 import { clampParameter, describeParameters, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import { MAX_DROPPED, MAX_STATE_CHARS, RateLimiter, readWidgetMessage } from './widget/bridge'
-import { isWidgetJobRunning, runningWidgetJobs } from './widget/jobs'
+import { isWidgetJobRunning, runningWidgetJobs, widgetPreviews } from './widget/jobs'
 import { buildWidgetDocument } from './widget/sandbox'
 
 export const WIDGET_TYPE = 'widget'
@@ -170,6 +170,7 @@ function Widget({ shape }: { shape: WidgetShape }) {
 	const { w, h, title, status, params } = shape.props
 	const parameters = Object.values(params)
 	const jobRunning = useValue('widget job running', () => runningWidgetJobs.get().has(shape.id), [shape.id])
+	const preview = useValue('widget preview', () => widgetPreviews.get().get(shape.id) ?? null, [shape.id])
 	const frameHeight = Math.max(40, h - widgetChromeHeight(shape.props))
 	// The frame takes pointer events once the widget is selected, so a first
 	// click selects it and the title bar always moves it.
@@ -201,6 +202,8 @@ function Widget({ shape }: { shape: WidgetShape }) {
 				<div className="widget-frame" style={{ height: frameHeight }}>
 					{status === 'ready' ? (
 						<WidgetFrame shape={shape} height={frameHeight} interactive={interactive} />
+					) : status === 'writing' && jobRunning && preview ? (
+						<WidgetPreview shape={shape} preview={preview} height={frameHeight} />
 					) : (
 						<div className="widget-placeholder">
 							{status === 'writing' && jobRunning ? (
@@ -222,6 +225,28 @@ function Widget({ shape }: { shape: WidgetShape }) {
 				<SliderRows parameters={parameters} onSet={setParam} />
 			</div>
 		</HTMLContainer>
+	)
+}
+
+/**
+ * The layout of a widget whose script is still being written: its html and
+ * css in the same sandbox, with no script, under a note that it is not ready.
+ */
+function WidgetPreview({ shape, preview, height }: { shape: WidgetShape; preview: { html: string; css: string }; height: number }) {
+	const built = useMemo(() => buildWidgetDocument({ html: preview.html, css: preview.css, js: '' }, { params: {}, state: {} }), [preview.html, preview.css])
+	if ('error' in built) return null
+	return (
+		<>
+			<iframe
+				title={`${shape.props.title || 'Widget'} (preview)`}
+				sandbox="allow-scripts"
+				referrerPolicy="no-referrer"
+				allow=""
+				srcDoc={built.doc}
+				style={{ width: '100%', height, border: 0, display: 'block', pointerEvents: 'none', opacity: 0.85 }}
+			/>
+			<div className="widget-writing-badge">Writing the script...</div>
+		</>
 	)
 }
 

@@ -5,14 +5,14 @@
  */
 export const WIDGET_SYSTEM_PROMPT = `You write small interactive widgets that run inside a whiteboard, in a sandboxed frame.
 
-Reply with exactly three fenced code blocks, in this order, and nothing else:
-
-\`\`\`html
-(the body's markup)
-\`\`\`
+Reply with exactly three fenced code blocks, in this order, and nothing else. The board shows the layout while you write, so the style sheet comes first, then the markup, then the script:
 
 \`\`\`css
 (the style sheet)
+\`\`\`
+
+\`\`\`html
+(the body's markup)
 \`\`\`
 
 \`\`\`js
@@ -20,7 +20,7 @@ Reply with exactly three fenced code blocks, in this order, and nothing else:
 \`\`\`
 
 The frame:
-- html is the body's markup. It may not contain script tags or inline event handlers such as onclick; they are removed. Wire every event in js with addEventListener.
+- html is the body's markup. Write every screen's markup in it, with the first screen visible and the others hidden, so the widget shows its layout before its script arrives; the script then wires and fills it. It may not contain script tags or inline event handlers such as onclick; they are removed. Wire every event in js with addEventListener.
 - css is a style sheet. js runs once, after the html is in the page.
 - There is no network: no fetch, no external images, fonts, scripts, or style sheets, and no links that leave the page. Draw with HTML, SVG, or canvas. Images must be data: URLs.
 - No libraries are available. Write plain modern JavaScript.
