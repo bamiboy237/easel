@@ -1,5 +1,5 @@
 import { compileExpression, CompiledExpression, expressionNames, functionNames, Scope } from '../math/expression'
-import { ShapeParameter } from '../math/parameters'
+import { clampParameter, ShapeParameter } from '../math/parameters'
 
 /**
  * A scene is a visual described as data, in the style of Desmos and GeoGebra:
@@ -444,95 +444,114 @@ export function dragTargets(object: SceneObject, params: Record<string, ShapePar
 	return { x: x ?? null, y: y ?? null }
 }
 
+/** Whether a check's result counts as holding: a finite number that is not 0. */
+export function checkHolds(result: number): boolean {
+	return Number.isFinite(result) && result !== 0
+}
+
+/** A problem in a scene: a stable key for not repeating it, and the text the agent reads. */
+export interface SceneProblem {
+	key: string
+	text: string
+}
+
 /**
  * Problems in a scene, found by evaluating it, for the agent to fix: names
  * that are not defined, the agent's own checks that fail, values that stop
- * being numbers somewhere in a slider's range, objects outside the frame, and
- * angles in degrees passed to sin, cos, or tan without deg(). Each scene is
- * sampled with every parameter at its minimum, middle, and maximum, and time
- * at its start, middle, and end, so a problem that only shows at one end of a
- * slider is still found.
+ * being numbers somewhere in a slider's range, visible points outside the
+ * frame, and angles in degrees passed to sin, cos, or tan without deg(). Each
+ * scene is sampled with every parameter at its minimum, middle, and maximum
+ * (on its step, as a slider would set it), and time at its start, middle, and
+ * end. Each sample is evaluated once. Keys name the object and the kind of
+ * problem, never a value the user can change, so the same problem is not
+ * reported again when a slider moves.
  */
-export function checkScene(props: SceneProps): string[] {
-	const problems: string[] = []
-	for (const [id, problem] of Object.entries(findUndefinedNames(props))) problems.push(`${id} ${problem}`)
-	const undefinedIds = new Set(Object.keys(findUndefinedNames(props)))
+export function checkScene(props: SceneProps): SceneProblem[] {
+	const problems: SceneProblem[] = []
+	const add = (key: string, text: string) => {
+		if (!problems.some((p) => p.key === key)) problems.push({ key, text })
+	}
+	const undefinedNames = findUndefinedNames(props)
+	for (const [id, problem] of Object.entries(undefinedNames)) add(`${id}:undefined`, `${id} ${problem}`)
+	const undefinedIds = new Set(Object.keys(undefinedNames))
 
 	const params = Object.values(props.params)
-	const samples: { label: string; params: Record<string, ShapeParameter>; t: number }[] = []
 	const times = props.duration > 0 ? [0, props.duration / 2, props.duration] : [0]
-	const at = (overrides: Record<string, number>) =>
-		Object.fromEntries(params.map((p) => [p.name, { ...p, value: overrides[p.name] ?? p.value }]))
-	for (const t of times) samples.push({ label: t ? `t = ${formatNumber(t)}` : '', params: props.params, t })
+	const sampleSets: { label: string; params: Record<string, ShapeParameter>; t: number }[] = []
+	for (const t of times) sampleSets.push({ label: t ? `t = ${formatNumber(t)}` : '', params: props.params, t })
 	for (const p of params) {
-		for (const value of [p.min, (p.min + p.max) / 2, p.max]) {
-			samples.push({ label: `${p.name} = ${formatNumber(value)}`, params: at({ [p.name]: value }), t: 0 })
+		const values = [...new Set([p.min, (p.min + p.max) / 2, p.max].map((v) => clampParameter(p, v)))]
+		for (const value of values) {
+			sampleSets.push({
+				label: `${p.name} = ${formatNumber(value)}`,
+				params: { ...props.params, [p.name]: { ...p, value } },
+				t: 0,
+			})
 		}
 	}
+	const samples = sampleSets.map((sample) => ({
+		...sample,
+		values: evaluateScene({ params: sample.params, objects: props.objects }, sample.t),
+	}))
 	const where = (label: string) => (label ? ` when ${label}` : '')
 
 	// The agent's own checks must hold everywhere.
-	const checks = Object.entries(props.objects).filter(([id, o]) => o.type === 'check' && !undefinedIds.has(id)) as [
-		string,
-		Extract<SceneObject, { type: 'check' }>,
-	][]
-	for (const [id, check] of checks) {
+	for (const [id, o] of Object.entries(props.objects)) {
+		if (o.type !== 'check' || undefinedIds.has(id)) continue
 		for (const sample of samples) {
-			const values = evaluateScene({ params: sample.params, objects: props.objects }, sample.t)
 			let result = NaN
 			try {
-				result = evaluateIn(check.expr, values.scope)
+				result = evaluateIn(o.expr, sample.values.scope)
 			} catch {
 				// Parse errors are reported where the object is read.
 			}
-			if (!(result !== 0 && Number.isFinite(result))) {
-				problems.push(`check ${id} fails${where(sample.label)}: ${check.text || check.expr}`)
+			if (!checkHolds(result)) {
+				add(`${id}:check`, `check ${id} fails${where(sample.label)}: ${o.text || o.expr}`)
 				break
 			}
 		}
 	}
 
-	// Values that stop being numbers somewhere in a slider's range.
+	// Values that stop being numbers somewhere in a slider's range. A point the
+	// scene hides at that moment is not drawn, so it is not a problem there.
 	const broken = new Set<string>(undefinedIds)
 	for (const sample of samples) {
-		const values = evaluateScene({ params: sample.params, objects: props.objects }, sample.t)
 		for (const [id, o] of letsInOrder(props.objects)) {
-			if (broken.has(id) || Number.isFinite(values.scope[id])) continue
+			if (broken.has(id) || Number.isFinite(sample.values.scope[id])) continue
 			broken.add(id)
-			problems.push(`let ${id} = ${o.expr} is not a number${where(sample.label)}`)
+			add(`${id}:nan`, `let ${id} = ${o.expr} is not a number${where(sample.label)}`)
 		}
 		for (const [id, o] of Object.entries(props.objects)) {
-			if (o.type !== 'point' || broken.has(id)) continue
-			const p = values.points[id]
+			if (o.type !== 'point' || broken.has(id) || !isVisible(o, sample.values.scope)) continue
+			const p = sample.values.points[id]
 			if (p && Number.isFinite(p[0]) && Number.isFinite(p[1])) continue
 			broken.add(id)
-			problems.push(`point ${id} has no position${where(sample.label)}`)
+			add(`${id}:nan`, `point ${id} has no position${where(sample.label)}`)
 		}
 	}
 
-	// Points outside the frame at the starting values.
-	const start = evaluateScene(props, 0)
+	// Visible points outside the frame at the starting values.
+	const start = samples[0].values
 	const marginX = (props.xMax - props.xMin) * 0.05
 	const marginY = (props.yMax - props.yMin) * 0.05
 	for (const [id, p] of Object.entries(start.points)) {
-		if (broken.has(id) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) continue
+		const o = props.objects[id]
+		if (broken.has(id) || !o || !isVisible(o, start.scope) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) continue
 		if (p[0] < props.xMin - marginX || p[0] > props.xMax + marginX || p[1] < props.yMin - marginY || p[1] > props.yMax + marginY) {
-			problems.push(`point ${id} at (${formatNumber(p[0])}, ${formatNumber(p[1])}) is outside the frame x ${props.xMin} to ${props.xMax}, y ${props.yMin} to ${props.yMax}`)
+			add(`${id}:outside`, `point ${id} at (${formatNumber(p[0])}, ${formatNumber(p[1])}) is outside the frame x ${props.xMin} to ${props.xMax}, y ${props.yMin} to ${props.yMax}`)
 		}
 	}
 
 	// A parameter whose range is in degrees, used directly in sin, cos, or tan.
-	const degreeParams = params.filter((p) => p.max - p.min > 2 * Math.PI + 0.01 && p.max <= 360 && /angle|theta|phi|alpha|beta|deg|θ/i.test(p.name))
-	if (degreeParams.length > 0) {
-		for (const [id, o] of Object.entries(props.objects)) {
-			for (const source of expressionsOf(o)) {
-				for (const p of degreeParams) {
-					if (new RegExp(`\\b(sin|cos|tan)\\(\\s*${p.name}\\b`).test(source)) {
-						problems.push(`${id} passes ${p.name}, which looks like degrees (${formatNumber(p.min)} to ${formatNumber(p.max)}), to a trig function without deg()`)
-					}
+	const degreeParams = params.filter((p) => p.max - p.min > 2 * Math.PI + 0.01 && p.max <= 360 && /angle|theta|phi|alpha|beta|deg/i.test(p.name))
+	for (const [id, o] of Object.entries(props.objects)) {
+		for (const source of expressionsOf(o)) {
+			for (const p of degreeParams) {
+				if (new RegExp(`\\b(sin|cos|tan)\\(\\s*${p.name}(?![A-Za-z0-9_])`).test(source)) {
+					add(`${id}:degrees:${p.name}`, `${id} passes ${p.name}, which looks like degrees (${formatNumber(p.min)} to ${formatNumber(p.max)}), to a trig function without deg()`)
 				}
 			}
 		}
 	}
-	return [...new Set(problems)]
+	return problems
 }

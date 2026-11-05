@@ -13,6 +13,7 @@ import {
 import { axisLabels, gridStep, parametersHeight } from './GraphShapeUtil'
 import { clampParameter, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import {
+	checkHolds,
 	describeScene,
 	dragTargets,
 	evaluateIn,
@@ -293,7 +294,7 @@ function formulaRows(objects: Record<string, SceneObject>, scope: Record<string,
 		if (o.type !== 'check') continue
 		let holds = false
 		try {
-			holds = evaluateIn(o.expr, scope) !== 0
+			holds = checkHolds(evaluateIn(o.expr, scope))
 		} catch {
 			holds = false
 		}

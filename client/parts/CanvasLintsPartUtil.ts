@@ -23,7 +23,7 @@ export const CanvasLintsPartUtil = registerPromptPartUtil(
 			// Use created shapes when in working mode, otherwise use shapes in request bounds
 			const shapesToCheck =
 				agent.mode.getCurrentModeType() === 'working'
-					? agent.lints.getCreatedShapes()
+					? agent.lints.getShapesToLint()
 					: shapesInBounds
 
 			// Get unsurfaced lints and mark them as surfaced

@@ -23,8 +23,9 @@ import { checkScene } from '../../shapes/scene/sceneModel'
  */
 function getLintKey(lint: AgentCanvasLint): string {
 	const sortedIds = [...lint.shapeIds].sort().join(',')
-	// A scene's problems are part of its key, so a new problem in the same scene is surfaced.
-	const detail = lint.type === 'scene-problem' ? `:${(lint.texts ?? []).join('|')}` : ''
+	// Each scene problem is surfaced once, keyed by its object and kind, so moving
+	// a slider does not report the same problems again.
+	const detail = lint.type === 'scene-problem' ? `:${lint.problemKey ?? ''}` : ''
 	return `${lint.type}:${sortedIds}${detail}`
 }
 
@@ -44,12 +45,15 @@ export class AgentLintManager extends BaseAgentManager {
 	 * These won't be shown again in subsequent prompts.
 	 */
 	private surfacedLintKeys: Set<string> = new Set()
+	/** Scenes the agent changed but did not make, checked for scene problems only. */
+	private updatedSceneIds: Set<TLShapeId> = new Set()
 
 	/**
 	 * Reset the lint manager to its initial state.
 	 */
 	reset(): void {
 		this.createdShapeIds.clear()
+		this.updatedSceneIds.clear()
 		this.surfacedLintKeys.clear()
 	}
 
@@ -59,6 +63,7 @@ export class AgentLintManager extends BaseAgentManager {
 	 */
 	clearCreatedShapes(): void {
 		this.createdShapeIds.clear()
+		this.updatedSceneIds.clear()
 		this.surfacedLintKeys.clear()
 	}
 
@@ -74,9 +79,10 @@ export class AgentLintManager extends BaseAgentManager {
 		}
 
 		// A scene the agent changed is checked as well as one it made, since an
-		// update can break a scene that worked.
+		// update can break a scene that worked. It is kept apart from the shapes
+		// the agent made, so ending the work never unlocks a scene the user locked.
 		for (const [id, [, after]] of Object.entries(diff.updated)) {
-			if (after.typeName === 'shape' && (after as TLShape).type === SCENE_TYPE) this.createdShapeIds.add(id as TLShapeId)
+			if (after.typeName === 'shape' && (after as TLShape).type === SCENE_TYPE) this.updatedSceneIds.add(id as TLShapeId)
 		}
 
 		// Track removed shapes and remove from created set
@@ -100,6 +106,16 @@ export class AgentLintManager extends BaseAgentManager {
 		return this.getCreatedShapeIds()
 			.map((id) => editor.getShape(id))
 			.filter((shape) => shape !== undefined)
+	}
+
+	/**
+	 * Shapes to check for lints: those the agent made in this prompt chain, and
+	 * scenes it changed. Only the first are unlocked when the work ends.
+	 */
+	getShapesToLint() {
+		const { editor } = this.agent
+		const ids = new Set<TLShapeId>([...this.createdShapeIds, ...this.updatedSceneIds])
+		return [...ids].map((id) => editor.getShape(id)).filter((shape) => shape !== undefined)
 	}
 
 	/**
@@ -188,10 +204,17 @@ export class AgentLintManager extends BaseAgentManager {
 		for (const shape of shapes) {
 			if (shape.type !== SCENE_TYPE) continue
 			const scene = shape as SceneShape
-			const dropped = ((scene.meta.sceneDropped as string[] | undefined) ?? []).map((d) => `not drawn: ${d}`)
-			const problems = [...dropped, ...checkScene(scene.props)]
-			if (problems.length > 0) {
-				lints.push({ type: 'scene-problem', shapeIds: [convertTldrawIdToSimpleId(shape.id)], texts: problems })
+			const dropped = ((scene.meta.sceneDropped as string[] | undefined) ?? []).map((d) => ({
+				key: `${d.split(':')[0]}:dropped`,
+				text: `not drawn: ${d}`,
+			}))
+			for (const problem of [...dropped, ...checkScene(scene.props)]) {
+				lints.push({
+					type: 'scene-problem',
+					shapeIds: [convertTldrawIdToSimpleId(shape.id)],
+					texts: [problem.text],
+					problemKey: problem.key,
+				})
 			}
 		}
 

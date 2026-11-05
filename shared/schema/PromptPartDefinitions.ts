@@ -213,7 +213,14 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 		if (sceneLints.length > 0) {
 			const lines = [
 				'Scene problems: these were found by evaluating your scenes, so they are real. A scene that shows a wrong number or an empty part teaches the wrong thing. Fix each one now: send the scene again with its shapeId, or one scene_object, with the corrected object.',
-				...sceneLints.map((lint) => `  - ${lint.shapeIds[0]}:\n${(lint.texts ?? []).map((t) => `      - ${t}`).join('\n')}`),
+				...[...new Set(sceneLints.map((lint) => lint.shapeIds[0]))].map(
+					(sceneId) =>
+						`  - ${sceneId}:\n${sceneLints
+							.filter((lint) => lint.shapeIds[0] === sceneId)
+							.flatMap((lint) => lint.texts ?? [])
+							.map((t) => `      - ${t}`)
+							.join('\n')}`
+				),
 			]
 			messages.push(lines.join('\n'))
 		}
