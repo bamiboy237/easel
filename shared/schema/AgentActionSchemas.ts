@@ -486,6 +486,8 @@ export type SimulationAction = z.infer<typeof SimulationAction>
 const SceneExprSchema = z.union([z.string(), z.number()])
 /** A position: a point's id, or an [x, y] pair of expressions. */
 const SceneRefSchema = z.union([z.string(), z.array(SceneExprSchema)])
+/** A segment's or line's end is a position; a curve's from and to are the range of s, often plain numbers. */
+const SceneEndSchema = z.union([z.string(), z.number(), z.array(SceneExprSchema)])
 
 const SceneObjectSchema = z.object({
 	id: z.string(),
@@ -495,8 +497,8 @@ const SceneObjectSchema = z.object({
 	y: SceneExprSchema.optional(),
 	drag: z.boolean().optional(),
 	label: z.string().optional(),
-	from: SceneRefSchema.optional(),
-	to: SceneRefSchema.optional(),
+	from: SceneEndSchema.optional(),
+	to: SceneEndSchema.optional(),
 	dx: SceneExprSchema.optional(),
 	dy: SceneExprSchema.optional(),
 	center: SceneRefSchema.optional(),

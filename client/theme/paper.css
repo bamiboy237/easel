@@ -1605,6 +1605,19 @@
 	flex: none;
 }
 
+/* The second copy of the axes only draws the numbers, over the curves, with a halo of the sheet. */
+.graph-plot .graph-axis-labels > g > rect,
+.graph-plot .graph-axis-labels > g > g:not(.mafs-shadow) {
+	display: none;
+}
+
+.graph-plot .graph-axis-labels .mafs-shadow {
+	stroke: var(--paper-card);
+	stroke-width: 4px;
+	stroke-linejoin: round;
+	paint-order: stroke;
+}
+
 .graph-plot .MafsView {
 	--mafs-bg: transparent;
 	--mafs-fg: #302f2a;

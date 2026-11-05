@@ -1,4 +1,5 @@
 import { Editor, TLShape, TLShapeId } from 'tldraw'
+import { settleBlock } from '../agent/settleBlock'
 import { registerShapeDescriber } from '../../shared/format/convertTldrawShapeToFocusedShape'
 import {
 	EquationAction,
@@ -97,6 +98,7 @@ export const EquationActionUtil = registerActionUtil(
 			}
 			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 			editor.createShape<EquationShape>({ id, type: EQUATION_TYPE, x: at.x, y: at.y, props })
+			settleBlock(this.agent, id)
 		}
 	}
 )
@@ -139,6 +141,7 @@ export const GraphActionUtil = registerActionUtil(
 			}
 			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 			editor.createShape<GraphShape>({ id, type: GRAPH_TYPE, x: at.x, y: at.y, props })
+			settleBlock(this.agent, id)
 		}
 	}
 )
@@ -176,6 +179,7 @@ export const SimulationActionUtil = registerActionUtil(
 				y: at.y,
 				props: { kind: 'projectile', parameters },
 			})
+			settleBlock(this.agent, id)
 		}
 	}
 )
@@ -266,6 +270,8 @@ function applySceneAction(editor: Editor, action: Streaming<SceneAction>, helper
 	}
 	const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 	editor.createShape<SceneShape>({ id, type: SCENE_TYPE, x: at.x, y: at.y, props, meta })
+	// The preview and the finished scene settle the same way, so the scene does not jump.
+	settleBlock(helpers.agent, id)
 }
 
 /**
@@ -502,6 +508,7 @@ export const WidgetActionUtil = registerActionUtil(
 			} else {
 				const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 				editor.createShape<WidgetShape>({ id, type: WIDGET_TYPE, x: at.x, y: at.y, props })
+				settleBlock(this.agent, id)
 			}
 			// The job starts once this command is recorded, so its base revision
 			// follows it, and only if the command was applied: a rejected command

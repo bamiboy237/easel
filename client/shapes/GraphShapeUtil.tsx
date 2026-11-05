@@ -174,14 +174,22 @@ function Graph({ shape }: { shape: GraphShape }) {
 					>
 						<Coordinates.Cartesian
 							subdivisions={false}
-							xAxis={{ lines: xStep, labels: axisLabels(xStep, [xMin, xMax], (xMax - xMin) / w) }}
-							yAxis={{ lines: yStep, labels: axisLabels(yStep, [yMin, yMax], (yMax - yMin) / plotHeight) }}
+							xAxis={{ lines: xStep, labels: false }}
+							yAxis={{ lines: yStep, labels: false }}
 						/>
 						{compiled.map((c, i) =>
 							c.fn ? (
 								<Plot.OfX key={i} y={(x) => c.fn!({ ...scope, x })} color={PLOT_INKS[i % PLOT_INKS.length]} weight={2.5} />
 							) : null
 						)}
+						{/* The axis numbers go over the curves, with a halo, so a curve never crosses them out. */}
+						<g className="graph-axis-labels">
+							<Coordinates.Cartesian
+								subdivisions={false}
+								xAxis={{ lines: xStep, labels: axisLabels(xStep, [xMin, xMax], (xMax - xMin) / w) }}
+								yAxis={{ lines: yStep, labels: axisLabels(yStep, [yMin, yMax], (yMax - yMin) / plotHeight) }}
+							/>
+						</g>
 					</Mafs>
 					{errors.length > 0 && <p className="graph-error">{errors[0]}</p>}
 				</div>
