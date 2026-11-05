@@ -30,6 +30,7 @@ import { MarkOverlayUtil } from './overlays/MarkOverlayUtil'
 import { AnnotationBindingUtil } from './shapes/AnnotationBindingUtil'
 import { EquationShapeUtil } from './shapes/EquationShapeUtil'
 import { GraphShapeUtil } from './shapes/GraphShapeUtil'
+import { SceneShapeUtil } from './shapes/SceneShapeUtil'
 import { SimulationShapeUtil } from './shapes/SimulationShapeUtil'
 import { ThreadShapeUtil } from './shapes/ThreadShapeUtil'
 import { MarkTool } from './tools/MarkTool'
@@ -44,7 +45,7 @@ DefaultDashStyle.setDefaultValue('solid')
 const tools = [MarkTool]
 const overlayUtils = [AgentHighlightOverlayUtil, MarkOverlayUtil]
 // Threads: a mark's question and answers on a sticky note beside it
-const shapeUtils = [ThreadShapeUtil, EquationShapeUtil, GraphShapeUtil, SimulationShapeUtil]
+const shapeUtils = [ThreadShapeUtil, EquationShapeUtil, GraphShapeUtil, SimulationShapeUtil, SceneShapeUtil]
 // Marks and threads follow the shapes they point at
 const bindingUtils = [AnnotationBindingUtil]
 const themes = { default: paperTheme }

@@ -15,6 +15,7 @@ import {
 import { AnnotationBindingUtil } from '../../shapes/AnnotationBindingUtil'
 import { EquationShapeUtil } from '../../shapes/EquationShapeUtil'
 import { GraphShapeUtil } from '../../shapes/GraphShapeUtil'
+import { SceneShapeUtil } from '../../shapes/SceneShapeUtil'
 import { SimulationShapeUtil } from '../../shapes/SimulationShapeUtil'
 import { ThreadShapeUtil } from '../../shapes/ThreadShapeUtil'
 
@@ -25,6 +26,7 @@ const VIEWER_SHAPE_UTILS = [
 	EquationShapeUtil,
 	GraphShapeUtil,
 	SimulationShapeUtil,
+	SceneShapeUtil,
 ]
 const VIEWER_BINDING_UTILS = [...defaultBindingUtils, AnnotationBindingUtil]
 

@@ -1453,6 +1453,74 @@
 	pointer-events: all;
 }
 
+/* Scenes: the title in the plot's top-left corner, and computed readouts in its top-right. */
+.scene-title {
+	position: absolute;
+	top: 8px;
+	left: 10px;
+	max-width: 48%;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	padding: 0 6px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--paper-card) 85%, transparent);
+	font: italic 15px 'Source Serif 4 Variable', Georgia, serif;
+	color: var(--paper-ink);
+	pointer-events: none;
+}
+
+.scene-readouts {
+	position: absolute;
+	top: 8px;
+	right: 10px;
+	max-width: 48%;
+	/* Readouts never take more than the top third of the plot. */
+	max-height: 34%;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 2px;
+	pointer-events: none;
+}
+
+.scene-readout {
+	padding: 1px 6px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--paper-card) 85%, transparent);
+	font: 500 12px 'Inter', sans-serif;
+	font-variant-numeric: tabular-nums;
+	color: var(--paper-ink);
+	white-space: pre-wrap;
+	text-align: right;
+}
+
+/* A scene the agent is still writing: its controls wait until it lands. */
+.scene-preview .shape-parameters,
+.scene-preview .simulation-controls {
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+/* Object labels in the board's serif, like the title and the slider names. */
+.scene-container [data-scene-object] text {
+	font-family: 'Source Serif 4 Variable', Georgia, serif;
+}
+
+/* Labels keep a halo of the sheet's color, so they read where they cross a line. */
+.scene-container .mafs-shadow {
+	stroke: var(--paper-card);
+	stroke-width: 4px;
+	stroke-linejoin: round;
+	paint-order: stroke;
+}
+
+.scene-container .graph-plot .MafsView {
+	--mafs-blue: #2f5d8c;
+	--mafs-red: #ae3b2c;
+}
+
 .graph-sheet {
 	display: flex;
 	flex-direction: column;
@@ -1504,6 +1572,9 @@
 }
 
 .shape-parameter-name {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
 	font-family: 'Source Serif 4 Variable', Georgia, serif;
 	font-style: italic;
 	font-size: 14px;

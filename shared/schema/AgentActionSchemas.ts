@@ -466,6 +466,69 @@ export const SimulationAction = z
 
 export type SimulationAction = z.infer<typeof SimulationAction>
 
+// Scene Action
+/** An expression: text, or a plain number. */
+const SceneExprSchema = z.union([z.string(), z.number()])
+/** A position: a point's id, or an [x, y] pair of expressions. */
+const SceneRefSchema = z.union([z.string(), z.array(SceneExprSchema)])
+
+const SceneObjectSchema = z.object({
+	id: z.string(),
+	type: z.enum(['let', 'point', 'segment', 'line', 'vector', 'circle', 'polygon', 'plot', 'curve', 'trace', 'label', 'readout']),
+	expr: SceneExprSchema.optional(),
+	x: SceneExprSchema.optional(),
+	y: SceneExprSchema.optional(),
+	drag: z.boolean().optional(),
+	label: z.string().optional(),
+	from: SceneRefSchema.optional(),
+	to: SceneRefSchema.optional(),
+	dx: SceneExprSchema.optional(),
+	dy: SceneExprSchema.optional(),
+	center: SceneRefSchema.optional(),
+	r: SceneExprSchema.optional(),
+	fill: z.boolean().optional(),
+	points: z.array(SceneRefSchema).optional(),
+	of: z.string().optional(),
+	at: SceneRefSchema.optional(),
+	text: z.string().optional(),
+	visible: SceneExprSchema.optional(),
+	ink: z.number().optional(),
+})
+
+export const SceneAction = z
+	.object({
+		_type: z.literal('scene'),
+		intent: z.string(),
+		shapeId: SimpleShapeIdSchema,
+		title: z.string(),
+		x: z.number(),
+		y: z.number(),
+		width: z.number(),
+		height: z.number(),
+		xMin: z.number(),
+		xMax: z.number(),
+		yMin: z.number(),
+		yMax: z.number(),
+		duration: z.number(),
+		axes: z.boolean(),
+		params: z.array(ParameterSchema),
+		objects: z.array(SceneObjectSchema),
+		remove: z.array(z.string()).optional(),
+	})
+	.meta({
+		title: 'Scene',
+		description: [
+			'The AI builds a live scene: a visual made of geometry, formulas, and motion that the user explores with sliders, draggable points, and a play button. Use it for anything a graph or the projectile simulation does not cover: forces on an object, a pendulum, a wave, an orbit, a lever, vectors, geometry. Never draw these with the pen.',
+			'Coordinates are math coordinates, y up, in the units of the topic, framed by xMin to xMax and yMin to yMax; both axes keep the same scale. Width and height are the plot in pixels for a new scene; an existing scene keeps the size the user gave it, and sliders and the play row are added below. duration: how long time t runs in seconds when the user presses play, or 0 for no clock. axes: true to draw the grid and numbered axes, false for diagrams where coordinates mean nothing, such as forces on a box. title: a few words.',
+			'params: the named numbers the user can change, each with value, min, max, step. Expressions use params, lets, t, numbers, + - * / ^, comparisons, and functions: sin cos tan asin acos atan atan2(y,x) sqrt abs exp ln log min max mod hypot pow clamp(v,lo,hi) floor ceil round sign, deg(d) to turn degrees into radians, and if(test, a, b). Constants: pi, e. Inside a plot, x is the input; inside a curve, s is.',
+			'objects, each with a unique id, drawn in the board inks (ink 0 charcoal, 1 red, 2 blue, 3 green): let {expr} a named value other objects can use by its id (lets can use each other in any order, but not in a loop); point {x, y, label}; segment and line {from, to}; vector {from, dx, dy, label}; circle {center, r, fill}; polygon {points}; plot {y} a function of x; curve {x, y, from, to} a curve in s from s = from to s = to; trace {of} the path a point has followed since t = 0, which needs a duration; label {at, text}; readout {text} a computed line shown in the corner, at most three short ones. A position (from, to, center, at, and each of points) is a point id, or an ["x expression", "y expression"] pair. Text can embed values in braces, such as "range = {R} m". visible: an expression; the object shows when it is not 0.',
+			'A draggable point: set drag to true and x, y, or both to a param name; dragging moves those params, and a point with only x as a param slides sideways. A handle is red unless it has an ink. Ids are names: letters, digits, and _, starting with a letter, and not a param, a function, t, x, s, pi, or e.',
+			'Put the physics in lets and readouts, so every number shown is computed: for a projectile, let vx = "v0*cos(deg(theta))", let T = "2*v0*sin(deg(theta))/g", readout "range = {vx*T} m". The board shows a scene\'s parameters, computed values, and any objects that could not be drawn, with the reason; read them before changing it. To change an existing scene, send it again with its shapeId: objects with the same id are replaced whole, new ones are added, ids in remove are deleted, unchanged objects can be left out, and parameters keep the values the user set (use set_parameter to change a value).',
+		].join(' '),
+	})
+
+export type SceneAction = z.infer<typeof SceneAction>
+
 // Set Parameter Action
 export const SetParameterAction = z
 	.object({
@@ -478,7 +541,7 @@ export const SetParameterAction = z
 	.meta({
 		title: 'Set Parameter',
 		description:
-			"The AI sets one parameter of a graph or a simulation, the same way the user moves its slider, and the plot updates for both. Use it to show what a change does, such as doubling the speed. The board shows each shape's current parameter values; read them before changing one, because the user may have moved it.",
+			"The AI sets one parameter of a graph, a simulation, or a scene, the same way the user moves its slider, and the plot updates for both. Use it to show what a change does, such as doubling the speed. The board shows each shape's current parameter values; read them before changing one, because the user may have moved it.",
 	})
 
 export type SetParameterAction = z.infer<typeof SetParameterAction>
