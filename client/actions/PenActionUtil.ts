@@ -56,23 +56,12 @@ export const PenActionUtil = registerActionUtil(
 			const minX = Math.min(...action.points.map((p) => p.x))
 			const minY = Math.min(...action.points.map((p) => p.y))
 
-			const points: VecModel[] = []
-			const maxDistanceBetweenPoints = action.style === 'smooth' ? 10 : 2
-			for (let i = 0; i < action.points.length - 1; i++) {
-				const point = action.points[i]
-				points.push(point)
-
-				const nextPoint = action.points[i + 1]
-				if (!nextPoint) continue
-
-				const distance = Vec.Dist(point, nextPoint)
-				const numPointsToAdd = Math.floor(distance / maxDistanceBetweenPoints)
-				const pointsToAdd = Array.from({ length: numPointsToAdd }, (_, j) => {
-					const t = (j + 1) / (numPointsToAdd + 1)
-					return Vec.Lrp(point, nextPoint, t)
-				})
-				points.push(...pointsToAdd)
-			}
+			const points: VecModel[] =
+				action.style === 'smooth' && action.points.length >= 3
+					? // A smooth line curves through every point instead of running straight
+						// between them, so a wheel drawn with a dozen points reads as round.
+						smoothThrough(action.closed ? action.points.slice(0, -1) : action.points, !!action.closed)
+					: straightThrough(action.points, action.style === 'smooth' ? 10 : 2)
 
 			// Require at least 2 points to draw a line
 			if (points.length <= 1) {
@@ -113,3 +102,60 @@ export const PenActionUtil = registerActionUtil(
 		}
 	}
 )
+
+/** Points along straight lines between the given points, at most `step` apart. */
+function straightThrough(input: VecModel[], step: number): VecModel[] {
+	const points: VecModel[] = []
+	for (let i = 0; i < input.length - 1; i++) {
+		const point = input[i]
+		const next = input[i + 1]
+		points.push(point)
+		const count = Math.floor(Vec.Dist(point, next) / step)
+		for (let j = 0; j < count; j++) points.push(Vec.Lrp(point, next, (j + 1) / (count + 1)))
+	}
+	if (input.length) points.push(input[input.length - 1])
+	return points
+}
+
+/**
+ * Points along a centripetal Catmull-Rom spline through the given points, about
+ * 6 px apart. The centripetal form never loops or overshoots at sharp turns or
+ * uneven spacing (Yuksel, Schaefer, and Keyser, "Parameterization and
+ * applications of Catmull-Rom curves", 2011). A closed line wraps around, so it
+ * has no corner where it joins.
+ */
+function smoothThrough(input: VecModel[], closed: boolean): VecModel[] {
+	const n = input.length
+	const at = (i: number) => {
+		if (closed) return input[((i % n) + n) % n]
+		// Past an open end, mirror the neighbor so the end tangent follows the line.
+		if (i < 0) return Vec.Sub(Vec.Mul(input[0], 2), input[1])
+		if (i >= n) return Vec.Sub(Vec.Mul(input[n - 1], 2), input[n - 2])
+		return input[i]
+	}
+	const points: VecModel[] = []
+	const segments = closed ? n : n - 1
+	for (let i = 0; i < segments; i++) {
+		const p0 = at(i - 1)
+		const p1 = at(i)
+		const p2 = at(i + 1)
+		const p3 = at(i + 2)
+		// Knot spacing by the square root of the distance: the centripetal parameterization.
+		const t0 = 0
+		const t1 = t0 + Math.max(Math.sqrt(Vec.Dist(p0, p1)), 1e-3)
+		const t2 = t1 + Math.max(Math.sqrt(Vec.Dist(p1, p2)), 1e-3)
+		const t3 = t2 + Math.max(Math.sqrt(Vec.Dist(p2, p3)), 1e-3)
+		const steps = Math.max(1, Math.ceil(Vec.Dist(p1, p2) / 6))
+		for (let s = 0; s < steps; s++) {
+			const t = t1 + ((t2 - t1) * s) / steps
+			const a1 = Vec.Lrp(p0, p1, (t - t0) / (t1 - t0))
+			const a2 = Vec.Lrp(p1, p2, (t - t1) / (t2 - t1))
+			const a3 = Vec.Lrp(p2, p3, (t - t2) / (t3 - t2))
+			const b1 = Vec.Lrp(a1, a2, (t - t0) / (t2 - t0))
+			const b2 = Vec.Lrp(a2, a3, (t - t1) / (t3 - t1))
+			points.push(Vec.Lrp(b1, b2, (t - t1) / (t2 - t1)))
+		}
+	}
+	points.push(closed ? input[0] : input[n - 1])
+	return points
+}
