@@ -1,9 +1,9 @@
-import { Box, TLArrowShape, TLGeoShape, TLShapeId, toRichText } from 'tldraw'
+import { Box, TLArrowShape, TLDefaultColorStyle, TLGeoShape, TLShapeId, toRichText } from 'tldraw'
 import { DiagramAction } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
-import { layoutFlow, LayoutNode, layoutMap } from '../shapes/diagram/layout'
+import { layoutFlow, LayoutNode, layoutMap, TreeInfo, treeOf } from '../shapes/diagram/layout'
 
 /** Box sizes for a node: wide enough for a short label on one or two lines. */
 const NODE_MIN_W = 120
@@ -22,6 +22,94 @@ interface DiagramEdge {
 	from: string
 	to: string
 	label: string
+}
+
+/** tldraw's geo label sizes, in px, for the sizes a diagram uses. */
+const LABEL_FONT_SIZE = { s: 18, m: 22 } as const
+
+/**
+ * One ink per branch of a mind map, in an order where neighbors differ in hue.
+ * The paper theme mutes every ink, so these sit quietly on the board.
+ */
+const BRANCH_COLORS = ['blue', 'orange', 'green', 'violet', 'light-blue', 'yellow', 'red', 'light-green'] as const
+
+interface NodeStyle {
+	size: 's' | 'm'
+	color: TLDefaultColorStyle
+	fill: 'none' | 'solid'
+}
+
+/**
+ * How a box looks. In a mind map the root is larger and tinted, a branch's
+ * first box is tinted in the branch's ink, and the boxes past it are outlined
+ * in that ink: hierarchy shows in size, then in weight, then in color.
+ */
+function nodeStyle(tree: TreeInfo | null, id: string, hub: string | null = null): NodeStyle {
+	if (id === hub) return { size: 'm', color: 'black', fill: 'solid' }
+	if (!tree) return { size: 's', color: 'black', fill: 'none' }
+	if (id === tree.root) return { size: 'm', color: 'black', fill: 'solid' }
+	const color = BRANCH_COLORS[(tree.branch.get(id) ?? 0) % BRANCH_COLORS.length]
+	return { size: 's', color, fill: tree.depth.get(id) === 1 ? 'solid' : 'none' }
+}
+
+/** The look of a diagram box from before the layout recorded its own, for older boards. */
+const DEFAULT_NODE_STYLE = { geo: 'rectangle', color: 'black', fill: 'none', size: 's' } as const
+
+type NodeGeo = 'rectangle' | 'oval' | 'diamond'
+
+/**
+ * The flowchart symbol for each step of a process flow (ISO 5807): the steps
+ * where the flow starts and ends are pills, and a step worded as a question is
+ * a decision diamond, so the reader finds the way in, the way out, and the
+ * choices at a glance. A flow that is a tree, such as a binary tree or a
+ * system's parts, holds things rather than steps, and keeps plain boxes, as
+ * does every map.
+ */
+function flowSymbols(layout: string, ids: string[], labels: Map<string, string>, edges: DiagramEdge[]) {
+	const geo = new Map<string, NodeGeo>(ids.map((id) => [id, 'rectangle']))
+	if (layout !== 'flow' || ids.length < 4) return geo
+	const into = new Map<string, number>(ids.map((id) => [id, 0]))
+	const out = new Map<string, number>(ids.map((id) => [id, 0]))
+	for (const e of edges) {
+		into.set(e.to, into.get(e.to)! + 1)
+		out.set(e.from, out.get(e.from)! + 1)
+	}
+	const isTree = edges.length === ids.length - 1 && ids.every((id) => into.get(id)! <= 1)
+	const isChain = isTree && ids.every((id) => out.get(id)! <= 1)
+	if (isTree && !isChain) return geo
+	for (const id of ids) {
+		if (into.get(id) === 0 || out.get(id) === 0) geo.set(id, 'oval')
+		else if (/\?\s*$/.test(labels.get(id) ?? '') && out.get(id)! >= 2) geo.set(id, 'diamond')
+	}
+	return geo
+}
+
+/**
+ * The main concept of a concept map that is not a tree: the one concept that
+ * only points out, to three or more others. A concept map reads from its most
+ * general concept (Novak), so that one gets the root's look. Null when no
+ * single concept is that.
+ */
+function hubOf(layout: string, tree: TreeInfo | null, ids: string[], edges: DiagramEdge[]) {
+	if (layout !== 'map' || tree) return null
+	const into = new Set(edges.map((e) => e.to))
+	const out = new Map<string, number>()
+	for (const e of edges) out.set(e.from, (out.get(e.from) ?? 0) + 1)
+	const sources = ids.filter((id) => !into.has(id) && (out.get(id) ?? 0) >= 3)
+	return sources.length === 1 ? sources[0] : null
+}
+
+/**
+ * The ink of a flow's arrow from its label: a branch that goes ahead (yes,
+ * passes, signs) is green, and one that stops or turns back (no, fails,
+ * vetoes) is red, so the two ways out of a choice differ at a glance. Every
+ * other arrow stays in plain ink.
+ */
+function branchInk(layout: string, label: string): TLDefaultColorStyle | null {
+	if (layout !== 'flow') return null
+	if (/^(yes|true|pass(es|ed)?|succeeds?|success|approved?|signs?|valid|found)\b/i.test(label)) return 'green'
+	if (/^(no|false|fails?|failed|rejected?|vetoe?s?|invalid|not)\b/i.test(label)) return 'red'
+	return null
 }
 
 /** A short, stable hash of a string (FNV-1a), so different ids never share a shape id. */
@@ -103,26 +191,58 @@ export const DiagramActionUtil = registerActionUtil(
 					padding: '0px',
 				})
 			const seen = new Set<string>()
-			const nodes: (LayoutNode & { label: string })[] = []
+			const named: { id: string; label: string }[] = []
 			for (const raw of rawNodes) {
 				const id = String(raw.id ?? '').trim()
 				if (!id || seen.has(id)) continue
 				seen.add(id)
-				const label = String(raw.label ?? id).trim()
-				const measured = measure(label, 18, NODE_MAX_W - NODE_PAD)
-				const w = Math.min(NODE_MAX_W, Math.max(NODE_MIN_W, measured.w + NODE_PAD))
-				const h = Math.max(NODE_H, measured.h + 28)
-				nodes.push({ id, label, w, h, x: 0, y: 0 })
+				named.push({ id, label: String(raw.label ?? id).trim() })
 			}
-			if (nodes.length === 0) return
+			if (named.length === 0) return
 			const edges: DiagramEdge[] = rawEdges
 				.map((e) => ({ from: String(e.from), to: String(e.to), label: String(e.label ?? '').trim() }))
 				.filter((e) => seen.has(e.from) && seen.has(e.to) && e.from !== e.to)
+			// A map that is a tree is a mind map: its root reads first, larger and
+			// tinted, and each of the root's branches keeps one ink, as mind maps use
+			// color to group a branch (Buzan). Other diagrams stay in plain ink.
+			const tree =
+				action.layout === 'map'
+					? treeOf(
+							named.map((n) => n.id),
+							edges
+						)
+					: null
+			const hub = hubOf(
+				action.layout ?? 'flow',
+				tree,
+				named.map((n) => n.id),
+				edges
+			)
+			const geoOf = flowSymbols(
+				action.layout ?? 'flow',
+				named.map((n) => n.id),
+				new Map(named.map((n) => [n.id, n.label])),
+				edges
+			)
+			const nodes: (LayoutNode & { label: string })[] = named.map(({ id, label }) => {
+				const fontSize = LABEL_FONT_SIZE[nodeStyle(tree, id, hub).size]
+				const maxW = NODE_MAX_W + (fontSize - 18) * 8
+				const measured = measure(label, fontSize, maxW - NODE_PAD)
+				let w = Math.min(maxW, Math.max(NODE_MIN_W, measured.w + NODE_PAD))
+				let h = Math.max(NODE_H, measured.h + 28)
+				// A pill's round ends and a diamond's corners take room from the label.
+				if (geoOf.get(id) === 'oval') w += 28
+				if (geoOf.get(id) === 'diamond') {
+					w = Math.round(w * 1.5)
+					h = Math.round(Math.max(h * 1.6, 96))
+				}
+				return { id, label, w, h, x: 0, y: 0 }
+			})
 			// Each label gets its own room in the layout, so it is never squeezed or covered.
 			const layoutEdges = edges.map((e) => {
 				if (!e.label) return { from: e.from, to: e.to, labelW: 0, labelH: 0 }
 				const size = measure(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_W)
-				return { from: e.from, to: e.to, labelW: size.w + EDGE_LABEL_PAD, labelH: size.h + EDGE_LABEL_PAD }
+				return { from: e.from, to: e.to, label: e.label, labelW: size.w + EDGE_LABEL_PAD, labelH: size.h + EDGE_LABEL_PAD }
 			})
 			const layout = (tries?: number) =>
 				action.layout === 'map' ? layoutMap(nodes, layoutEdges, tries) : layoutFlow(nodes, layoutEdges)
@@ -183,28 +303,47 @@ export const DiagramActionUtil = registerActionUtil(
 				const at = { x: origin.x + node.x, y: origin.y + node.y }
 				const meta = { diagram: diagramId, node: node.id, laidOutAt: at }
 				const existing = editor.getShape<TLGeoShape>(id)
-				const props = { w: node.w, h: node.h, richText: toRichText(node.label) }
+				const geo = geoOf.get(node.id) ?? 'rectangle'
+				// Ends of a flow are tinted lightly: the smallest difference that still reads (Tufte).
+				const style = geo === 'oval' ? { ...nodeStyle(tree, node.id, hub), fill: 'solid' as const } : nodeStyle(tree, node.id, hub)
+				const props = { w: node.w, h: node.h, geo, richText: toRichText(node.label), ...style }
+				// The look the layout chose, kept so a redraw can tell it from the user's own.
+				const laidOutStyle = { geo, color: style.color, fill: style.fill, size: style.size }
 				if (!existing) {
 					editor.createShape<TLGeoShape>({
 						id,
 						type: 'geo',
 						x: at.x,
 						y: at.y,
-						meta,
+						meta: { ...meta, laidOutStyle },
 						isLocked: preview,
-						props: { ...props, geo: 'rectangle', size: 's', font: 'serif', fill: 'none' },
+						props: { ...props, font: 'serif' },
 					})
 					continue
 				}
 				const last = existing.meta.laidOutAt as { x: number; y: number } | undefined
 				const movedByUser = !!last && (Math.abs(existing.x - last.x) > 1 || Math.abs(existing.y - last.y) > 1)
 				if (movedByUser) movedNodes.add(node.id)
+				// A style the user changed stays theirs: the layout restyles only what
+				// still has the look it gave last time.
+				const prior = existing.meta.laidOutStyle as Partial<typeof laidOutStyle> | undefined
+				const keptStyle: Partial<typeof laidOutStyle> = {}
+				// What the layout last applied for each kept key, so a later redraw
+				// still sees the user's value as theirs.
+				const appliedBefore: Partial<typeof laidOutStyle> = {}
+				for (const key of ['geo', 'color', 'fill', 'size'] as const) {
+					const was = prior?.[key] ?? DEFAULT_NODE_STYLE[key]
+					if (existing.props[key] !== was) {
+						;(keptStyle as Record<string, unknown>)[key] = existing.props[key]
+						;(appliedBefore as Record<string, unknown>)[key] = was
+					}
+				}
 				editor.updateShape<TLGeoShape>({
 					id,
 					type: 'geo',
 					...(movedByUser ? {} : { x: at.x, y: at.y }),
-					meta: { ...existing.meta, ...meta, laidOutAt: movedByUser ? last : at },
-					props,
+					meta: { ...existing.meta, ...meta, laidOutAt: movedByUser ? last : at, laidOutStyle: { ...laidOutStyle, ...appliedBefore } },
+					props: { ...props, ...keptStyle },
 				})
 			}
 
@@ -216,6 +355,18 @@ export const DiagramActionUtil = registerActionUtil(
 				const toId = nodeShapeId(diagramId, edge.to)
 				const existing = editor.getShape<TLArrowShape>(id)
 				const bend = bendOf(edge)
+				// A mind map's branches take the ink of the box they lead to, and are plain
+				// lines: the tree already says which way it reads. A flow's yes and no
+				// branches take green and red.
+				const ink = branchInk(action.layout ?? 'flow', edge.label)
+				const branchStyle = tree
+					? {
+							color: nodeStyle(tree, (tree.depth.get(edge.to) ?? 0) > (tree.depth.get(edge.from) ?? 0) ? edge.to : edge.from).color,
+							arrowheadEnd: 'none' as const,
+						}
+					: ink
+						? { color: ink }
+						: {}
 				if (existing) {
 					// The bend follows the layout only while it is still the layout's: not
 					// once the user bent the arrow or moved a box at either end.
@@ -226,7 +377,7 @@ export const DiagramActionUtil = registerActionUtil(
 						id,
 						type: 'arrow',
 						meta: ownBend ? { ...existing.meta, bend } : existing.meta,
-						props: { richText: toRichText(edge.label), ...(ownBend ? { bend } : {}) },
+						props: { richText: toRichText(edge.label), ...branchStyle, ...(ownBend ? { bend } : {}) },
 					})
 					continue
 				}
@@ -240,7 +391,7 @@ export const DiagramActionUtil = registerActionUtil(
 					y: from.midY,
 					meta: { diagram: diagramId, bend },
 					isLocked: preview,
-					props: { ...label, size: 's', font: 'serif', start: { x: 0, y: 0 }, end: { x: to.midX - from.midX, y: to.midY - from.midY } },
+					props: { ...label, ...branchStyle, size: 's', font: 'serif', start: { x: 0, y: 0 }, end: { x: to.midX - from.midX, y: to.midY - from.midY } },
 				})
 				for (const [terminal, target] of [
 					['start', fromId],
