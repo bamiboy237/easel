@@ -53,7 +53,7 @@ export type Bends = number[]
  * they close, and long edges route around the boxes in between.
  */
 export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
-	const snake = layoutSnake(nodes, edges)
+	const snake = layoutSnake(nodes, edges) ?? layoutLoop(nodes, edges)
 	if (snake) return snake
 	// A label on a slanting arrow is squeezed when the arrow is wider than tall and
 	// too short for it; more room between layers makes such arrows steeper.
@@ -186,6 +186,68 @@ function layoutSnake(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
 		node.y = row * (cellH + gapY) + (cellH - node.h) / 2
 	})
 	// Every arrow runs straight: along a row, or down at a turn.
+	return edges.map(() => 0)
+}
+
+/**
+ * A flow that is one closed loop of six or more steps, such as blood through
+ * the heart or the water cycle as a process, goes clockwise around a
+ * rectangle: along the top, down the right side, back along the bottom, and up
+ * the left side, so every arrow, the one that closes the loop too, is a short
+ * straight step to a neighbor. dagre draws such a loop as one tall column with
+ * the closing arrow arcing back up its whole height. Returns null for anything
+ * else.
+ */
+function layoutLoop(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
+	const n = nodes.length
+	if (n < SNAKE_MIN || edges.length !== n) return null
+	const next = new Map<string, LayoutEdge>()
+	for (const e of edges) {
+		if (next.has(e.from)) return null
+		next.set(e.from, e)
+	}
+	const byId = new Map(nodes.map((node) => [node.id, node]))
+	// The loop starts at the first step the agent listed.
+	const order: LayoutNode[] = [nodes[0]]
+	for (let k = 1; k < n; k++) {
+		const e = next.get(order[k - 1].id)
+		const node = e && byId.get(e.to)
+		if (!node || order.includes(node)) return null
+		order.push(node)
+	}
+	if (next.get(order[n - 1].id)?.to !== order[0].id) return null
+	const cellW = Math.max(...nodes.map((node) => node.w))
+	const cellH = Math.max(...nodes.map((node) => node.h))
+	const gapX = Math.max(72, ...edges.map((e) => (e.labelW > 0 ? e.labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 0)))
+	const gapY = Math.max(64, ...edges.map((e) => (e.labelH > 0 ? e.labelH + LABEL_ARROW_ROOM : 0)))
+	// Columns and rows of the track: room for every step, at most one cell spare,
+	// and a drawing as close to a 16:10 screen as that allows.
+	let best: { cols: number; rows: number; cost: number } | null = null
+	for (let cols = 2; cols <= n; cols++) {
+		for (let rows = 2; rows <= n; rows++) {
+			const cells = 2 * cols + 2 * (rows - 2)
+			if (cells < n || cells > n + 1) continue
+			const w = cols * cellW + (cols - 1) * gapX
+			const h = rows * cellH + (rows - 1) * gapY
+			const cost = Math.abs(Math.log(w / h / 1.6))
+			if (!best || cost < best.cost) best = { cols, rows, cost }
+		}
+	}
+	if (!best) return null
+	const { cols, rows } = best
+	// The cells clockwise from the top left.
+	const cells: [number, number][] = []
+	for (let c = 0; c < cols; c++) cells.push([c, 0])
+	for (let r = 1; r < rows - 1; r++) cells.push([cols - 1, r])
+	for (let c = cols - 1; c >= 0; c--) cells.push([c, rows - 1])
+	for (let r = rows - 2; r >= 1; r--) cells.push([0, r])
+	// With one cell spare, the last step skips the cell just before the start.
+	const used = cells.length > n ? [...cells.slice(0, n - 1), cells[cells.length - 1]] : cells
+	order.forEach((node, k) => {
+		const [c, r] = used[k]
+		node.x = c * (cellW + gapX) + (cellW - node.w) / 2
+		node.y = r * (cellH + gapY) + (cellH - node.h) / 2
+	})
 	return edges.map(() => 0)
 }
 
