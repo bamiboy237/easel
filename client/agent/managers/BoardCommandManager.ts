@@ -207,6 +207,8 @@ export class BoardCommandManager {
 	private rev = 0
 	/** The last revision at which a user or voice command changed each record. */
 	private humanRevs = new Map<string, number>()
+	/** The last revision at which a person deleted each record. */
+	private humanRemovedRevs = new Map<string, number>()
 	/** For field-level shapes, the last revision a person changed each field. */
 	private humanPathRevs = new Map<string, Map<string, number>>()
 	private pendingUserChanges = emptyChanges()
@@ -275,6 +277,7 @@ export class BoardCommandManager {
 		this.rev = Math.max(0, ...restored.map((command) => command.rev ?? 0))
 		this.humanRevs.clear()
 		this.humanPathRevs.clear()
+		this.humanRemovedRevs.clear()
 		for (const command of restored) {
 			if (command.status !== 'applied' || !isHumanCommand(command.origin, command.type)) continue
 			this.noteHumanChange(command.payload as RecordsDiff<TLRecord>, command.rev!)
@@ -682,14 +685,13 @@ export class BoardCommandManager {
 		this.pendingUserChanges = squashRecordDiffs([this.pendingUserChanges, changes])
 	}
 
-	// Every record a command touches is a target. Creating a record on a new ID
-	// never conflicts, because no human command can have changed it.
 	/** Remember which records, and for field-level shapes which fields, a person changed. */
 	private noteHumanChange(changes: RecordsDiff<TLRecord>, rev: number) {
 		for (const id of [...Object.keys(changes.added), ...Object.keys(changes.removed)]) {
 			this.humanRevs.set(id, rev)
 			this.humanPathRevs.delete(id)
 		}
+		for (const id of Object.keys(changes.removed)) this.humanRemovedRevs.set(id, rev)
 		for (const [id, [before, after]] of Object.entries(changes.updated)) {
 			this.humanRevs.set(id, rev)
 			if (!FIELD_LEVEL_TYPES.has((after as { type?: string }).type ?? '')) continue
@@ -706,11 +708,13 @@ export class BoardCommandManager {
 	 * another part of the scene.
 	 */
 	private getStaleRecordIds(changes: RecordsDiff<TLRecord>, baseRev: number): string[] {
-		// Records the command creates did not exist when the agent read the board.
-		// A person may have touched a streaming preview of one, but that preview is
-		// not a record the agent read, so it does not make the creation stale.
+		// Creating a record is stale only when a person deleted a record with that
+		// id after the agent read the board: the agent would bring back what they
+		// removed. A person touching a streaming preview of a new shape does not
+		// count, since the preview was never a record the agent read.
+		const recreated = Object.keys(changes.added).filter((id) => (this.humanRemovedRevs.get(id) ?? -1) > baseRev)
 		const ids = [...Object.keys(changes.updated), ...Object.keys(changes.removed)]
-		return ids.filter((id) => {
+		return recreated.concat(ids.filter((id) => {
 			if ((this.humanRevs.get(id) ?? -1) <= baseRev) return false
 			const update = changes.updated[id as TLRecord['id']]
 			const humanPaths = this.humanPathRevs.get(id)
@@ -719,7 +723,7 @@ export class BoardCommandManager {
 			return agentPaths.some((path) =>
 				[...humanPaths].some(([humanPath, rev]) => rev > baseRev && pathsOverlap(path, humanPath))
 			)
-		})
+		}))
 	}
 
 	private record(

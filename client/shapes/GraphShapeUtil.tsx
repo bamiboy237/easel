@@ -70,7 +70,11 @@ export function gridStep(range: number, pixels: number, largest = 0): number {
 function formatTick(value: number, step: number): string {
 	const rounded = Math.round(value / step) * step
 	if (rounded === 0) return '0'
-	if (Math.abs(rounded) >= 1e5 || step < 1e-3) return Number(rounded.toPrecision(3)).toExponential().replace('e+', 'e')
+	if (Math.abs(rounded) >= 1e5 || step < 1e-3) {
+		// Enough significant digits to tell neighboring ticks apart, such as 1.00002e5.
+		const digits = Math.min(15, Math.max(1, Math.floor(Math.log10(Math.abs(rounded))) - Math.floor(Math.log10(step)) + 1))
+		return Number(rounded.toPrecision(digits)).toExponential().replace('e+', 'e')
+	}
 	const decimals = Math.max(0, -Math.floor(Math.log10(step)))
 	return rounded.toFixed(decimals).replace(/^-0$/, '0')
 }

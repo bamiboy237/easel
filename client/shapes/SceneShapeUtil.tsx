@@ -111,6 +111,8 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const editor = useEditor()
 	const { w, h, title, xMin, xMax, yMin, yMax, duration, params, objects } = shape.props
 	const axes = shape.props.axes !== false
+	// While the agent is still writing a new scene, it shows read-only.
+	const preview = shape.meta.scenePreview === true
 	const parameters = sceneParameters(shape.props)
 	const plotHeight = Math.max(60, h - sceneChromeHeight(shape.props))
 	const [t, setT] = usePlayback(duration)
@@ -149,7 +151,7 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const errors = Object.entries(values.errors)
 
 	return (
-		<HTMLContainer className="graph-container scene-container">
+		<HTMLContainer className={`graph-container scene-container${preview ? ' scene-preview' : ''}`}>
 			<div className="graph-sheet" style={{ width: w, height: h }}>
 				<div
 					className="graph-plot"
@@ -186,7 +188,8 @@ function Scene({ shape }: { shape: SceneShape }) {
 							t.time,
 							unitsPerPixel,
 							traces,
-							{ x: visibleX, y: visibleY }
+							{ x: visibleX, y: visibleY },
+							preview
 						)}
 					</Mafs>
 					{title && <div className="scene-title">{title}</div>}
@@ -305,7 +308,8 @@ function renderObjects(
 	time: number,
 	unitsPerPixel: number,
 	traces: Record<string, [number, number][]>,
-	view: { x: [number, number]; y: [number, number] }
+	view: { x: [number, number]; y: [number, number] },
+	readOnly: boolean
 ): ReactNode[] {
 	// Text keeps this far inside the plot, so no label is cut at an edge.
 	const inset = 12 * unitsPerPixel
@@ -333,7 +337,7 @@ function renderObjects(
 							case 'point': {
 								const p = values.points[id]
 								if (!p || !finite(p)) return null
-								const drag = dragTargets(o, params)
+								const drag = readOnly ? null : dragTargets(o, params)
 								const labelText = o.label ? fillText(o.label, values.scope) : ''
 								// Above and to the right, or to the left when the right edge is near.
 								const toLeft = p[0] + 6 * unitsPerPixel + textWidth(labelText) > view.x[1] - inset

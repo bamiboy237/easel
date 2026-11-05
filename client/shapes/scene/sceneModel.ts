@@ -1,5 +1,5 @@
 import { compileExpression, CompiledExpression, expressionNames, functionNames, Scope } from '../math/expression'
-import { clampParameter, ShapeParameter } from '../math/parameters'
+import { ShapeParameter } from '../math/parameters'
 
 /**
  * A scene is a visual described as data, in the style of Desmos and GeoGebra:
@@ -119,8 +119,7 @@ export function evaluateScene(props: Pick<SceneProps, 'params' | 'objects'>, t: 
 	const scope: Scope = { t }
 	for (const p of Object.values(props.params)) scope[p.name] = p.value
 	const errors: Record<string, string> = {}
-	for (const [id, object] of Object.entries(props.objects)) {
-		if (object.type !== 'let') continue
+	for (const [id, object] of letsInOrder(props.objects)) {
 		try {
 			scope[id] = evaluateIn(object.expr, scope)
 		} catch (error) {
@@ -138,6 +137,38 @@ export function evaluateScene(props: Pick<SceneProps, 'params' | 'objects'>, t: 
 		}
 	}
 	return { scope, points, errors }
+}
+
+const letOrderCache = new WeakMap<object, [string, Extract<SceneObject, { type: 'let' }>][]>()
+
+/**
+ * The lets in an order where each comes after the lets it uses, so the agent
+ * can define them in any order and update one to use a newer one. A let in a
+ * cycle keeps its place and reads the others as not yet defined.
+ */
+export function letsInOrder(objects: Record<string, SceneObject>) {
+	const cached = letOrderCache.get(objects)
+	if (cached) return cached
+	const lets = Object.entries(objects).filter(([, o]) => o.type === 'let') as [string, Extract<SceneObject, { type: 'let' }>][]
+	const byId = new Map(lets)
+	const ordered: typeof lets = []
+	const state = new Map<string, 'visiting' | 'done'>()
+	const visit = (id: string) => {
+		if (state.get(id)) return
+		state.set(id, 'visiting')
+		let names: string[] = []
+		try {
+			names = expressionNames(byId.get(id)!.expr)
+		} catch {
+			// A let that does not parse is reported where it is read.
+		}
+		for (const name of names) if (byId.has(name) && !state.get(name)) visit(name)
+		state.set(id, 'done')
+		ordered.push([id, byId.get(id)!])
+	}
+	for (const [id] of lets) visit(id)
+	letOrderCache.set(objects, ordered)
+	return ordered
 }
 
 /** A reference as a position: a point's id, or an [x, y] pair of expressions. */
@@ -354,14 +385,12 @@ export function findUndefinedNames(props: Pick<SceneProps, 'params' | 'objects'>
 			}
 		}
 		if (missing.size > 0) {
-			problems[id] = `uses ${[...missing].map((n) => `"${n}"`).join(', ')}, which ${missing.size === 1 ? 'is' : 'are'} not defined here (a let can only use earlier lets)`
+			problems[id] = `uses ${[...missing].map((n) => `"${n}"`).join(', ')}, which ${missing.size === 1 ? 'is' : 'are'} not defined here, or part of a loop of lets`
 		}
 	}
-	for (const [id, o] of Object.entries(props.objects)) {
-		if (o.type === 'let') {
-			check(id, [o.expr])
-			known.add(id)
-		}
+	for (const [id, o] of letsInOrder(props.objects)) {
+		check(id, [o.expr])
+		known.add(id)
 	}
 	for (const [id, o] of Object.entries(props.objects)) {
 		if (o.type === 'let') continue
@@ -401,4 +430,3 @@ export function dragTargets(object: SceneObject, params: Record<string, ShapePar
 	return { x: x ?? null, y: y ?? null }
 }
 
-export { clampParameter }

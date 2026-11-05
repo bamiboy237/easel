@@ -256,7 +256,8 @@ export const SceneActionUtil = registerActionUtil(
 				w,
 				h,
 			}
-			const meta = { sceneDropped: streaming ? [] : dropped }
+			// A preview is shown read-only: edits to it would be lost when it is replaced.
+			const meta = { sceneDropped: streaming ? [] : dropped, ...(streaming ? { scenePreview: true } : {}) }
 			if (existing) {
 				editor.updateShape<SceneShape>({ id, type: SCENE_TYPE, props, meta: { ...existing.meta, ...meta } })
 				return

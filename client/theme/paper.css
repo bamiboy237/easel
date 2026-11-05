@@ -1496,6 +1496,13 @@
 	text-align: right;
 }
 
+/* A scene the agent is still writing: its controls wait until it lands. */
+.scene-preview .shape-parameters,
+.scene-preview .simulation-controls {
+	opacity: 0.5;
+	pointer-events: none;
+}
+
 /* Object labels in the board's serif, like the title and the slider names. */
 .scene-container [data-scene-object] text {
 	font-family: 'Source Serif 4 Variable', Georgia, serif;
