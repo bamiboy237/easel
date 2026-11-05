@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Box, Editor, renderPlaintextFromRichText, TLRichText, TLShapeId, useEditor, useValue } from 'tldraw'
-import { findNoteSpot } from '../agent/findClearSpace'
+import { findNoteSpot, getUsableViewBounds } from '../agent/findClearSpace'
 import { MARK_LABELS } from '../agent/marks'
 import { useAgent } from '../agent/TldrawAgentAppProvider'
 
@@ -57,8 +57,17 @@ export function MarkComposer() {
 			const zoom = editor.getZoomLevel()
 			const mark = Box.From(d.bounds)
 			const ignore = d.shapeId ? [d.shapeId] : []
-			const spot = findNoteSpot(editor, mark, { w: NOTE_WIDTH / zoom, h: NOTE_HEIGHT / zoom }, ignore)
-			const p = editor.pageToViewport(spot ? { x: spot.x, y: spot.y } : { x: mark.maxX + 14 / zoom, y: mark.y })
+			const size = { w: NOTE_WIDTH / zoom, h: NOTE_HEIGHT / zoom }
+			const view = getUsableViewBounds(editor)
+			let spot = findNoteSpot(editor, mark, size, ignore)
+			// A spot off screen would hide the question, as when the mark is on an
+			// image that fills the view. Then the note sits beside the mark instead.
+			if (spot && !view.contains(spot)) spot = null
+			const at = spot ? { x: spot.x, y: spot.y } : { x: mark.maxX + 14 / zoom, y: mark.y }
+			// Kept inside the view, so the note can always be seen.
+			const x = Math.min(Math.max(at.x, view.x), Math.max(view.x, view.maxX - size.w))
+			const y = Math.min(Math.max(at.y, view.y), Math.max(view.y, view.maxY - size.h))
+			const p = editor.pageToViewport({ x, y })
 			return { x: Math.round(p.x), y: Math.round(p.y) }
 		},
 		[agent, editor]
@@ -82,6 +91,8 @@ export function MarkComposer() {
 			if (event.key !== 'Escape') return
 			event.preventDefault()
 			event.stopPropagation()
+			// A new stroke in progress goes too, so letting go does not open another note.
+			if (editor.isIn('mark.drawing')) editor.cancel()
 			agent.marks.cancelDraft()
 			editor.focus()
 		}

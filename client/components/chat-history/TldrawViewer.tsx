@@ -13,10 +13,19 @@ import {
 	TLShape,
 } from 'tldraw'
 import { AnnotationBindingUtil } from '../../shapes/AnnotationBindingUtil'
+import { EquationShapeUtil } from '../../shapes/EquationShapeUtil'
+import { GraphShapeUtil } from '../../shapes/GraphShapeUtil'
+import { SimulationShapeUtil } from '../../shapes/SimulationShapeUtil'
 import { ThreadShapeUtil } from '../../shapes/ThreadShapeUtil'
 
-/** The default shapes plus the app's own, so previews of a change can show threads. */
-const VIEWER_SHAPE_UTILS = [...defaultShapeUtils, ThreadShapeUtil]
+/** The default shapes plus the app's own, so previews of a change can show them. */
+const VIEWER_SHAPE_UTILS = [
+	...defaultShapeUtils,
+	ThreadShapeUtil,
+	EquationShapeUtil,
+	GraphShapeUtil,
+	SimulationShapeUtil,
+]
 const VIEWER_BINDING_UTILS = [...defaultBindingUtils, AnnotationBindingUtil]
 
 export function TldrawViewer({

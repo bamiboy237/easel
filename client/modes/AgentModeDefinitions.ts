@@ -14,6 +14,13 @@ import { LabelActionUtil } from '../actions/LabelActionUtil'
 import { MapActionUtil } from '../actions/MapActionUtil'
 import { AskActionUtil } from '../actions/AskActionUtil'
 import { AsideActionUtil } from '../actions/AsideActionUtil'
+import { DiagramActionUtil } from '../actions/DiagramActionUtil'
+import {
+	EquationActionUtil,
+	GraphActionUtil,
+	SetParameterActionUtil,
+	SimulationActionUtil,
+} from '../actions/InteractiveActionUtils'
 import { ReplyInThreadActionUtil } from '../actions/ReplyInThreadActionUtil'
 import { ResumeActionUtil } from '../actions/ResumeActionUtil'
 import { MessageActionUtil } from '../actions/MessageActionUtil'
@@ -156,6 +163,13 @@ export const AGENT_MODE_DEFINITIONS = [
 			MapActionUtil.type,
 			UpsertTodoListItemActionUtil.type,
 			SetMyViewActionUtil.type,
+
+			// Interactive objects: typeset math, laid-out diagrams, live graphs, simulations
+			EquationActionUtil.type,
+			DiagramActionUtil.type,
+			GraphActionUtil.type,
+			SimulationActionUtil.type,
+			SetParameterActionUtil.type,
 
 			// Individual shapes
 			CreateActionUtil.type,
