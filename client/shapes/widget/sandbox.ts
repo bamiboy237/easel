@@ -232,8 +232,11 @@ new MutationObserver((records) => {
 let values = ${JSON.stringify(values).replace(/</g, '\\u003c')};
 const listeners = [];
 let started = 0, pending = false, stopped = false;
+let calls = 0;
 const guard = () => {
 	if (stopped) throw new Stop('This widget was stopped.');
+	// The clock is read once every 256 calls, so tight loops stay fast.
+	if (pending && (++calls & 255) !== 0) return;
 	const now = clock();
 	if (!pending) { pending = true; started = now; later(() => { pending = false }, 0) }
 	if (now - started > ${LOOP_BUDGET_MS}) {

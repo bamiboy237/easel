@@ -205,14 +205,16 @@ function overlapArea(a: Box, b: Box): number {
 	return w > 0 && h > 0 ? w * h : 0
 }
 
-function inside(b: Box, [x, y]: Vec) {
-	return x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1
+// These run in the innermost loop on every frame a scene plays, so they read
+// coordinates by index rather than destructuring.
+function inside(b: Box, p: Vec) {
+	return p[0] >= b.x0 && p[0] <= b.x1 && p[1] >= b.y0 && p[1] <= b.y1
 }
 
-function boxHitsDisc(b: Box, [cx, cy]: Vec, r: number) {
-	const x = clamp(cx, b.x0, b.x1)
-	const y = clamp(cy, b.y0, b.y1)
-	return Math.hypot(x - cx, y - cy) < r
+function boxHitsDisc(b: Box, c: Vec, r: number) {
+	const dx = clamp(c[0], b.x0, b.x1) - c[0]
+	const dy = clamp(c[1], b.y0, b.y1) - c[1]
+	return dx * dx + dy * dy < r * r
 }
 
 /** Points every few pixels along a polyline, for the stroke obstacles. */

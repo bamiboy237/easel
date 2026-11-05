@@ -711,6 +711,7 @@ function layoutLabels(
 			// An object that cannot be evaluated has nothing to place.
 		}
 	}
+	if (requests.length === 0) return []
 	const placed = placeLabels(requests, obstacles, view, u)
 	return requests.map((r, i) => ({ id: r.id, center: placed[i].center, text: r.text, size: r.size, color: r.color }))
 }
