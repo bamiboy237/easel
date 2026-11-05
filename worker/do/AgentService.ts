@@ -192,9 +192,15 @@ export class AgentService {
 						commentary.delete(part.id)
 						break
 					}
-					case 'finish':
+					case 'finish': {
 						finishReason = part.finishReason
+						// One line per request, so prompt size and caching can be measured.
+						const usage = part.totalUsage
+						console.log(
+							`[usage] model=${modelId} actions=${prompt.mode.actionTypes.length} systemChars=${systemPrompt.length} input=${usage.inputTokens ?? '?'} cached=${usage.cachedInputTokens ?? 0} output=${usage.outputTokens ?? '?'} reasoning=${usage.reasoningTokens ?? 0}`
+						)
 						break
+					}
 					case 'error':
 						// Some providers end the stream with an error that carries nothing.
 						throw part.error ??
