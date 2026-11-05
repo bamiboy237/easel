@@ -1,10 +1,11 @@
-import { TLShape, TLShapeId } from 'tldraw'
+import { Editor, TLShape, TLShapeId } from 'tldraw'
 import { registerShapeDescriber } from '../../shared/format/convertTldrawShapeToFocusedShape'
 import {
 	EquationAction,
 	GraphAction,
 	SceneAction,
 	SceneObjectAction,
+	SceneTemplateAction,
 	SetParameterAction,
 	SimulationAction,
 } from '../../shared/schema/AgentActionSchemas'
@@ -15,6 +16,7 @@ import { clampParameter, ShapeParameter } from '../shapes/math/parameters'
 import { EQUATION_TYPE, EquationShape, measureEquation } from '../shapes/EquationShapeUtil'
 import { describeSceneShape, SCENE_TYPE, sceneChromeHeight, SceneShape } from '../shapes/SceneShapeUtil'
 import { checkSceneObjectId, SceneObject, sanitizeSceneObject } from '../shapes/scene/sceneModel'
+import { getAllTemplates } from '../shapes/scene/templates'
 import { describeGraph, GRAPH_TYPE, GraphShape, parametersHeight } from '../shapes/GraphShapeUtil'
 import {
 	describeSimulation,
@@ -175,6 +177,94 @@ export const SimulationActionUtil = registerActionUtil(
 )
 
 /**
+ * Build or update a scene from a scene action. A template is placed through
+ * the same path, so it behaves exactly like a scene the agent wrote.
+ */
+function applySceneAction(editor: Editor, action: Streaming<SceneAction>, helpers: AgentHelpers) {
+	// While the action streams, show what has arrived as a preview: the scene
+	// appears once its frame is known, and each object as soon as it is
+	// finished. The last item of a list may be cut off, so it waits. The
+	// preview is taken back before the next one; only the finished action is
+	// recorded as a command.
+	const streaming = !action.complete
+	if (streaming) {
+		const framed = [action.xMin, action.xMax, action.yMin, action.yMax].every((v) => typeof v === 'number')
+		if (typeof action.shapeId !== 'string' || !action.shapeId || !framed) return
+	}
+	const finished = <T,>(list: T[] | undefined) => (streaming ? (list ?? []).slice(0, -1) : (list ?? []))
+	const { id, existing } = resolveTarget<SceneShape>(helpers, action.shapeId, SCENE_TYPE)
+	// Only a new scene previews. A preview of an existing scene is taken back
+	// by writing the old record over it, which would undo the user's slider
+	// moves made while the agent writes.
+	if (streaming && existing) return
+
+	const params = { ...(existing?.props.params ?? {}) }
+	for (const p of sanitizeParameters(finished(action.params))) {
+		const current = params[p.name]
+		// A parameter that already exists keeps its value: it may be the user's.
+		params[p.name] = current ? { ...p, value: clampParameter(p, current.value) } : p
+	}
+
+	const objects: Record<string, SceneObject> = { ...(existing?.props.objects ?? {}) }
+	const dropped: string[] = []
+	for (const raw of finished(action.objects)) {
+		const objectId = String(raw?.id ?? '').trim()
+		if (!objectId) continue
+		const idProblem = checkSceneObjectId(objectId, params)
+		if (idProblem) {
+			dropped.push(`${objectId}: ${idProblem}`)
+			continue
+		}
+		const result = sanitizeSceneObject(raw)
+		if ('error' in result) dropped.push(`${objectId}: ${result.error}`)
+		else objects[objectId] = result.object
+	}
+	for (const removed of finished(action.remove)) delete objects[removed]
+	if (dropped.length > 0 && !streaming) console.warn(`Scene ${action.shapeId} dropped objects:`, dropped)
+
+	const range = (min: number | undefined, max: number | undefined, fallback: [number, number]) =>
+		Number.isFinite(min) && Number.isFinite(max) && max! > min! ? [min!, max!] : fallback
+	const [xMin, xMax] = range(action.xMin, action.xMax, existing ? [existing.props.xMin, existing.props.xMax] : [-5, 5])
+	const [yMin, yMax] = range(action.yMin, action.yMax, existing ? [existing.props.yMin, existing.props.yMax] : [-4, 4])
+	const duration = Number.isFinite(action.duration) && action.duration! > 0 ? Math.min(action.duration!, 120) : 0
+	// A new scene takes the size the agent asks for. An existing one keeps its
+	// size, so the user's resize stands, and grows only by the rows it gains.
+	const chrome = sceneChromeHeight({ duration, params })
+	const w = existing ? existing.props.w : Math.min(900, Math.max(200, action.width || 420))
+	const h = existing
+		? existing.props.h - sceneChromeHeight(existing.props) + chrome
+		: Math.min(700, Math.max(120, action.height || 300)) + chrome
+	const props = {
+		title: String(action.title ?? existing?.props.title ?? ''),
+		xMin,
+		xMax,
+		yMin,
+		yMax,
+		duration,
+		axes: typeof action.axes === 'boolean' ? action.axes : (existing?.props.axes ?? true),
+		// A pin is set only by the action that asks for it; any other update clears it.
+		...(Number.isFinite(action.pinTime)
+			? {
+					pinnedTime: Math.min(Math.max(0, action.pinTime!), duration),
+					pinCount: (existing?.props.pinCount ?? 0) + 1,
+				}
+			: { pinnedTime: undefined }),
+		params,
+		objects,
+		w,
+		h,
+	}
+	// A preview is shown read-only: edits to it would be lost when it is replaced.
+	const meta = { sceneDropped: streaming ? [] : dropped, ...(streaming ? { scenePreview: true } : {}) }
+	if (existing) {
+		editor.updateShape<SceneShape>({ id, type: SCENE_TYPE, props, meta: { ...existing.meta, ...meta } })
+		return
+	}
+	const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
+	editor.createShape<SceneShape>({ id, type: SCENE_TYPE, x: at.x, y: at.y, props, meta })
+}
+
+/**
  * The agent builds or changes a scene. On an existing scene, objects with the
  * same id are replaced, new ones are added, and ids in `remove` are deleted.
  * Parameters keep the value the user set; the agent changes a value with
@@ -190,88 +280,67 @@ export const SceneActionUtil = registerActionUtil(
 		}
 
 		override applyAction(action: Streaming<SceneAction>, helpers: AgentHelpers) {
-			// While the action streams, show what has arrived as a preview: the scene
-			// appears once its frame is known, and each object as soon as it is
-			// finished. The last item of a list may be cut off, so it waits. The
-			// preview is taken back before the next one; only the finished action is
-			// recorded as a command.
-			const streaming = !action.complete
-			if (streaming) {
-				const framed = [action.xMin, action.xMax, action.yMin, action.yMax].every((v) => typeof v === 'number')
-				if (typeof action.shapeId !== 'string' || !action.shapeId || !framed) return
-			}
-			const finished = <T,>(list: T[] | undefined) => (streaming ? (list ?? []).slice(0, -1) : (list ?? []))
-			const { editor } = this
-			const { id, existing } = resolveTarget<SceneShape>(helpers, action.shapeId, SCENE_TYPE)
-			// Only a new scene previews. A preview of an existing scene is taken back
-			// by writing the old record over it, which would undo the user's slider
-			// moves made while the agent writes.
-			if (streaming && existing) return
+			applySceneAction(this.editor, action, helpers)
+		}
+	}
+)
 
-			const params = { ...(existing?.props.params ?? {}) }
-			for (const p of sanitizeParameters(finished(action.params))) {
-				const current = params[p.name]
-				// A parameter that already exists keeps its value: it may be the user's.
-				params[p.name] = current ? { ...p, value: clampParameter(p, current.value) } : p
-			}
+/**
+ * The agent places a ready-made scene, with its own starting values for any of
+ * the template's parameters. It goes through the same path as a scene action.
+ */
+export const SceneTemplateActionUtil = registerActionUtil(
+	class SceneTemplateActionUtil extends AgentActionUtil<SceneTemplateAction> {
+		static override type = 'scene_template' as const
 
-			const objects: Record<string, SceneObject> = { ...(existing?.props.objects ?? {}) }
-			const dropped: string[] = []
-			for (const raw of finished(action.objects)) {
-				const objectId = String(raw?.id ?? '').trim()
-				if (!objectId) continue
-				const idProblem = checkSceneObjectId(objectId, params)
-				if (idProblem) {
-					dropped.push(`${objectId}: ${idProblem}`)
-					continue
-				}
-				const result = sanitizeSceneObject(raw)
-				if ('error' in result) dropped.push(`${objectId}: ${result.error}`)
-				else objects[objectId] = result.object
-			}
-			for (const removed of finished(action.remove)) delete objects[removed]
-			if (dropped.length > 0 && !streaming) console.warn(`Scene ${action.shapeId} dropped objects:`, dropped)
+		override getInfo(action: Streaming<SceneTemplateAction>) {
+			return { icon: 'pencil' as const, description: action.intent ?? '' }
+		}
 
-			const range = (min: number | undefined, max: number | undefined, fallback: [number, number]) =>
-				Number.isFinite(min) && Number.isFinite(max) && max! > min! ? [min!, max!] : fallback
-			const [xMin, xMax] = range(action.xMin, action.xMax, existing ? [existing.props.xMin, existing.props.xMax] : [-5, 5])
-			const [yMin, yMax] = range(action.yMin, action.yMax, existing ? [existing.props.yMin, existing.props.yMax] : [-4, 4])
-			const duration = Number.isFinite(action.duration) && action.duration! > 0 ? Math.min(action.duration!, 120) : 0
-			// A new scene takes the size the agent asks for. An existing one keeps its
-			// size, so the user's resize stands, and grows only by the rows it gains.
-			const chrome = sceneChromeHeight({ duration, params })
-			const w = existing ? existing.props.w : Math.min(900, Math.max(200, action.width || 420))
-			const h = existing
-				? existing.props.h - sceneChromeHeight(existing.props) + chrome
-				: Math.min(700, Math.max(120, action.height || 300)) + chrome
-			const props = {
-				title: String(action.title ?? existing?.props.title ?? ''),
-				xMin,
-				xMax,
-				yMin,
-				yMax,
-				duration,
-				axes: typeof action.axes === 'boolean' ? action.axes : (existing?.props.axes ?? true),
-				// A pin is set only by the action that asks for it; any other update clears it.
-				...(Number.isFinite(action.pinTime)
-					? {
-							pinnedTime: Math.min(Math.max(0, action.pinTime!), duration),
-							pinCount: (existing?.props.pinCount ?? 0) + 1,
-						}
-					: { pinnedTime: undefined }),
-				params,
-				objects,
-				w,
-				h,
-			}
-			// A preview is shown read-only: edits to it would be lost when it is replaced.
-			const meta = { sceneDropped: streaming ? [] : dropped, ...(streaming ? { scenePreview: true } : {}) }
-			if (existing) {
-				editor.updateShape<SceneShape>({ id, type: SCENE_TYPE, props, meta: { ...existing.meta, ...meta } })
+		override applyAction(action: Streaming<SceneTemplateAction>, helpers: AgentHelpers) {
+			if (!action.complete) return
+			const name = String(action.template ?? '').trim()
+			const template = getAllTemplates(this.editor).find((t) => t.id === name)
+			if (!template) {
+				// Tell the agent, so it picks a listed template or writes the scene.
+				this.agent.schedule(
+					`There is no scene template named "${name}". Place one of the templates listed in the prompt, or write the scene with a scene action.`
+				)
 				return
 			}
-			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
-			editor.createShape<SceneShape>({ id, type: SCENE_TYPE, x: at.x, y: at.y, props, meta })
+			// A template always becomes a new scene: it never merges into an existing
+			// one, which would keep that scene's values over the ones asked for here.
+			const shapeId = helpers.ensureShapeIdIsUnique(
+				String(action.shapeId || template.id) as Parameters<AgentHelpers['ensureShapeIdIsUnique']>[0]
+			)
+			const values = new Map((action.params ?? []).map((p) => [p.name, p.value]))
+			applySceneAction(
+				this.editor,
+				{
+					_type: 'scene',
+					intent: action.intent,
+					shapeId,
+					title: template.title,
+					x: action.x,
+					y: action.y,
+					width: template.width,
+					height: template.height,
+					xMin: template.xMin,
+					xMax: template.xMax,
+					yMin: template.yMin,
+					yMax: template.yMax,
+					duration: template.duration,
+					axes: template.axes,
+					params: template.params.map((p) => {
+						const value = values.get(p.name)
+						return Number.isFinite(value) ? { ...p, value: value! } : p
+					}),
+					objects: template.objects as SceneAction['objects'],
+					complete: true,
+					time: action.time,
+				},
+				helpers
+			)
 		}
 	}
 )

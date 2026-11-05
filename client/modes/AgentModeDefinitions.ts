@@ -17,6 +17,7 @@ import {
 	GraphActionUtil,
 	SceneActionUtil,
 	SceneObjectActionUtil,
+	SceneTemplateActionUtil,
 	SetParameterActionUtil,
 	SimulationActionUtil,
 } from '../actions/InteractiveActionUtils'
@@ -49,6 +50,7 @@ import { PeripheralShapesPartUtil } from '../parts/PeripheralShapesPartUtil'
 import { ScreenshotPartUtil } from '../parts/ScreenshotPartUtil'
 import { SelectedShapesPartUtil } from '../parts/SelectedShapesPartUtil'
 import { TimePartUtil } from '../parts/TimePartUtil'
+import { SceneTemplatesPartUtil } from '../parts/SceneTemplatesPartUtil'
 import { TodoListPartUtil } from '../parts/TodoListPartUtil'
 import { UserActionHistoryPartUtil } from '../parts/UserActionHistoryPartUtil'
 import { UserViewportBoundsPartUtil } from '../parts/UserViewportBoundsPartUtil'
@@ -139,6 +141,7 @@ export const AGENT_MODE_DEFINITIONS = [
 			CanvasLintsPartUtil.type,
 
 			// Metadata
+			SceneTemplatesPartUtil.type,
 			TimePartUtil.type,
 		],
 
@@ -169,6 +172,7 @@ export const AGENT_MODE_DEFINITIONS = [
 			SimulationActionUtil.type,
 			SceneActionUtil.type,
 			SceneObjectActionUtil.type,
+			SceneTemplateActionUtil.type,
 			SetParameterActionUtil.type,
 
 			// Individual shapes
