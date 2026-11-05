@@ -164,8 +164,8 @@ function Scene({ shape }: { shape: SceneShape }) {
 	// change to one field, and never conflicts with the agent's work elsewhere.
 	const setParam = (name: string, value: number) => {
 		const current = editor.getShape<SceneShape>(shape.id)
-		const p = current?.props.params[name]
-		if (!current || !p) return
+		if (!current || !Object.hasOwn(current.props.params, name)) return
+		const p = current.props.params[name]
 		const next = clampParameter(p, value)
 		if (next === p.value) return
 		editor.updateShape<SceneShape>({

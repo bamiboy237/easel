@@ -169,7 +169,7 @@ Generated code is a background job with a placeholder. Its minimum safeguards ar
 
 The widget owns no durable state. It declares its params and state, receives them as props, and asks the host for changes. The host applies each change as an ordinary command.
 
-A browser lets a sandboxed frame navigate itself, and no CSP directive stops that. The host stops a frame that loads a second page, but by then one request has left. The Mac shell closes this gap by refusing every frame navigation in its navigation delegate.
+A browser lets a sandboxed frame navigate itself, and no CSP directive stops that. The host stops a frame that loads a second page, but by then one request has left. The Mac shell closes this gap by refusing every frame navigation in its navigation delegate. The guard runs at the start of every loop body and every function, so it catches runaway loops, recursion, and callbacks. It cannot interrupt one long built-in call, such as filling a huge array or a catastrophic regular expression. Only process isolation stops those, and `WKWebView` may not provide it.
 
 ### Agent actions and context
 

@@ -23,11 +23,16 @@ const GUARD = '__easelLoopGuard'
 type AstNode = { type: string; start: number; end: number; [key: string]: unknown }
 
 const LOOPS = new Set(['ForStatement', 'ForInStatement', 'ForOfStatement', 'WhileStatement', 'DoWhileStatement'])
+const FUNCTIONS = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'])
+
+/** Names the widget's code may not use: the runtime's own globals start with this. */
+const RESERVED_PREFIX = '__easel'
 
 /**
- * Add a guard call at the start of every loop body. The guard throws once one
- * task has run longer than the budget, so a runaway loop ends with an error.
- * Returns the code, or the parse error to give back to the model.
+ * Add a guard call at the start of every loop body and every function body.
+ * The guard throws once one task has run longer than the budget, so a runaway
+ * loop, recursion, or callback ends with an error. Returns the code, or the
+ * problem to give back to the model.
  */
 export function guardLoops(js: string): { code: string } | { error: string } {
 	let ast: AstNode
@@ -36,7 +41,15 @@ export function guardLoops(js: string): { code: string } | { error: string } {
 	} catch (error) {
 		return { error: `The script does not parse: ${(error as Error).message}` }
 	}
-	const edits: { at: number; text: string }[] = []
+	const edits: { at: number; text: string; close?: boolean; order?: number }[] = []
+	let reserved: string | null = null
+	// The guard goes after any directives, such as "use strict", so they still apply.
+	const atBlockStart = (body: AstNode) => {
+		const statements = (body.body as AstNode[]) ?? []
+		const directives = statements.filter((st, i) => statements.slice(0, i + 1).every((d) => typeof d.directive === 'string'))
+		const at = directives.length ? directives[directives.length - 1].end : body.start + 1
+		edits.push({ at, text: `${GUARD}();` })
+	}
 	const visit = (node: unknown) => {
 		if (Array.isArray(node)) {
 			node.forEach(visit)
@@ -44,14 +57,26 @@ export function guardLoops(js: string): { code: string } | { error: string } {
 		}
 		if (!node || typeof node !== 'object' || typeof (node as AstNode).type !== 'string') return
 		const n = node as AstNode
+		// The guard is a global, so a name that could shadow it is refused.
+		if (n.type === 'Identifier' && String(n.name).startsWith(RESERVED_PREFIX)) reserved = String(n.name)
 		if (LOOPS.has(n.type)) {
 			const body = n.body as AstNode
 			if (body.type === 'BlockStatement') {
-				edits.push({ at: body.start + 1, text: `${GUARD}();` })
+				atBlockStart(body)
 			} else {
 				// A body without braces gets them, so the guard and the body stay one statement.
 				edits.push({ at: body.start, text: `{${GUARD}();` })
-				edits.push({ at: body.end, text: '}' })
+				edits.push({ at: body.end, text: '}', close: true })
+			}
+		}
+		if (FUNCTIONS.has(n.type)) {
+			const body = n.body as AstNode
+			if (body.type === 'BlockStatement') {
+				atBlockStart(body)
+			} else {
+				// An arrow with an expression body: (guard(), expression).
+				edits.push({ at: body.start, text: `(${GUARD}(),` })
+				edits.push({ at: body.end, text: ')', close: true })
 			}
 		}
 		for (const [key, value] of Object.entries(n)) {
@@ -60,7 +85,18 @@ export function guardLoops(js: string): { code: string } | { error: string } {
 		}
 	}
 	visit(ast)
-	edits.sort((a, b) => b.at - a.at)
+	if (reserved) return { error: `The script uses the name ${reserved}; names starting with ${RESERVED_PREFIX} are reserved.` }
+	// Edits are applied from the end, so each keeps its position. Where several
+	// land at one position, the text must read: closings of inner nodes first,
+	// then outer closings, then openings of outer nodes, then inner openings.
+	// An edit applied later lands before the earlier ones, and nodes are
+	// visited outer first.
+	edits.forEach((e, i) => (e.order = i))
+	edits.sort((a, b) => {
+		if (a.at !== b.at) return b.at - a.at
+		if (!!a.close !== !!b.close) return a.close ? 1 : -1
+		return a.close ? a.order! - b.order! : b.order! - a.order!
+	})
 	let code = js
 	for (const edit of edits) code = code.slice(0, edit.at) + edit.text + code.slice(edit.at)
 	return { code }
@@ -92,9 +128,17 @@ export function sanitizeWidgetHtml(html: string): string {
 	return doc.body.innerHTML
 }
 
-/** CSS without imports, so a style sheet cannot load another from the network. */
+/**
+ * CSS that cannot load another style sheet or leave its style element: imports
+ * are removed until none is left, and every < is written as a CSS escape.
+ */
 export function sanitizeWidgetCss(css: string): string {
-	return css.replace(/@import[^;]*;?/gi, '').replace(/<\/style/gi, '')
+	let out = css
+	for (let previous = ''; previous !== out; ) {
+		previous = out
+		out = out.replace(/@import[^;]*;?/gi, '')
+	}
+	return out.replace(/</g, '\\3c ')
 }
 
 /** Text safe to put inside a script element. */
@@ -133,12 +177,14 @@ export function buildWidgetDocument(source: WidgetSource, values: WidgetValues):
 		"frame-src 'none'",
 		"form-action 'none'",
 		"base-uri 'none'",
+		// Blocks WebRTC where the browser supports it; elsewhere the runtime removes it.
+		"webrtc 'block'",
 	].join('; ')
 	const doc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>html,body{margin:0;padding:0;overflow:hidden;font-family:'Inter',system-ui,sans-serif;background:#fffdf8;color:#302f2a}${sanitizeWidgetCss(source.css)}</style>
 <script nonce="${nonce}">${scriptSafe(runtimeScript(values))}</script>
 </head><body>${sanitizeWidgetHtml(source.html)}
-<script nonce="${nonce}">${scriptSafe(guarded.code)}
+<script nonce="${nonce}">${HIDE_NONCE}${scriptSafe(guarded.code)}
 </script></body></html>`
 	return { doc }
 }
@@ -148,31 +194,59 @@ export function buildWidgetDocument(source: WidgetSource, values: WidgetValues):
  * guard, the heartbeat the host watches, and snapshots. It talks to the host
  * only through postMessage.
  */
+/**
+ * The first statement of each script: it clears the script's nonce, so the
+ * widget cannot read it and add a script of its own that skips the guard.
+ */
+const HIDE_NONCE = "document.currentScript.removeAttribute('nonce');document.currentScript.nonce='';"
+
 function runtimeScript(values: WidgetValues): string {
-	return `(() => {
+	return `${HIDE_NONCE}(() => {
 'use strict';
+// The guard keeps its own copies, so the widget cannot change the clock it reads.
+const clock = performance.now.bind(performance);
+const later = setTimeout.bind(window);
+const Stop = Error;
 const host = window.parent;
-const post = (message) => { try { host.postMessage(message, '*') } catch (e) {} };
+const send = host.postMessage.bind(host);
+const post = (message) => { try { send(message, '*') } catch (e) {} };
+const lock = (target, name, descriptor) => { try { Object.defineProperty(target, name, { configurable: false, ...descriptor }) } catch (e) {} };
 // WebRTC can reach the network past the CSP, so the widget does not get it.
-for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel']) {
-	try { Object.defineProperty(window, name, { value: undefined, configurable: false, writable: false }) } catch (e) {}
+for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel', 'RTCSessionDescription', 'RTCIceCandidate']) {
+	lock(window, name, { value: undefined, writable: false });
 }
+// A child frame would bring fresh copies of what was removed, so frames are
+// unreachable from script and are removed as soon as they are added.
+for (const type of [window.HTMLIFrameElement, window.HTMLFrameElement, window.HTMLObjectElement, window.HTMLEmbedElement]) {
+	if (!type) continue;
+	for (const name of ['contentWindow', 'contentDocument']) lock(type.prototype, name, { get() { return null } });
+	lock(type.prototype, 'getSVGDocument', { value() { return null }, writable: false });
+}
+new MutationObserver((records) => {
+	for (const r of records) for (const node of r.addedNodes) {
+		if (node.nodeType !== 1) continue;
+		if (/^(IFRAME|FRAME|OBJECT|EMBED)$/.test(node.nodeName)) node.remove();
+		else for (const el of node.querySelectorAll('iframe,frame,object,embed')) el.remove();
+	}
+}).observe(document, { childList: true, subtree: true });
 let values = ${JSON.stringify(values).replace(/</g, '\\u003c')};
 const listeners = [];
 let started = 0, pending = false, stopped = false;
-window.${GUARD} = () => {
-	if (stopped) throw new Error('This widget was stopped.');
-	const now = performance.now();
-	if (!pending) { pending = true; started = now; setTimeout(() => { pending = false }, 0) }
+const guard = () => {
+	if (stopped) throw new Stop('This widget was stopped.');
+	const now = clock();
+	if (!pending) { pending = true; started = now; later(() => { pending = false }, 0) }
 	if (now - started > ${LOOP_BUDGET_MS}) {
 		stopped = true;
-		post({ type: 'error', kind: 'loop', message: 'A loop ran for more than ${LOOP_BUDGET_MS / 1000} second, so the widget was stopped.' });
-		throw new Error('This widget was stopped: a loop ran too long.');
+		post({ type: 'error', kind: 'loop', message: 'Its code ran for more than ${LOOP_BUDGET_MS / 1000} second without a break, so the widget was stopped.' });
+		throw new Stop('This widget was stopped: its code ran too long.');
 	}
 };
-window.__easelReport = (e) => post({ type: 'error', kind: 'script', message: String((e && e.message) || e).slice(0, 400) });
-window.addEventListener('error', (e) => window.__easelReport(e.error || e.message));
-window.addEventListener('unhandledrejection', (e) => window.__easelReport(e.reason));
+// The guard cannot be replaced or deleted.
+lock(window, '${GUARD}', { value: guard, writable: false });
+const report = (e) => post({ type: 'error', kind: 'script', message: String((e && e.message) || e).slice(0, 400) });
+window.addEventListener('error', (e) => report(e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => report(e.reason));
 const copy = (v) => JSON.parse(JSON.stringify(v));
 const easel = {
 	get params() { return copy(values.params) },
@@ -212,7 +286,7 @@ window.addEventListener('message', async (event) => {
 	const data = event.data || {};
 	if (data.type === 'values') {
 		values = { params: data.params || {}, state: data.state || {} };
-		for (const callback of listeners) { try { callback(easel) } catch (e) { window.__easelReport(e) } }
+		for (const callback of listeners) { try { callback(easel) } catch (e) { report(e) } }
 	} else if (data.type === 'snapshot-request') {
 		let dataUrl = null;
 		try { dataUrl = typeof easel.snapshot === 'function' ? await easel.snapshot() : await defaultSnapshot() } catch (e) {}

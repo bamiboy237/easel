@@ -14,6 +14,7 @@ import {
 import { parametersHeight } from './GraphShapeUtil'
 import { clampParameter, describeParameters, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import { MAX_DROPPED, MAX_STATE_CHARS, RateLimiter, readWidgetMessage } from './widget/bridge'
+import { isWidgetJobRunning, runningWidgetJobs } from './widget/jobs'
 import { buildWidgetDocument } from './widget/sandbox'
 
 export const WIDGET_TYPE = 'widget'
@@ -53,6 +54,8 @@ const HEARTBEAT_TIMEOUT_MS = 3000
 const FLUSH_MS = 50
 /** Changes further apart than this are separate undo steps, in milliseconds. */
 const UNDO_GAP_MS = 600
+/** How long a snapshot request waits for the frame, in milliseconds. */
+const SNAPSHOT_TIMEOUT_MS = 1500
 /** How long a frame may take to start. */
 const START_TIMEOUT_MS = 6000
 
@@ -61,7 +64,10 @@ export function widgetChromeHeight(props: Pick<WidgetProps, 'params'>): number {
 }
 
 /** What the agent reads about a widget: what it is for, its values, and how it is doing. */
-export function describeWidget(props: WidgetProps): string {
+export function describeWidget(props: WidgetProps, id?: TLShapeId): string {
+	if (props.status === 'writing' && id && !isWidgetJobRunning(id)) {
+		props = { ...props, status: 'failed', error: 'its code was never finished, because the job stopped; send the widget again to write it' }
+	}
 	const params = describeParameters(Object.values(props.params))
 	let state = JSON.stringify(props.state)
 	if (state.length > 400) state = state.slice(0, 400) + '...'
@@ -117,7 +123,7 @@ export class WidgetShapeUtil extends ShapeUtil<WidgetShape> {
 	}
 
 	override getText(shape: WidgetShape) {
-		return describeWidget(shape.props)
+		return describeWidget(shape.props, shape.id)
 	}
 
 	override component(shape: WidgetShape) {
@@ -137,8 +143,7 @@ export class WidgetShapeUtil extends ShapeUtil<WidgetShape> {
 		const entry = snapshots.get(shape.id)
 		let image: string | null = null
 		if (entry) {
-			image = await Promise.race([entry.request(), new Promise<null>((r) => setTimeout(() => r(null), 1500))])
-			image = image ?? entry.last
+			image = (await entry.request()) ?? entry.last
 		}
 		return (
 			<g>
@@ -164,6 +169,7 @@ function Widget({ shape }: { shape: WidgetShape }) {
 	const editor = useEditor()
 	const { w, h, title, status, params } = shape.props
 	const parameters = Object.values(params)
+	const jobRunning = useValue('widget job running', () => runningWidgetJobs.get().has(shape.id), [shape.id])
 	const frameHeight = Math.max(40, h - widgetChromeHeight(shape.props))
 	// The frame takes pointer events once the widget is selected, so a first
 	// click selects it and the title bar always moves it.
@@ -197,7 +203,7 @@ function Widget({ shape }: { shape: WidgetShape }) {
 						<WidgetFrame shape={shape} height={frameHeight} interactive={interactive} />
 					) : (
 						<div className="widget-placeholder">
-							{status === 'writing' ? (
+							{status === 'writing' && jobRunning ? (
 								<>
 									<div className="widget-placeholder-head">Writing the widget</div>
 									<div className="widget-placeholder-brief">{shape.props.brief}</div>
@@ -205,7 +211,9 @@ function Widget({ shape }: { shape: WidgetShape }) {
 							) : (
 								<>
 									<div className="widget-placeholder-head">This widget could not be written</div>
-									<div className="widget-placeholder-brief">{shape.props.error}</div>
+									<div className="widget-placeholder-brief">
+										{status === 'writing' ? 'Its code was never finished. Ask the agent to write it again.' : shape.props.error}
+									</div>
 								</>
 							)}
 						</div>
@@ -219,6 +227,11 @@ function Widget({ shape }: { shape: WidgetShape }) {
 
 function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; height: number; interactive: boolean }) {
 	const editor = useEditor()
+	// Only while the user can reach into the frame is a change it asks for the
+	// user's. Otherwise nobody caused it: the frame is starting, or reacting to
+	// the agent's change, and the request is dropped.
+	const interactiveRef = useRef(interactive)
+	interactiveRef.current = interactive
 	const frameRef = useRef<HTMLIFrameElement>(null)
 	const [phase, setPhase] = useState<Phase>({ kind: 'starting' })
 	const [restarts, setRestarts] = useState(0)
@@ -268,8 +281,8 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 			const params = { ...current.props.params }
 			let changed = false
 			for (const [name, value] of Object.entries(asked)) {
+				if (!Object.hasOwn(params, name)) continue
 				const p = params[name]
-				if (!p) continue
 				const next = clampParameter(p, value)
 				if (next === p.value) continue
 				params[name] = { ...p, value: next }
@@ -318,10 +331,12 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 				case 'heartbeat':
 					break
 				case 'set-param':
+					if (!interactiveRef.current) return
 					pending.params[message.name] = message.value
 					scheduleFlush()
 					break
 				case 'set-state':
+					if (!interactiveRef.current) return
 					pending.state[message.key] = message.value
 					scheduleFlush()
 					break
@@ -360,12 +375,21 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 		if (phase.kind === 'stopped') return
 		const startedAt = performance.now()
 		lastBeat.current = startedAt
+		// A hidden tab throttles timers in the frame, so the watchdog waits for it.
+		const onVisible = () => {
+			lastBeat.current = performance.now()
+		}
+		document.addEventListener('visibilitychange', onVisible)
 		const timer = setInterval(() => {
+			if (document.hidden) return
 			const now = performance.now()
 			if (phase.kind === 'starting' && now - startedAt > START_TIMEOUT_MS) stop('It did not start.')
 			if (phase.kind === 'running' && now - lastBeat.current > HEARTBEAT_TIMEOUT_MS) stop('It stopped responding.')
 		}, 500)
-		return () => clearInterval(timer)
+		return () => {
+			clearInterval(timer)
+			document.removeEventListener('visibilitychange', onVisible)
+		}
 	}, [phase.kind, restarts])
 
 	// Snapshots for the board's image export.
@@ -376,8 +400,14 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 				new Promise<string | null>((resolve) => {
 					if (!frameRef.current?.contentWindow) return resolve(null)
 					const id = crypto.randomUUID()
+					// A frame that never answers does not keep its request forever.
+					const timeout = setTimeout(() => {
+						pendingSnapshots.current.delete(id)
+						resolve(null)
+					}, SNAPSHOT_TIMEOUT_MS)
 					pendingSnapshots.current.set(id, (url) => {
-						if (url) entry.last = url
+						clearTimeout(timeout)
+						if (url && url.length > 'data:image/png;base64,'.length + 100) entry.last = url
 						resolve(url)
 					})
 					post({ type: 'snapshot-request', id })

@@ -35,7 +35,7 @@ registerShapeDescriber(EQUATION_TYPE, (shape) => `Equation: ${(shape as Equation
 registerShapeDescriber(GRAPH_TYPE, (shape) => describeGraph((shape as GraphShape).props))
 registerShapeDescriber(SIMULATION_TYPE, (shape) => describeSimulation((shape as SimulationShape).props))
 registerShapeDescriber(SCENE_TYPE, (shape) => describeSceneShape(shape as SceneShape))
-registerShapeDescriber(WIDGET_TYPE, (shape) => describeWidget((shape as WidgetShape).props))
+registerShapeDescriber(WIDGET_TYPE, (shape) => describeWidget((shape as WidgetShape).props, shape.id as TLShapeId))
 
 /**
  * The shape an interactive action works on: the existing one of that type, to
@@ -424,8 +424,8 @@ export const SetParameterActionUtil = registerActionUtil(
 			if (!shape) return
 			if (shape.type === WIDGET_TYPE) {
 				const widget = shape as unknown as WidgetShape
+				if (!Object.hasOwn(widget.props.params, action.name) || !Number.isFinite(action.value)) return
 				const p = widget.props.params[action.name]
-				if (!p || !Number.isFinite(action.value)) return
 				editor.updateShape<WidgetShape>({
 					id: widget.id,
 					type: WIDGET_TYPE,
@@ -435,8 +435,8 @@ export const SetParameterActionUtil = registerActionUtil(
 			}
 			if (shape.type === SCENE_TYPE) {
 				// Only this parameter's value changes, so the edit touches one field.
+				if (!Object.hasOwn(shape.props.params, action.name) || !Number.isFinite(action.value)) return
 				const p = shape.props.params[action.name]
-				if (!p || !Number.isFinite(action.value)) return
 				editor.updateShape<SceneShape>({
 					id: shape.id,
 					type: SCENE_TYPE,
@@ -503,9 +503,17 @@ export const WidgetActionUtil = registerActionUtil(
 				const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 				editor.createShape<WidgetShape>({ id, type: WIDGET_TYPE, x: at.x, y: at.y, props })
 			}
-			// The job starts once this command is recorded, so its base revision follows it.
+			// The job starts once this command is recorded, so its base revision
+			// follows it, and only if the command was applied: a rejected command
+			// was rolled back, so the widget does not show this brief as writing.
 			const agent = this.agent
-			setTimeout(() => void runWidgetJob(agent, id), 0)
+			const context = { ...agent.getPassIds(), allowedShapeIds: agent.getAllowedShapeIds() }
+			const brief = props.brief
+			setTimeout(() => {
+				const placed = editor.getShape<WidgetShape>(id)
+				if (!placed || placed.props.status !== 'writing' || placed.props.brief !== brief) return
+				void runWidgetJob(agent, id, context)
+			}, 0)
 		}
 	}
 )
