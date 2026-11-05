@@ -177,5 +177,6 @@ function fillMessage(frame: MapFrame): string {
 	const { x, y, w, h } = frame.modelBounds
 	return `Fill the "${frame.title}" frame: ${frame.description}
 The frame spans x=${x}, y=${y}, w=${w}, h=${h}. Its title and description sit at the top. Put all new content inside the frame, starting at y=${y + 110}, with at least 24 units of padding from its edges.
+The frames are read side by side, so set every frame the same way: one idea per frame, one heading at fontSize 30, body text at fontSize 22 or more in lines of a few words, and one main visual that takes most of the frame's width. Keep the colors the earlier frames gave each quantity.
 Fill only this frame. Do not create a map, and do not change other frames or the user's work. When this frame is complete, finish. The app starts the next frame.`
 }

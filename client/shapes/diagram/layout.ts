@@ -20,6 +20,20 @@ export interface LayoutNode {
 	/** Top left, set by the layout. */
 	x: number
 	y: number
+	/** The box's text, which can say it is a date on a timeline. */
+	label?: string
+}
+
+/** A label that starts with a year or a date, such as "1939 · Germany invades Poland" or "July 1969: Apollo 11". */
+const DATED = /^\s*(c\.\s*)?((\d{1,2}\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?\d{3,4}\s*(bce?|ce|ad)?\b/i
+
+/**
+ * Whether a chain is a timeline: most of its steps are dated. Time reads left
+ * to right on every row of a timeline (Tufte's time-series convention, and
+ * every printed timeline), so its rows never turn back as a process's do.
+ */
+function isTimeline(nodes: LayoutNode[]) {
+	return nodes.filter((n) => DATED.test(n.label ?? '')).length >= Math.ceil(nodes.length * 0.6)
 }
 
 export interface LayoutEdge {
@@ -179,9 +193,12 @@ function layoutSnake(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
 		if (cost < best.cost) best = { cols, cost, gapX, gapY }
 	}
 	const { cols, gapX, gapY } = best
+	// A timeline starts each row again at the left; its turn is one arrow back
+	// across, through the gap between the rows.
+	const timeline = isTimeline(nodes)
 	order.forEach((node, k) => {
 		const row = Math.floor(k / cols)
-		const col = row % 2 === 0 ? k % cols : cols - 1 - (k % cols)
+		const col = timeline || row % 2 === 0 ? k % cols : cols - 1 - (k % cols)
 		node.x = col * (cellW + gapX) + (cellW - node.w) / 2
 		node.y = row * (cellH + gapY) + (cellH - node.h) / 2
 	})
@@ -345,7 +362,7 @@ export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[], tries = MAP_
 		const score = scoreLayout(placed, edges, centers, bends)
 		if (!best || score < best.score) best = { score, centers, bends }
 	}
-	const { centers, bends } = best!
+	const { centers, bends } = untangle(nodes, edges, best!)
 	const minX = Math.min(...nodes.map((n) => centers.get(n.id)!.x - n.w / 2))
 	const minY = Math.min(...nodes.map((n) => centers.get(n.id)!.y - n.h / 2))
 	for (const n of nodes) {
@@ -353,6 +370,63 @@ export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[], tries = MAP_
 		n.y = centers.get(n.id)!.y - n.h / 2 - minY
 	}
 	return bends
+}
+
+/**
+ * Take out crossings a layout left by swapping two boxes' places, keeping a
+ * swap only when the whole drawing scores better: the move that local
+ * crossing-reduction heuristics make (Brand et al., "Using Reinforcement
+ * Learning to Optimize the Global and Local Crossing Number", arXiv
+ * 2509.06108), and a cheap stand-in for stress with crossing penalties
+ * (Shabbeer et al., arXiv 1210.2041; Devkota et al., SPX, arXiv 1908.01769).
+ * Stress keeps distances, not planarity, so a cyclic map such as the water
+ * cycle can settle with one store on the wrong side of a loop; one swap puts
+ * it back. Boxes of very different sizes are not swapped, so nothing lands on
+ * a neighbor.
+ */
+function untangle(
+	nodes: LayoutNode[],
+	edges: LayoutEdge[],
+	start: { score: number; centers: Map<string, Point>; bends: Bends }
+): { score: number; centers: Map<string, Point>; bends: Bends } {
+	let best = start
+	if (!edges.some((_, i) => crossesAny(edges, best.centers, best.bends, i))) return best
+	const evaluate = (centers: Map<string, Point>) => {
+		const placed = nodes.map((n) => ({ ...n, x: centers.get(n.id)!.x - n.w / 2, y: centers.get(n.id)!.y - n.h / 2 }))
+		const bends = placeBends(placed, edges, centers, edges.map(() => 0))
+		return { score: scoreLayout(placed, edges, centers, bends), centers, bends }
+	}
+	for (let pass = 0; pass < 2; pass++) {
+		let improved = false
+		for (let i = 0; i < nodes.length; i++) {
+			for (let j = i + 1; j < nodes.length; j++) {
+				const a = nodes[i]
+				const b = nodes[j]
+				if (Math.abs(a.w - b.w) > 60 || Math.abs(a.h - b.h) > 30) continue
+				const centers = new Map(best.centers)
+				centers.set(a.id, best.centers.get(b.id)!)
+				centers.set(b.id, best.centers.get(a.id)!)
+				const next = evaluate(centers)
+				if (next.score < best.score - 0.5) {
+					best = next
+					improved = true
+				}
+			}
+		}
+		if (!improved) break
+	}
+	return best
+}
+
+/** Whether edge i crosses another edge it shares no box with. */
+function crossesAny(edges: LayoutEdge[], centers: Map<string, Point>, bends: Bends, i: number) {
+	const arc = (k: number) => arcPoints(centers.get(edges[k].from)!, centers.get(edges[k].to)!, bends[k], 16)
+	const mine = arc(i)
+	return edges.some((e, k) => {
+		if (k === i) return false
+		if ([e.from, e.to].some((id) => id === edges[i].from || id === edges[i].to)) return false
+		return polylinesCross(mine, arc(k))
+	})
 }
 
 /**

@@ -648,7 +648,7 @@ export const DiagramAction = z
 	.meta({
 		title: 'Diagram',
 		description:
-			'The AI draws a diagram from nodes and edges, and the app lays it out cleanly as ordinary boxes and bound arrows the user can move and edit. Use it for any flow, process, hierarchy, or concept map instead of placing boxes and arrows one by one. Layout "flow": top to bottom in steps, for processes and causes. Layout "map": spread out by links, for concept maps. Node labels: a few words. Edge labels: a few words, or "" for none. x and y: the top left corner. To redraw a diagram, send the same diagramId; nodes the user moved stay where they put them.',
+			'The AI draws a diagram from nodes and edges, and the app lays it out cleanly as ordinary boxes and bound arrows the user can move and edit. Use it for any flow, process, hierarchy, or concept map instead of placing boxes and arrows one by one. Layout "flow": top to bottom in steps, for processes and causes. Layout "map": spread out by links, for concept maps. Node labels: a few words. Edge labels: one to three words, a linking verb such as "causes", "feeds", or "turns into", or "" for none. Keep a diagram to about 12 boxes; put finer detail in a note beside it. In a flow with several outcomes, give each way out its own small end box next to the step it leaves, such as "Vetoed: bill dies", rather than routing long arrows back to one shared end. x and y: the top left corner. To redraw a diagram, send the same diagramId; nodes the user moved stay where they put them.',
 	})
 
 export type DiagramAction = z.infer<typeof DiagramAction>
