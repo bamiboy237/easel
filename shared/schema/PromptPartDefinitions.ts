@@ -182,6 +182,7 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 		const growYLints = lints.filter((l) => l.type === 'growY-on-shape')
 		const overlappingTextLints = lints.filter((l) => l.type === 'overlapping-text')
 		const friendlessArrowLints = lints.filter((l) => l.type === 'friendless-arrow')
+		const sceneLints = lints.filter((l) => l.type === 'scene-problem')
 
 		messages.push(
 			"[LINTER]: The following potential visual problems have been detected in the canvas. You should decide if you want to address them. Defer to your view of the canvas to decide if you need to make changes; it's very possible that you don't need to make any changes."
@@ -204,6 +205,21 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 						`  - ${lint.shapeIds
 							.map((id, i) => (lint.texts?.[i] ? `${id} ("${lint.texts[i]}")` : id))
 							.join(' collides with ')}`
+				),
+			]
+			messages.push(lines.join('\n'))
+		}
+
+		if (sceneLints.length > 0) {
+			const lines = [
+				'Scene problems: these were found by evaluating your scenes, so they are real. A scene that shows a wrong number or an empty part teaches the wrong thing. Fix each one now: send the scene again with its shapeId, or one scene_object, with the corrected object.',
+				...[...new Set(sceneLints.map((lint) => lint.shapeIds[0]))].map(
+					(sceneId) =>
+						`  - ${sceneId}:\n${sceneLints
+							.filter((lint) => lint.shapeIds[0] === sceneId)
+							.flatMap((lint) => lint.texts ?? [])
+							.map((t) => `      - ${t}`)
+							.join('\n')}`
 				),
 			]
 			messages.push(lines.join('\n'))

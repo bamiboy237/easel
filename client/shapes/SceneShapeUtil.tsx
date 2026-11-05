@@ -13,12 +13,15 @@ import {
 import { axisLabels, gridStep, parametersHeight } from './GraphShapeUtil'
 import { clampParameter, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import {
+	checkHolds,
 	describeScene,
 	dragTargets,
 	evaluateIn,
 	evaluateScene,
 	fillText,
+	formatNumber,
 	isVisible,
+	letsInOrder,
 	resolveRef,
 	SCENE_INKS,
 	SceneObject,
@@ -119,6 +122,12 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const values = useMemo(() => evaluateScene({ params, objects }, t.time), [params, objects, t.time])
 	// Each trace is sampled once whenever the scene changes, not every frame.
 	const traces = useMemo(() => sampleTraces({ params, objects }, duration), [params, objects, duration])
+	// Each viewer can open the formulas behind the picture, as in Desmos.
+	const [showFormulas, setShowFormulas] = useState(false)
+	const formulas = useMemo(
+		() => (showFormulas ? formulaRows(objects, values.scope) : []),
+		[showFormulas, objects, values.scope]
+	)
 	const xStep = gridStep(xMax - xMin, w, Math.max(Math.abs(xMin), Math.abs(xMax)))
 	const yStep = gridStep(yMax - yMin, plotHeight, Math.max(Math.abs(yMin), Math.abs(yMax)))
 	// Both axes share one scale, set by whichever range is tighter, so the plot
@@ -203,6 +212,28 @@ function Scene({ shape }: { shape: SceneShape }) {
 						</div>
 					)}
 					{errors.length > 0 && <p className="graph-error">{`${errors[0][0]}: ${errors[0][1]}`}</p>}
+					{showFormulas && (
+						<div className="scene-formulas" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
+							{formulas.length === 0 ? (
+								<div className="scene-formula">No formulas in this scene.</div>
+							) : (
+								formulas.map((row) => (
+									<div key={row.id} className={`scene-formula${row.failing ? ' scene-formula-failing' : ''}`}>
+										<span className="scene-formula-name">{row.id}</span> {row.text}
+									</div>
+								))
+							)}
+						</div>
+					)}
+					<button
+						className="scene-formulas-toggle"
+						aria-pressed={showFormulas}
+						title={showFormulas ? 'Hide formulas' : 'Show formulas'}
+						onPointerDown={(e) => e.stopPropagation()}
+						onClick={() => setShowFormulas((v) => !v)}
+					>
+						f(x)
+					</button>
 				</div>
 				{duration > 0 && (
 					<div className="simulation-controls" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
@@ -253,6 +284,25 @@ function usePlayback(duration: number) {
 	return [state, setState] as const
 }
 
+/** The lines of the formulas panel: each let with its formula and value, and each check. */
+function formulaRows(objects: Record<string, SceneObject>, scope: Record<string, number>) {
+	const rows: { id: string; text: string; failing: boolean }[] = []
+	for (const [id, o] of letsInOrder(objects)) {
+		rows.push({ id, text: `= ${o.expr} = ${formatNumber(scope[id])}`, failing: !Number.isFinite(scope[id]) })
+	}
+	for (const [id, o] of Object.entries(objects)) {
+		if (o.type !== 'check') continue
+		let holds = false
+		try {
+			holds = checkHolds(evaluateIn(o.expr, scope))
+		} catch {
+			holds = false
+		}
+		rows.push({ id, text: `${holds ? 'holds' : 'fails'}: ${o.text || o.expr}`, failing: !holds })
+	}
+	return rows
+}
+
 /** How many samples a trace takes over the whole duration. */
 const TRACE_SAMPLES = 240
 
@@ -287,6 +337,7 @@ function labelOffset(dx: number, dy: number, unitsPerPixel: number): [number, nu
 const LAYER: Record<SceneObject['type'], number> = {
 	let: -1,
 	readout: -1,
+	check: -1,
 	polygon: 0,
 	circle: 0,
 	plot: 1,

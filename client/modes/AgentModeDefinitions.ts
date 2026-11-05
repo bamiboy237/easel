@@ -16,6 +16,7 @@ import {
 	EquationActionUtil,
 	GraphActionUtil,
 	SceneActionUtil,
+	SceneObjectActionUtil,
 	SetParameterActionUtil,
 	SimulationActionUtil,
 } from '../actions/InteractiveActionUtils'
@@ -167,6 +168,7 @@ export const AGENT_MODE_DEFINITIONS = [
 			GraphActionUtil.type,
 			SimulationActionUtil.type,
 			SceneActionUtil.type,
+			SceneObjectActionUtil.type,
 			SetParameterActionUtil.type,
 
 			// Individual shapes

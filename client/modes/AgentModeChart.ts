@@ -89,7 +89,7 @@ const _AGENT_MODE_CHART: Record<AgentModeDefinition['type'], AgentModeNode> = {
 			if (!agent.aside.getActive()) agent.aside.clearPlan()
 
 			// Check if there are unsurfaced lints on created shapes
-			if (agent.lints.hasUnsurfacedLints(agent.lints.getCreatedShapes())) {
+			if (agent.lints.hasUnsurfacedLints(agent.lints.getShapesToLint())) {
 				agent.schedule({
 					agentMessages: [
 						'The automated linter has detected potential visual problems in the canvas. Decide if they need to be addressed.',

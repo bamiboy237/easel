@@ -4,6 +4,7 @@ import {
 	EquationAction,
 	GraphAction,
 	SceneAction,
+	SceneObjectAction,
 	SetParameterAction,
 	SimulationAction,
 } from '../../shared/schema/AgentActionSchemas'
@@ -264,6 +265,54 @@ export const SceneActionUtil = registerActionUtil(
 			}
 			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 			editor.createShape<SceneShape>({ id, type: SCENE_TYPE, x: at.x, y: at.y, props, meta })
+		}
+	}
+)
+
+/**
+ * The agent adds or replaces one object of an existing scene. Each one is its
+ * own command and lands as soon as it is written, so a scene builds up object
+ * by object, and a problem can be fixed by sending only the object it names.
+ */
+export const SceneObjectActionUtil = registerActionUtil(
+	class SceneObjectActionUtil extends AgentActionUtil<SceneObjectAction> {
+		static override type = 'scene_object' as const
+
+		override getInfo(action: Streaming<SceneObjectAction>) {
+			return { icon: 'pencil' as const, description: action.intent ?? '' }
+		}
+
+		override sanitizeAction(action: Streaming<SceneObjectAction>, helpers: AgentHelpers) {
+			if (!action.complete) return action
+			const id = helpers.ensureShapeIdExists(action.shapeId)
+			return id ? { ...action, shapeId: id } : null
+		}
+
+		override applyAction(action: Streaming<SceneObjectAction>) {
+			if (!action.complete) return
+			const { editor } = this
+			const shape = editor.getShape<SceneShape>(`shape:${action.shapeId}` as TLShapeId)
+			if (!shape || shape.type !== SCENE_TYPE) return
+			const objectId = String(action.object?.id ?? '').trim()
+			if (!objectId) return
+			const previous = ((shape.meta.sceneDropped as string[] | undefined) ?? []).filter((d) => !d.startsWith(`${objectId}:`))
+			const idProblem = checkSceneObjectId(objectId, shape.props.params)
+			const result = idProblem ? { error: idProblem } : sanitizeSceneObject(action.object)
+			if ('error' in result) {
+				editor.updateShape<SceneShape>({
+					id: shape.id,
+					type: SCENE_TYPE,
+					meta: { ...shape.meta, sceneDropped: [...previous, `${objectId}: ${result.error}`] },
+				})
+				return
+			}
+			// Write only this object, so the edit does not touch the user's sliders.
+			editor.updateShape<SceneShape>({
+				id: shape.id,
+				type: SCENE_TYPE,
+				props: { objects: { ...shape.props.objects, [objectId]: result.object } },
+				meta: { ...shape.meta, sceneDropped: previous },
+			})
 		}
 	}
 )
