@@ -51,6 +51,20 @@ export function describeGraph(props: GraphShapeProps): string {
 }
 
 /**
+ * The space between grid lines for a range drawn across so many pixels: a
+ * round 1, 2, or 5 times a power of ten, with labels at least 48 pixels apart.
+ */
+function gridStep(range: number, pixels: number): number {
+	const raw = (range * 48) / Math.max(pixels, 1)
+	const power = Math.pow(10, Math.floor(Math.log10(raw)))
+	return ([1, 2, 5, 10].map((m) => m * power).find((step) => step >= raw) ?? 10 * power)
+}
+
+function axisLabel(value: number): string {
+	return String(Number(value.toPrecision(6)))
+}
+
+/**
  * A live graph on the board, drawn with Mafs. It plots functions of x whose
  * parameters are sliders on the shape. The user drags a slider or the agent
  * sets a value, and both see the same curve.
@@ -131,7 +145,11 @@ function Graph({ shape }: { shape: GraphShape }) {
 						preserveAspectRatio={false}
 						viewBox={{ x: [xMin, xMax], y: [yMin, yMax], padding: 0 }}
 					>
-						<Coordinates.Cartesian />
+						<Coordinates.Cartesian
+							subdivisions={false}
+							xAxis={{ lines: gridStep(xMax - xMin, w), labels: axisLabel }}
+							yAxis={{ lines: gridStep(yMax - yMin, plotHeight), labels: axisLabel }}
+						/>
 						{compiled.map((c, i) =>
 							c.fn ? (
 								<Plot.OfX key={i} y={(x) => c.fn!({ ...scope, x })} color={PLOT_INKS[i % PLOT_INKS.length]} weight={2.5} />

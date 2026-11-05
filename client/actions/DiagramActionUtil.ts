@@ -63,17 +63,32 @@ function edgeShapeId(diagramId: string, from: string, to: string): TLShapeId {
  * it (cycles are broken where they close), and each layer is ordered by where
  * its parents sit, then centered under the widest layer.
  */
-function layoutFlow(nodes: DiagramNode[], edges: DiagramEdge[]) {
+function layoutFlow(nodes: DiagramNode[], edges: DiagramEdge[]): Map<string, number> {
+	// Break cycles where they close: walk forward from the nodes nothing points
+	// to, and drop each edge that leads back to a node still on the walk. So in
+	// splash -> menu -> play -> results -> menu, the edge back to menu is the one dropped.
+	const children = new Map<string, string[]>(nodes.map((n) => [n.id, []]))
+	for (const e of edges) if (children.has(e.from) && children.has(e.to) && e.from !== e.to) children.get(e.from)!.push(e.to)
+	const hasParent = new Set(edges.map((e) => e.to))
+	const back = new Set<string>()
+	const state = new Map<string, 'open' | 'done'>()
+	const walk = (id: string) => {
+		state.set(id, 'open')
+		for (const child of children.get(id)!) {
+			if (state.get(child) === 'open') back.add(`${id}\u0000${child}`)
+			else if (!state.has(child)) walk(child)
+		}
+		state.set(id, 'done')
+	}
+	for (const n of nodes) if (!hasParent.has(n.id) && !state.has(n.id)) walk(n.id)
+	for (const n of nodes) if (!state.has(n.id)) walk(n.id)
 	const parents = new Map<string, string[]>(nodes.map((n) => [n.id, []]))
-	for (const e of edges) if (parents.has(e.to) && parents.has(e.from) && e.from !== e.to) parents.get(e.to)!.push(e.from)
+	for (const [from, tos] of children) for (const to of tos) if (!back.has(`${from}\u0000${to}`)) parents.get(to)!.push(from)
+	// Each node goes one layer below the deepest node that points to it.
 	const depth = new Map<string, number>()
-	const visiting = new Set<string>()
 	const depthOf = (id: string): number => {
 		if (depth.has(id)) return depth.get(id)!
-		if (visiting.has(id)) return 0
-		visiting.add(id)
 		const d = Math.max(-1, ...parents.get(id)!.map(depthOf)) + 1
-		visiting.delete(id)
 		depth.set(id, d)
 		return d
 	}
@@ -99,6 +114,8 @@ function layoutFlow(nodes: DiagramNode[], edges: DiagramEdge[]) {
 		}
 		y += rowH + LAYER_GAP
 	})
+	// Each node's layer, counted after empty depths are dropped.
+	return new Map(layers.flatMap((layer, i) => layer.map((n) => [n.id, i] as const)))
 }
 
 function average(ids: string[], at: Map<string, number>) {
@@ -178,8 +195,22 @@ export const DiagramActionUtil = registerActionUtil(
 				.map((e) => ({ from: String(e.from), to: String(e.to), label: String(e.label ?? '') }))
 				.filter((e) => seen.has(e.from) && seen.has(e.to) && e.from !== e.to)
 
+			let layerOf: Map<string, number> | null = null
 			if (action.layout === 'map') layoutMap(nodes, edges)
-			else layoutFlow(nodes, edges)
+			else layerOf = layoutFlow(nodes, edges)
+			// In a flow, an edge that goes back up or skips a layer would run straight
+			// through the boxes between its ends, so it curves out to the side instead,
+			// alternating sides so two such edges do not share a curve.
+			let curved = 0
+			const bendOf = (edge: DiagramEdge) => {
+				if (!layerOf) return 0
+				const span = layerOf.get(edge.to)! - layerOf.get(edge.from)!
+				if (span === 1) return 0
+				// Alternate sides of the page; a bend's sign is relative to the arrow's
+				// direction, so an edge going up takes the opposite sign for the same side.
+				const side = curved++ % 2 === 0 ? 1 : -1
+				return side * Math.sign(span || 1) * (70 + 40 * Math.min(Math.abs(span), 4))
+			}
 
 			const origin = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 
@@ -222,7 +253,7 @@ export const DiagramActionUtil = registerActionUtil(
 				const fromId = nodeShapeId(diagramId, edge.from)
 				const toId = nodeShapeId(diagramId, edge.to)
 				const existing = editor.getShape<TLArrowShape>(id)
-				const label = { richText: toRichText(edge.label) }
+				const label = { richText: toRichText(edge.label), bend: bendOf(edge) }
 				if (existing) {
 					editor.updateShape<TLArrowShape>({ id, type: 'arrow', props: label })
 					continue
