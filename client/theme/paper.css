@@ -1485,6 +1485,8 @@
 	font: 500 12px 'Inter', sans-serif;
 	font-variant-numeric: tabular-nums;
 	color: var(--paper-ink);
+	white-space: pre-wrap;
+	text-align: right;
 }
 
 /* Labels keep a halo of the sheet's color, so they read where they cross a line. */
