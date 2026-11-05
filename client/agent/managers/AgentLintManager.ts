@@ -208,7 +208,14 @@ export class AgentLintManager extends BaseAgentManager {
 				key: `${d.split(':')[0]}:dropped`,
 				text: `not drawn: ${d}`,
 			}))
-			for (const problem of [...dropped, ...checkScene(scene.props)]) {
+			// Computed numbers with nothing checking them: the agent adds a check for
+			// the main fact the scene shows, so a wrong formula does not pass unseen.
+			const objects = Object.values(scene.props.objects)
+			const unchecked =
+				objects.some((o) => o.type === 'readout') && !objects.some((o) => o.type === 'check')
+					? [{ key: 'scene:no-checks', text: 'it shows computed numbers but has no check: add a check object for the main fact it shows, such as the formula behind its main readout' }]
+					: []
+			for (const problem of [...dropped, ...unchecked, ...checkScene(scene.props)]) {
 				lints.push({
 					type: 'scene-problem',
 					shapeIds: [convertTldrawIdToSimpleId(shape.id)],

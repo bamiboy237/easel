@@ -1,4 +1,4 @@
-import { compileExpression, CompiledExpression, expressionNames, functionNames, Scope } from '../math/expression'
+import { compileExpression, CompiledExpression, expressionNames, Scope } from '../math/expression'
 import { SteppedSystem, stateAt } from './stepped'
 import { clampParameter, ShapeParameter } from '../math/parameters'
 
@@ -480,7 +480,8 @@ function expressionsOf(object: SceneObject): string[] {
 /** Names expressions already use for something else, so an object id cannot take them. */
 // x and s are allowed as ids, such as a state x, since they are only the input
 // inside a plot or a curve, where the input takes their place.
-const RESERVED_NAMES = new Set(['t', 'pi', 'e', 'if', 'and', 'or', 'not', ...functionNames()])
+/** Names an object id may not take. Function names are free: a call needs "(", so floor and floor(x) differ. */
+const RESERVED_NAMES = new Set(['t', 'pi', 'e', 'if', 'and', 'or', 'not'])
 
 /**
  * Why an object id cannot be used, or null. Ids are names other expressions
@@ -489,7 +490,7 @@ const RESERVED_NAMES = new Set(['t', 'pi', 'e', 'if', 'and', 'or', 'not', ...fun
  */
 export function checkSceneObjectId(id: string, params: Record<string, ShapeParameter>): string | null {
 	if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(id)) return 'an id must be a name made of letters, digits, and _, starting with a letter'
-	if (RESERVED_NAMES.has(id)) return `"${id}" is a reserved name (t, pi, e, if, and, or, not, or a function)`
+	if (RESERVED_NAMES.has(id)) return `"${id}" is a reserved name (t, pi, e, if, and, or, not)`
 	if (Object.hasOwn(params, id)) return `"${id}" is already a parameter`
 	return null
 }
