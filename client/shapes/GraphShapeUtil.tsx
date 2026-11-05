@@ -76,6 +76,11 @@ export class GraphShapeUtil extends ShapeUtil<GraphShape> {
 		return true
 	}
 
+	/** The line the agent reads about this shape, wherever it sees the shape. */
+	override getText(shape: GraphShape) {
+		return describeGraph(shape.props)
+	}
+
 	override getGeometry(shape: GraphShape): Geometry2d {
 		return new Rectangle2d({ width: shape.props.w, height: shape.props.h, isFilled: true })
 	}

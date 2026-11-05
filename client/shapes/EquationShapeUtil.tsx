@@ -90,6 +90,11 @@ export class EquationShapeUtil extends ShapeUtil<EquationShape> {
 		return false
 	}
 
+	/** The line the agent reads about this shape, wherever it sees the shape. */
+	override getText(shape: EquationShape) {
+		return `Equation: ${shape.props.latex}`
+	}
+
 	override getGeometry(shape: EquationShape): Geometry2d {
 		return new Rectangle2d({ width: shape.props.w, height: shape.props.h, isFilled: true })
 	}

@@ -100,6 +100,11 @@ export class SimulationShapeUtil extends ShapeUtil<SimulationShape> {
 		return false
 	}
 
+	/** The line the agent reads about this shape, wherever it sees the shape. */
+	override getText(shape: SimulationShape) {
+		return describeSimulation(shape.props)
+	}
+
 	override getGeometry(shape: SimulationShape): Geometry2d {
 		return new Rectangle2d({ width: shape.props.w, height: shape.props.h, isFilled: true })
 	}

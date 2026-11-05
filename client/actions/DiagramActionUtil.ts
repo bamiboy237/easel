@@ -46,12 +46,16 @@ function slug(value: string) {
  * comes from, so `a -> b-c` and `a-b -> c`, or nodes `a b` and `a_b`, never
  * share one.
  */
+function diagramPrefix(diagramId: string) {
+	return `shape:diagram-${slug(diagramId)}-${hash(diagramId)}-`
+}
+
 function nodeShapeId(diagramId: string, node: string): TLShapeId {
-	return `shape:diagram-${slug(diagramId)}-${hash(diagramId)}-n-${slug(node)}-${hash(node)}` as TLShapeId
+	return `${diagramPrefix(diagramId)}n-${slug(node)}-${hash(node)}` as TLShapeId
 }
 
 function edgeShapeId(diagramId: string, from: string, to: string): TLShapeId {
-	return `shape:diagram-${slug(diagramId)}-${hash(diagramId)}-e-${hash(JSON.stringify([from, to]))}` as TLShapeId
+	return `${diagramPrefix(diagramId)}e-${hash(JSON.stringify([from, to]))}` as TLShapeId
 }
 
 /**
@@ -246,10 +250,13 @@ export const DiagramActionUtil = registerActionUtil(
 				}
 			}
 
-			// Parts of this diagram that are no longer in it go.
+			// Parts of this diagram that are no longer in it go. Only the diagram's
+			// own parts: a copy the user made keeps the diagram's meta but has its own
+			// ids, and is the user's to keep.
+			const prefix = diagramPrefix(diagramId)
 			const stale = editor
 				.getCurrentPageShapes()
-				.filter((s) => s.meta.diagram === diagramId && !keep.has(s.id))
+				.filter((s) => s.meta.diagram === diagramId && s.id.startsWith(prefix) && !keep.has(s.id))
 				.map((s) => s.id)
 			if (stale.length) editor.deleteShapes(stale)
 		}
