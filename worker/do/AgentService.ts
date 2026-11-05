@@ -32,7 +32,7 @@ import { ActionStream } from './ActionStream'
 const MAX_OUTPUT_TOKENS = 16384
 
 /** How hard an OpenAI model reasons while writing a widget's code. */
-const WIDGET_WRITER_EFFORT: OpenAIReasoningEffort = 'high'
+const WIDGET_WRITER_EFFORT: OpenAIReasoningEffort = 'medium'
 
 /** What the board sends to have a widget written. */
 export interface WidgetRequest {
@@ -105,6 +105,8 @@ export class AgentService {
 			prompt,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			...(definition.supportsTemperature ? { temperature: 0 } : {}),
+			// The brief is already a full spec, so the writer needs less reasoning
+			// than the agent that planned it.
 			providerOptions: getProviderOptions(definition, WIDGET_WRITER_EFFORT),
 		})
 		void Promise.resolve(result.usage)
