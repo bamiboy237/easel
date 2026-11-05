@@ -52,6 +52,9 @@ function nodeStyle(tree: TreeInfo | null, id: string, hub: string | null = null)
 	return { size: 's', color, fill: tree.depth.get(id) === 1 ? 'solid' : 'none' }
 }
 
+/** The look of a diagram box from before the layout recorded its own, for older boards. */
+const DEFAULT_NODE_STYLE = { geo: 'rectangle', color: 'black', fill: 'none', size: 's' } as const
+
 type NodeGeo = 'rectangle' | 'oval' | 'diamond'
 
 /**
@@ -304,13 +307,15 @@ export const DiagramActionUtil = registerActionUtil(
 				// Ends of a flow are tinted lightly: the smallest difference that still reads (Tufte).
 				const style = geo === 'oval' ? { ...nodeStyle(tree, node.id, hub), fill: 'solid' as const } : nodeStyle(tree, node.id, hub)
 				const props = { w: node.w, h: node.h, geo, richText: toRichText(node.label), ...style }
+				// The look the layout chose, kept so a redraw can tell it from the user's own.
+				const laidOutStyle = { geo, color: style.color, fill: style.fill, size: style.size }
 				if (!existing) {
 					editor.createShape<TLGeoShape>({
 						id,
 						type: 'geo',
 						x: at.x,
 						y: at.y,
-						meta,
+						meta: { ...meta, laidOutStyle },
 						isLocked: preview,
 						props: { ...props, font: 'serif' },
 					})
@@ -319,12 +324,26 @@ export const DiagramActionUtil = registerActionUtil(
 				const last = existing.meta.laidOutAt as { x: number; y: number } | undefined
 				const movedByUser = !!last && (Math.abs(existing.x - last.x) > 1 || Math.abs(existing.y - last.y) > 1)
 				if (movedByUser) movedNodes.add(node.id)
+				// A style the user changed stays theirs: the layout restyles only what
+				// still has the look it gave last time.
+				const prior = existing.meta.laidOutStyle as Partial<typeof laidOutStyle> | undefined
+				const keptStyle: Partial<typeof laidOutStyle> = {}
+				// What the layout last applied for each kept key, so a later redraw
+				// still sees the user's value as theirs.
+				const appliedBefore: Partial<typeof laidOutStyle> = {}
+				for (const key of ['geo', 'color', 'fill', 'size'] as const) {
+					const was = prior?.[key] ?? DEFAULT_NODE_STYLE[key]
+					if (existing.props[key] !== was) {
+						;(keptStyle as Record<string, unknown>)[key] = existing.props[key]
+						;(appliedBefore as Record<string, unknown>)[key] = was
+					}
+				}
 				editor.updateShape<TLGeoShape>({
 					id,
 					type: 'geo',
 					...(movedByUser ? {} : { x: at.x, y: at.y }),
-					meta: { ...existing.meta, ...meta, laidOutAt: movedByUser ? last : at },
-					props,
+					meta: { ...existing.meta, ...meta, laidOutAt: movedByUser ? last : at, laidOutStyle: { ...laidOutStyle, ...appliedBefore } },
+					props: { ...props, ...keptStyle },
 				})
 			}
 
