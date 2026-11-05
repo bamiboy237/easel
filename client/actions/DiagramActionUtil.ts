@@ -1,30 +1,22 @@
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, SimulationNodeDatum } from 'd3-force'
-import { TLArrowShape, TLGeoShape, TLShapeId, toRichText } from 'tldraw'
+import { Box, TLArrowShape, TLGeoShape, TLShapeId, toRichText } from 'tldraw'
 import { DiagramAction } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
+import { layoutFlow, LayoutNode, layoutMap } from '../shapes/diagram/layout'
 
 /** Box sizes for a node: wide enough for a short label on one or two lines. */
 const NODE_MIN_W = 120
 const NODE_MAX_W = 220
 const NODE_H = 64
 const NODE_PAD = 36
-/** How far a curved edge stays from a box it passes, and the least a back edge bends. */
-const BEND_CLEARANCE = 28
-const BACK_EDGE_BEND = 60
-/** Space between layers in a flow, and between nodes in a layer. */
-const LAYER_GAP = 72
-const SIBLING_GAP = 48
-
-interface DiagramNode {
-	id: string
-	label: string
-	w: number
-	h: number
-	x: number
-	y: number
-}
+/** Arrow labels: tldraw's small arrow label size, and the padding around it. */
+const EDGE_LABEL_FONT_SIZE = 18
+const EDGE_LABEL_PAD = 9
+/** Arrow labels wrap past this width, as tldraw wraps a label on a steep arrow. */
+const EDGE_LABEL_MAX_W = 220
+/** Space kept between a new diagram and what was on the board before it. */
+const DIAGRAM_MARGIN = 32
 
 interface DiagramEdge {
 	from: string
@@ -62,96 +54,6 @@ function edgeShapeId(diagramId: string, from: string, to: string): TLShapeId {
 }
 
 /**
- * Flow layout: each node goes one layer below the deepest node that points to
- * it (cycles are broken where they close), and each layer is ordered by where
- * its parents sit, then centered under the widest layer.
- */
-function layoutFlow(nodes: DiagramNode[], edges: DiagramEdge[]): Map<string, number> {
-	// Break cycles where they close: walk forward from the nodes nothing points
-	// to, and drop each edge that leads back to a node still on the walk. So in
-	// splash -> menu -> play -> results -> menu, the edge back to menu is the one dropped.
-	const children = new Map<string, string[]>(nodes.map((n) => [n.id, []]))
-	for (const e of edges) if (children.has(e.from) && children.has(e.to) && e.from !== e.to) children.get(e.from)!.push(e.to)
-	const hasParent = new Set(edges.map((e) => e.to))
-	const back = new Set<string>()
-	const state = new Map<string, 'open' | 'done'>()
-	const walk = (id: string) => {
-		state.set(id, 'open')
-		for (const child of children.get(id)!) {
-			if (state.get(child) === 'open') back.add(`${id}\u0000${child}`)
-			else if (!state.has(child)) walk(child)
-		}
-		state.set(id, 'done')
-	}
-	for (const n of nodes) if (!hasParent.has(n.id) && !state.has(n.id)) walk(n.id)
-	for (const n of nodes) if (!state.has(n.id)) walk(n.id)
-	const parents = new Map<string, string[]>(nodes.map((n) => [n.id, []]))
-	for (const [from, tos] of children) for (const to of tos) if (!back.has(`${from}\u0000${to}`)) parents.get(to)!.push(from)
-	// Each node goes one layer below the deepest node that points to it.
-	const depth = new Map<string, number>()
-	const depthOf = (id: string): number => {
-		if (depth.has(id)) return depth.get(id)!
-		const d = Math.max(-1, ...parents.get(id)!.map(depthOf)) + 1
-		depth.set(id, d)
-		return d
-	}
-	nodes.forEach((n) => depthOf(n.id))
-	const layers: DiagramNode[][] = []
-	for (const n of nodes) (layers[depth.get(n.id)!] ??= []).push(n)
-	const centerX = new Map<string, number>()
-	const widths = layers.map((layer) => layer.reduce((sum, n) => sum + n.w, 0) + SIBLING_GAP * (layer.length - 1))
-	const widest = Math.max(...widths)
-	let y = 0
-	layers.forEach((layer, i) => {
-		// Order by the average place of each node's parents, so edges cross less.
-		layer.sort((a, b) => average(parents.get(a.id)!, centerX) - average(parents.get(b.id)!, centerX))
-		let x = (widest - widths[i]) / 2
-		const rowH = Math.max(...layer.map((n) => n.h))
-		for (const n of layer) {
-			n.x = x
-			n.y = y + (rowH - n.h) / 2
-			centerX.set(n.id, x + n.w / 2)
-			x += n.w + SIBLING_GAP
-		}
-		y += rowH + LAYER_GAP
-	})
-	// Each node's layer.
-	return new Map(layers.flatMap((layer, i) => layer.map((n) => [n.id, i] as const)))
-}
-
-function average(ids: string[], at: Map<string, number>) {
-	const known = ids.map((id) => at.get(id)).filter((v): v is number => v !== undefined)
-	return known.length ? known.reduce((a, b) => a + b, 0) / known.length : Number.MAX_SAFE_INTEGER / 2
-}
-
-/**
- * Map layout: a force layout with d3-force, run to rest at once. Linked nodes
- * pull together, all nodes push apart, and no two boxes overlap. It starts
- * from d3's fixed spiral, so the same diagram always lays out the same way.
- */
-function layoutMap(nodes: DiagramNode[], edges: DiagramEdge[]) {
-	type Sim = SimulationNodeDatum & { node: DiagramNode }
-	const simNodes: Sim[] = nodes.map((node) => ({ node }))
-	const byId = new Map(simNodes.map((s) => [s.node.id, s]))
-	const links = edges
-		.filter((e) => byId.has(e.from) && byId.has(e.to) && e.from !== e.to)
-		.map((e) => ({ source: byId.get(e.from)!, target: byId.get(e.to)! }))
-	const simulation = forceSimulation(simNodes)
-		.force('link', forceLink(links).distance(190).strength(0.7))
-		.force('charge', forceManyBody().strength(-600))
-		.force('collide', forceCollide<Sim>((s) => Math.hypot(s.node.w, s.node.h) / 2 + 18).iterations(3))
-		.force('center', forceCenter(0, 0))
-		.stop()
-	for (let i = 0; i < 400; i++) simulation.tick()
-	const minX = Math.min(...simNodes.map((s) => (s.x ?? 0) - s.node.w / 2))
-	const minY = Math.min(...simNodes.map((s) => (s.y ?? 0) - s.node.h / 2))
-	for (const s of simNodes) {
-		s.node.x = (s.x ?? 0) - s.node.w / 2 - minX
-		s.node.y = (s.y ?? 0) - s.node.h / 2 - minY
-	}
-}
-
-/**
  * The agent draws a diagram from nodes and edges. The app lays it out, as a
  * flow or a map, and it lands as ordinary boxes and bound arrows the user can
  * move and edit. Redrawing the same diagram updates it in place: a node the
@@ -170,75 +72,73 @@ export const DiagramActionUtil = registerActionUtil(
 			const { editor } = this
 			const diagramId = String(action.diagramId)
 
-			// Nodes, sized to their labels.
+			// Nodes, sized to their labels, in the board's serif.
+			const serif = editor.getCurrentTheme().fonts.serif?.fontFamily ?? 'serif'
+			const measure = (text: string, fontSize: number, maxWidth: number) =>
+				editor.textMeasure.measureText(text, {
+					fontFamily: serif,
+					fontSize,
+					fontStyle: 'normal',
+					fontWeight: '400',
+					lineHeight: 1.35,
+					maxWidth,
+					padding: '0px',
+				})
 			const seen = new Set<string>()
-			const nodes: DiagramNode[] = []
+			const nodes: (LayoutNode & { label: string })[] = []
 			for (const raw of action.nodes ?? []) {
 				const id = String(raw.id ?? '').trim()
 				if (!id || seen.has(id)) continue
 				seen.add(id)
 				const label = String(raw.label ?? id).trim()
-				const measured = editor.textMeasure.measureText(label, {
-					fontFamily: "'Source Serif 4 Variable', Georgia, serif",
-					fontSize: 18,
-					fontStyle: 'normal',
-					fontWeight: '400',
-					lineHeight: 1.35,
-					maxWidth: NODE_MAX_W - NODE_PAD,
-					padding: '0px',
-				})
+				const measured = measure(label, 18, NODE_MAX_W - NODE_PAD)
 				const w = Math.min(NODE_MAX_W, Math.max(NODE_MIN_W, measured.w + NODE_PAD))
 				const h = Math.max(NODE_H, measured.h + 28)
 				nodes.push({ id, label, w, h, x: 0, y: 0 })
 			}
 			if (nodes.length === 0) return
 			const edges: DiagramEdge[] = (action.edges ?? [])
-				.map((e) => ({ from: String(e.from), to: String(e.to), label: String(e.label ?? '') }))
+				.map((e) => ({ from: String(e.from), to: String(e.to), label: String(e.label ?? '').trim() }))
 				.filter((e) => seen.has(e.from) && seen.has(e.to) && e.from !== e.to)
-
-			let layerOf: Map<string, number> | null = null
-			if (action.layout === 'map') layoutMap(nodes, edges)
-			else layerOf = layoutFlow(nodes, edges)
-			const nodeById = new Map(nodes.map((n) => [n.id, n]))
-			// In a flow, an edge that goes back up, or one whose straight line would cross
-			// a box between its ends, curves out to whichever side clears those boxes.
-			let curved = 0
-			const bendOf = (edge: DiagramEdge) => {
-				if (!layerOf) return 0
-				const a = nodeById.get(edge.from)!
-				const b = nodeById.get(edge.to)!
-				const from = { x: a.x + a.w / 2, y: a.y + a.h / 2 }
-				const to = { x: b.x + b.w / 2, y: b.y + b.h / 2 }
-				const back = layerOf.get(edge.to)! <= layerOf.get(edge.from)!
-				// How far the curve must reach to each side to pass every box in the way.
-				// An arc's offset at a fraction t of the way along is about 4t(1-t) times its bend.
-				let left = 0
-				let right = 0
-				for (const n of nodes) {
-					if (n === a || n === b) continue
-					const midY = n.y + n.h / 2
-					const t = (midY - from.y) / (to.y - from.y || 1)
-					if (!(t > 0 && t < 1)) continue
-					const lineX = from.x + (to.x - from.x) * t
-					if (lineX < n.x - BEND_CLEARANCE || lineX > n.x + n.w + BEND_CLEARANCE) continue
-					const reach = 4 * Math.max(0.1, t * (1 - t))
-					left = Math.max(left, (lineX - n.x + BEND_CLEARANCE) / reach)
-					right = Math.max(right, (n.x + n.w - lineX + BEND_CLEARANCE) / reach)
-				}
-				if (left === 0 && right === 0) {
-					// Nothing in the way: a forward edge stays straight. A back edge still
-					// curves, so it does not lie on top of the forward edge between the same boxes.
-					if (!back) return 0
-					left = right = BACK_EDGE_BEND
-				}
-				const goLeft = left < right || (left === right && curved++ % 2 === 0)
-				const size = Math.max(goLeft ? left : right, BACK_EDGE_BEND)
-				// A positive bend curves to the left of an arrow pointing down the page.
-				const down = to.y >= from.y ? 1 : -1
-				return (goLeft ? 1 : -1) * down * Math.round(size)
-			}
+			// Each label gets its own room in the layout, so it is never squeezed or covered.
+			const layoutEdges = edges.map((e) => {
+				if (!e.label) return { from: e.from, to: e.to, labelW: 0, labelH: 0 }
+				const size = measure(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_W)
+				return { from: e.from, to: e.to, labelW: size.w + EDGE_LABEL_PAD, labelH: size.h + EDGE_LABEL_PAD }
+			})
+			const bends = action.layout === 'map' ? layoutMap(nodes, layoutEdges) : layoutFlow(nodes, layoutEdges)
+			// Two arrows between the same boxes, one each way, would lie on top of each
+			// other: give both the same bend, which curves them to opposite sides.
+			const pairKey = (e: DiagramEdge) => [e.from, e.to].sort().join(' -> ')
+			const pairs = new Map<string, number>()
+			for (const e of edges) pairs.set(pairKey(e), (pairs.get(pairKey(e)) ?? 0) + 1)
+			edges.forEach((e, i) => {
+				if ((pairs.get(pairKey(e)) ?? 0) > 1 && Math.abs(bends[i]) < 30) bends[i] = 40
+			})
+			const bendOf = (edge: DiagramEdge) => bends[edges.indexOf(edge)] ?? 0
 
 			const origin = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
+			// The model cannot know how big the layout comes out, so a new diagram can land
+			// on a title or note it just wrote above it. Slide it down below what it would cover.
+			const prefix = diagramPrefix(diagramId)
+			const isNew = nodes.every((node) => !editor.getShape(nodeShapeId(diagramId, node.id)))
+			if (isNew) {
+				const size = {
+					w: Math.max(...nodes.map((n) => n.x + n.w)),
+					h: Math.max(...nodes.map((n) => n.y + n.h)),
+				}
+				const obstacles = editor
+					.getCurrentPageShapes()
+					.filter((s) => s.type !== 'frame' && s.type !== 'group' && !s.id.startsWith(prefix))
+					.map((s) => editor.getShapePageBounds(s))
+					.filter((b): b is Box => !!b)
+				for (let i = 0; i < 8; i++) {
+					const area = new Box(origin.x, origin.y, size.w, size.h).expandBy(DIAGRAM_MARGIN)
+					const hits = obstacles.filter((b) => b.collides(area) && !b.contains(area))
+					if (hits.length === 0) break
+					origin.y = Math.max(...hits.map((b) => b.maxY)) + DIAGRAM_MARGIN + 1
+				}
+			}
 
 			// Boxes: new ones are created; existing ones take their new place and label,
 			// unless the user moved them away from where the layout last put them.
@@ -305,7 +205,7 @@ export const DiagramActionUtil = registerActionUtil(
 					x: from.midX,
 					y: from.midY,
 					meta: { diagram: diagramId, bend },
-					props: { ...label, size: 's', start: { x: 0, y: 0 }, end: { x: to.midX - from.midX, y: to.midY - from.midY } },
+					props: { ...label, size: 's', font: 'serif', start: { x: 0, y: 0 }, end: { x: to.midX - from.midX, y: to.midY - from.midY } },
 				})
 				for (const [terminal, target] of [
 					['start', fromId],
@@ -323,7 +223,6 @@ export const DiagramActionUtil = registerActionUtil(
 			// Parts of this diagram that are no longer in it go. Only the diagram's
 			// own parts: a copy the user made keeps the diagram's meta but has its own
 			// ids, and is the user's to keep.
-			const prefix = diagramPrefix(diagramId)
 			const stale = editor
 				.getCurrentPageShapes()
 				.filter((s) => s.meta.diagram === diagramId && s.id.startsWith(prefix) && !keep.has(s.id))
