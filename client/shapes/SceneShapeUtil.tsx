@@ -11,6 +11,7 @@ import {
 	useEditor,
 } from 'tldraw'
 import { axisLabels, gridStep, parametersHeight } from './GraphShapeUtil'
+import { BUILT_IN_TEMPLATES, saveTemplate, SceneTemplate } from './scene/templates'
 import { clampParameter, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import {
 	checkHolds,
@@ -139,6 +140,7 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const traces = useMemo(() => sampleTraces({ params, objects }, duration), [params, objects, duration])
 	// Each viewer can open the formulas behind the picture, as in Desmos.
 	const [showFormulas, setShowFormulas] = useState(false)
+	const [saved, setSaved] = useState(false)
 	const formulas = useMemo(
 		() => (showFormulas ? formulaRows(objects, values.scope) : []),
 		[showFormulas, objects, values.scope]
@@ -241,6 +243,19 @@ function Scene({ shape }: { shape: SceneShape }) {
 						</div>
 					)}
 					<button
+						className="scene-save-template"
+						title="Save this scene as a template the agent can place again"
+						onPointerDown={(e) => e.stopPropagation()}
+						onClick={() => {
+							editor.markHistoryStoppingPoint('save template')
+							saveTemplate(editor, templateFromScene(shape))
+							setSaved(true)
+							setTimeout(() => setSaved(false), 1500)
+						}}
+					>
+						{saved ? 'Saved' : 'Save as template'}
+					</button>
+					<button
 						className="scene-formulas-toggle"
 						aria-pressed={showFormulas}
 						title={showFormulas ? 'Hide formulas' : 'Show formulas'}
@@ -297,6 +312,33 @@ function usePlayback(duration: number) {
 		return () => cancelAnimationFrame(frame.current)
 	}, [state.playing, duration])
 	return [state, setState] as const
+}
+
+/**
+ * A template from a scene as it is now: its frame, its parameters at their
+ * current values, and its objects. Its id comes from the title, kept apart from
+ * the built-in templates so a saved scene never replaces one.
+ */
+function templateFromScene(shape: SceneShape): SceneTemplate {
+	const { title, w, h, xMin, xMax, yMin, yMax, duration, axes, params, objects } = shape.props
+	const slug = (title || 'scene').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'scene'
+	const id = BUILT_IN_TEMPLATES.some((t) => t.id === slug) ? `${slug}-saved` : slug
+	return {
+		id,
+		title: title || 'Saved scene',
+		useFor: title || 'a scene saved on this board',
+		verified: 'saved by a person on this board',
+		width: w,
+		height: h - sceneChromeHeight(shape.props),
+		xMin,
+		xMax,
+		yMin,
+		yMax,
+		duration,
+		axes: axes !== false,
+		params: Object.values(params).map((p) => ({ ...p })),
+		objects: Object.entries(objects).map(([objectId, o]) => ({ id: objectId, ...o })),
+	}
 }
 
 /** The lines of the formulas panel: each let with its formula and value, and each check. */

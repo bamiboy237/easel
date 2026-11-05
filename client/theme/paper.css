@@ -1511,6 +1511,27 @@
 	pointer-events: all;
 }
 
+.scene-save-template {
+	position: absolute;
+	right: 56px;
+	bottom: 8px;
+	padding: 2px 8px;
+	border: 1px solid var(--paper-rule);
+	border-radius: 4px;
+	background: var(--paper-card);
+	font: 500 11px 'Inter', sans-serif;
+	color: var(--tl-color-text-3);
+	cursor: pointer;
+	pointer-events: all;
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+
+/* Saving is a quiet extra: it shows when the pointer is over the scene. */
+.scene-container:hover .scene-save-template {
+	opacity: 1;
+}
+
 .scene-formulas-toggle[aria-pressed='true'] {
 	color: var(--paper-ink);
 	border-color: var(--paper-ink);
@@ -1519,7 +1540,7 @@
 .scene-formulas {
 	position: absolute;
 	left: 8px;
-	right: 52px;
+	right: 168px;
 	bottom: 8px;
 	max-height: 45%;
 	overflow: auto;
