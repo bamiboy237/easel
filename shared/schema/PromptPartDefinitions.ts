@@ -524,8 +524,9 @@ export const SceneTemplatesPartDefinition: PromptPartDefinition<SceneTemplatesPa
 		const saved = templates.filter((t) => t.saved)
 		return [
 			[
-				'Scene templates you can place with scene_template. These are checked and verified, so prefer one when it fits:',
-				...builtIn.map(line),
+				...(builtIn.length > 0
+					? ['Scene templates you can place with scene_template. These are checked and verified, so prefer one when it fits:', ...builtIn.map(line)]
+					: []),
 				...(saved.length > 0
 					? ['Saved on this board by a person, not verified; use one when the user asks for it or it clearly fits:', ...saved.map(line)]
 					: []),
@@ -537,7 +538,9 @@ export const SceneTemplatesPartDefinition: PromptPartDefinition<SceneTemplatesPa
 // Time
 export const TimePartDefinition: PromptPartDefinition<TimePart> = {
 	type: 'time',
-	priority: -100,
+	// Just before the user's message: it changes every minute, so everything
+	// before it can be served from the provider's prompt cache.
+	priority: 150,
 	buildContent({ time }: TimePart) {
 		return [`The user's current time is: ${time}`]
 	},

@@ -137,11 +137,14 @@ export class AgentService {
 		const modelId = modelName
 
 		const modelDefinition = getAgentModelDefinition(modelName)
+		const usesNativeJsonSchema = ['meta', 'openai', 'chatgpt'].includes(modelDefinition.provider)
+		// The schema stays in the prompt even where it is also the response format:
+		// without it, OpenAI models sent field values the schema does not allow. It
+		// is part of the cached core, so it costs little.
 		const corePrompt = buildSystemPrompt(prompt)
 		// Loaded tool groups go after the stable core, so the core stays cached.
 		const loadedToolsPrompt = buildLoadedToolsPrompt(prompt)
 		const systemPrompt = corePrompt + loadedToolsPrompt
-		const usesNativeJsonSchema = ['meta', 'openai', 'chatgpt'].includes(modelDefinition.provider)
 
 		// Build messages with provider-specific options
 		const messages: ModelMessage[] = []
