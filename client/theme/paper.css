@@ -1786,3 +1786,17 @@
 	color: #ae3b2c;
 	pointer-events: none;
 }
+
+/* A widget's layout shown while its script is still being written. */
+.widget-writing-badge {
+	position: absolute;
+	right: 8px;
+	bottom: 8px;
+	padding: 2px 8px;
+	border-radius: 4px;
+	background: var(--paper-card);
+	border: 1px solid var(--paper-rule);
+	font: 500 11px 'Inter', sans-serif;
+	color: var(--tl-color-text-3);
+	pointer-events: none;
+}

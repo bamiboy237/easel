@@ -23,7 +23,6 @@ import { buildMessages } from '../prompt/buildMessages'
 import { buildLoadedToolsPrompt, buildSystemPrompt } from '../prompt/buildSystemPrompt'
 import { getModelName } from '../prompt/getModelName'
 import { WIDGET_SYSTEM_PROMPT } from '../prompt/widgetPrompt'
-import { parseWidgetCode, WidgetCode } from './widgetCode'
 import { ActionStream } from './ActionStream'
 
 /**
@@ -31,6 +30,9 @@ import { ActionStream } from './ActionStream'
  * small budget can end before the first action on a hard prompt.
  */
 const MAX_OUTPUT_TOKENS = 16384
+
+/** How hard an OpenAI model reasons while writing a widget's code. */
+const WIDGET_WRITER_EFFORT: OpenAIReasoningEffort = 'medium'
 
 /** What the board sends to have a widget written. */
 export interface WidgetRequest {
@@ -75,8 +77,11 @@ export class AgentService {
 		return this[provider](modelDefinition.id)
 	}
 
-	/** Write a widget's HTML, CSS, and JavaScript from a brief, in one model call. */
-	async writeWidget(request: WidgetRequest): Promise<WidgetCode> {
+	/**
+	 * Write a widget's HTML, CSS, and JavaScript from a brief, in one model call,
+	 * streamed as it is written: the board shows the layout before the script.
+	 */
+	streamWidget(request: WidgetRequest): AsyncIterable<string> {
 		const modelName = isValidModelName(request.modelName) ? request.modelName : getModelName({} as AgentPrompt)
 		const model = this.getModel(modelName)
 		const definition = getAgentModelDefinition(modelName)
@@ -94,20 +99,24 @@ export class AgentService {
 			.filter(Boolean)
 			.join('\n')
 		const started = Date.now()
-		// Streamed, then collected: the ChatGPT plan only answers as a stream.
 		const result = streamText({
 			model,
 			system: WIDGET_SYSTEM_PROMPT,
 			prompt,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			...(definition.supportsTemperature ? { temperature: 0 } : {}),
-			providerOptions: getProviderOptions(definition),
+			// The brief is already a full spec, so the writer needs less reasoning
+			// than the agent that planned it.
+			providerOptions: getProviderOptions(definition, WIDGET_WRITER_EFFORT),
 		})
-		const [text, usage] = await Promise.all([result.text, result.usage])
-		console.log(
-			`[widget] model=${modelName} seconds=${Math.round((Date.now() - started) / 1000)} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0}`
-		)
-		return parseWidgetCode(text)
+		void Promise.resolve(result.usage)
+			.then((usage) =>
+				console.log(
+					`[widget] model=${modelName} seconds=${Math.round((Date.now() - started) / 1000)} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0}`
+				)
+			)
+			.catch(() => {})
+		return result.textStream
 	}
 
 	async *stream(prompt: AgentPrompt): AsyncGenerator<Streaming<AgentAction>> {

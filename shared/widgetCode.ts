@@ -33,3 +33,22 @@ export function parseWidgetCode(text: string): WidgetCode {
 	if (!code.html && !code.js) throw new Error('The reply had no HTML or JavaScript.')
 	return code
 }
+
+/**
+ * The blocks of a reply still being written that are already closed, for a
+ * preview: the html and css arrive before the script, so the layout can show
+ * while the script is written.
+ */
+export function closedWidgetBlocks(text: string): { html: string | null; css: string | null; htmlSoFar: string | null } {
+	const closed = (lang: string) => {
+		const match = new RegExp('```' + lang + '[^\\S\\n]*\\n([\\s\\S]*?)\\n?```', 'i').exec(text)
+		return match ? match[1] : null
+	}
+	// The markup written so far, closed or not: a browser shows a cut-off page.
+	const open = /```html[^\S\n]*\n([\s\S]*)/i.exec(text)
+	const htmlSoFar = open ? open[1].split('```')[0] : null
+	return { html: closed('html'), css: closed('css'), htmlSoFar }
+}
+
+/** Marks an error the writer hit after it started streaming. */
+export const WIDGET_STREAM_ERROR = '\u0000widget-error:'
