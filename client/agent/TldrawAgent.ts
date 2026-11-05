@@ -735,7 +735,11 @@ export class TldrawAgent {
 		let cancelled = false
 		const controller = new AbortController()
 		const signal = controller.signal
-		const helpers = new AgentHelpers(this)
+		// A map frame's fill may already be written: it was asked for while an
+		// earlier frame was placed, and is applied with the same helpers.
+		const prefetch = request.source === 'self' ? this.frames.takePrefetch(request.agentMessages) : null
+		if (prefetch) signal.addEventListener('abort', () => prefetch.controller.abort('Cancelled by user'))
+		const helpers = prefetch?.helpers ?? new AgentHelpers(this)
 
 		const modeDefinition = this.mode.getCurrentModeDefinition()
 		if (!modeDefinition.active) {
@@ -750,14 +754,14 @@ export class TldrawAgent {
 		const requestPromise = (async () => {
 			// The prompt reads the board at this revision, so every command from
 			// this response is checked against it.
-			const baseRev = this.commands.getRev()
+			const baseRev = prefetch?.baseRev ?? this.commands.getRev()
 			this.lastBaseRev = baseRev
-			const prompt = await this.preparePrompt(request, helpers)
+			const prompt = prefetch?.prompt ?? (await this.preparePrompt(request, helpers))
 			let incompleteDiff: RecordsDiff<TLRecord> | null = null
 			const actionPromises: Promise<void>[] = []
 			let completedActions = 0
 			try {
-				for await (const action of this.streamAgentActions({ prompt, signal })) {
+				for await (const action of this.streamAgentActions({ prompt, signal, response: prefetch?.response })) {
 					// After a question, the rest of the response waits for the answer.
 					if (cancelled || this.waitingForAnswer || this.endResponse) break
 
@@ -890,11 +894,14 @@ export class TldrawAgent {
 	private async *streamAgentActions({
 		prompt,
 		signal,
+		response,
 	}: {
 		prompt: BaseAgentPrompt
 		signal: AbortSignal
+		/** A response already asked for, such as a prefetched map frame. */
+		response?: Promise<Response>
 	}): AsyncGenerator<Streaming<AgentAction>> {
-		const res = await fetch('/stream', {
+		const res = response ? await response : await fetch('/stream', {
 			method: 'POST',
 			body: JSON.stringify(prompt),
 			headers: {
