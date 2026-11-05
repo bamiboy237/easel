@@ -399,8 +399,8 @@ export class AgentActionManager extends BaseAgentManager {
 		const ids = recordIds.map((id) => id.replace(/^(shape|binding):/, ''))
 		const message =
 			result.reason === 'stale'
-				? `Your "${type}" action was rejected and nothing from it was applied, because the user changed these shapes after you read the board: ${ids.join(', ')}. Keep the user's changes. Look at the current board before you change those shapes again, and redo the action only if it is still needed.`
-				: `Your "${type}" action was rejected and nothing from it was applied, because it would change, move, or cover the user's own work: ${ids.join(', ')}. Shapes the user made, and frames they drew with everything inside, are theirs. Leave them as they are, and put your work in clear space that does not overlap them. Change the user's work only when they select it or ask you to.`
+				? `Your "${type}" action was rejected and nothing from it was applied, because the user changed these shapes after you read the board: ${ids.join(', ')}. Keep the user's changes. Look at the current board before you change those shapes again, and redo the action only if it is still needed. If you already told the user this change was made, correct that in a message now.`
+				: `Your "${type}" action was rejected and nothing from it was applied, because it would change, move, or cover the user's own work: ${ids.join(', ')}. Shapes the user made, and frames they drew with everything inside, are theirs. Leave them as they are, and put your work in clear space that does not overlap them. Change the user's work only when they select it or ask you to. If the user's message does ask for this change, send a \`claim_user_shapes\` action with those shape IDs and their exact words, then redo the action. If you already told the user this change was made, correct that in a message now.`
 		console.warn(`Rejected ${result.reason} agent command "${type}":`, ids)
 		if (result.reason === 'protected') this.flashProtected(recordIds as TLShapeId[])
 

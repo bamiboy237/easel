@@ -349,6 +349,21 @@ export const LoadToolsAction = z
 
 export type LoadToolsAction = z.infer<typeof LoadToolsAction>
 
+// Claim User Shapes Action
+export const ClaimUserShapesAction = z
+	.object({
+		_type: z.literal('claim_user_shapes'),
+		shapeIds: z.array(z.string()),
+		quote: z.string(),
+	})
+	.meta({
+		title: 'Claim User Shapes',
+		description:
+			"Shapes the user made are protected: a change to them is rejected unless the user selected them or asked for it. When the user's message asks you to change, move, delete, or connect to existing shapes they describe (such as \"delete both sticky notes\" or \"an arrow from the ramp to the cart\"), send this action first with the IDs of exactly those shapes, and quote the user's words that ask for it, copied exactly from their message. Then make the change in the same response. Claim only the shapes the user's words name. Shapes the user selected need no claim.",
+	})
+
+export type ClaimUserShapesAction = z.infer<typeof ClaimUserShapesAction>
+
 // Todo List Action
 export const UpsertPersonalTodoItemAction = z
 	.object({
