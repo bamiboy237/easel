@@ -67,10 +67,28 @@ export const DiagramActionUtil = registerActionUtil(
 			return { icon: 'pencil' as const, description: action.intent ?? '' }
 		}
 
+		/** The last preview's layout, so a preview redrawn for every streamed token is laid out once per change. */
+		previewLayout: { key: string; positions: { x: number; y: number }[]; bends: number[] } | null = null
+
 		override applyAction(action: Streaming<DiagramAction>, helpers: AgentHelpers) {
-			if (!action.complete || !action.diagramId) return
+			if (!action.diagramId) return
 			const { editor } = this
 			const diagramId = String(action.diagramId)
+			// While the diagram streams, the boxes and arrows written so far show as a
+			// locked preview, laid out as they arrive, so the user sees it take shape
+			// instead of waiting for the whole action. The app replaces the preview with
+			// each new piece, and the finished action draws the diagram for real. A
+			// redraw of a diagram already on the board waits for the finished action, so
+			// its parts do not flicker away while the new version streams.
+			const preview = !action.complete
+			if (preview) {
+				if (editor.getCurrentPageShapes().some((s) => s.meta.diagram === diagramId)) return
+				if (typeof action.x !== 'number' || typeof action.y !== 'number') return
+			}
+			// In a preview, the last node or edge may still be half written.
+			const rawNodes = (action.nodes ?? []).slice(0, preview && !action.edges?.length ? -1 : undefined)
+			const rawEdges = (action.edges ?? []).slice(0, preview ? -1 : undefined)
+			if (preview && rawNodes.length < 2) return
 
 			// Nodes, sized to their labels, in the board's serif.
 			const serif = editor.getCurrentTheme().fonts.serif?.fontFamily ?? 'serif'
@@ -86,7 +104,7 @@ export const DiagramActionUtil = registerActionUtil(
 				})
 			const seen = new Set<string>()
 			const nodes: (LayoutNode & { label: string })[] = []
-			for (const raw of action.nodes ?? []) {
+			for (const raw of rawNodes) {
 				const id = String(raw.id ?? '').trim()
 				if (!id || seen.has(id)) continue
 				seen.add(id)
@@ -97,7 +115,7 @@ export const DiagramActionUtil = registerActionUtil(
 				nodes.push({ id, label, w, h, x: 0, y: 0 })
 			}
 			if (nodes.length === 0) return
-			const edges: DiagramEdge[] = (action.edges ?? [])
+			const edges: DiagramEdge[] = rawEdges
 				.map((e) => ({ from: String(e.from), to: String(e.to), label: String(e.label ?? '').trim() }))
 				.filter((e) => seen.has(e.from) && seen.has(e.to) && e.from !== e.to)
 			// Each label gets its own room in the layout, so it is never squeezed or covered.
@@ -106,7 +124,22 @@ export const DiagramActionUtil = registerActionUtil(
 				const size = measure(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_W)
 				return { from: e.from, to: e.to, labelW: size.w + EDGE_LABEL_PAD, labelH: size.h + EDGE_LABEL_PAD }
 			})
-			const bends = action.layout === 'map' ? layoutMap(nodes, layoutEdges) : layoutFlow(nodes, layoutEdges)
+			const layout = (tries?: number) =>
+				action.layout === 'map' ? layoutMap(nodes, layoutEdges, tries) : layoutFlow(nodes, layoutEdges)
+			let bends: number[]
+			if (preview) {
+				const key = JSON.stringify([action.layout, nodes.map((n) => [n.id, n.w, n.h]), layoutEdges])
+				if (this.previewLayout?.key !== key) {
+					// One start is enough for a preview; the finished diagram tries several.
+					const previewBends = layout(1)
+					this.previewLayout = { key, positions: nodes.map((n) => ({ x: n.x, y: n.y })), bends: previewBends }
+				}
+				nodes.forEach((n, i) => Object.assign(n, this.previewLayout!.positions[i]))
+				bends = [...this.previewLayout.bends]
+			} else {
+				this.previewLayout = null
+				bends = layout()
+			}
 			// Two arrows between the same boxes, one each way, would lie on top of each
 			// other: give both the same bend, which curves them to opposite sides.
 			const pairKey = (e: DiagramEdge) => [e.from, e.to].sort().join(' -> ')
@@ -158,6 +191,7 @@ export const DiagramActionUtil = registerActionUtil(
 						x: at.x,
 						y: at.y,
 						meta,
+						isLocked: preview,
 						props: { ...props, geo: 'rectangle', size: 's', font: 'serif', fill: 'none' },
 					})
 					continue
@@ -205,6 +239,7 @@ export const DiagramActionUtil = registerActionUtil(
 					x: from.midX,
 					y: from.midY,
 					meta: { diagram: diagramId, bend },
+					isLocked: preview,
 					props: { ...label, size: 's', font: 'serif', start: { x: 0, y: 0 }, end: { x: to.midX - from.midX, y: to.midY - from.midY } },
 				})
 				for (const [terminal, target] of [
@@ -223,6 +258,7 @@ export const DiagramActionUtil = registerActionUtil(
 			// Parts of this diagram that are no longer in it go. Only the diagram's
 			// own parts: a copy the user made keeps the diagram's meta but has its own
 			// ids, and is the user's to keep.
+			if (preview) return
 			const stale = editor
 				.getCurrentPageShapes()
 				.filter((s) => s.meta.diagram === diagramId && s.id.startsWith(prefix) && !keep.has(s.id))

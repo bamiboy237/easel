@@ -112,11 +112,11 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
  * then the least area. Every start is fixed, so the same diagram always lays
  * out the same way.
  */
-export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
+export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[], tries = MAP_TRIES): Bends {
 	const tree = layoutTree(nodes, edges)
 	if (tree) return tree
 	let best: { score: number; centers: Map<string, Point>; bends: Bends } | null = null
-	for (let seed = 0; seed < MAP_TRIES; seed++) {
+	for (let seed = 0; seed < tries; seed++) {
 		const centers = runForce(nodes, edges, seed)
 		const placed = nodes.map((n) => ({ ...n, x: centers.get(n.id)!.x - n.w / 2, y: centers.get(n.id)!.y - n.h / 2 }))
 		const preferred = edges.map((e, i) => {
