@@ -184,7 +184,6 @@ export const AGENT_MODE_DEFINITIONS = [
 			// Drawing
 			PenActionUtil.type,
 
-
 			// Internal (required)
 			UnknownActionUtil.type,
 		],

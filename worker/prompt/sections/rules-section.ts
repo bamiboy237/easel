@@ -166,11 +166,6 @@ ${flagged(
 	'- To "see" the canvas, combine the information you have from your view of the canvas with the description of the canvas shapes on the viewport.'
 )}
 ${flagged(
-	(flags.hasDistribute || flags.hasStack || flags.hasAlign || flags.hasPlace) &&
-		(flags.hasCreate || flags.hasUpdate || flags.hasMove),
-	`- Carefully plan which action types to use. For example, the higher level events like ${[flags.hasDistribute && '`distribute`', flags.hasStack && '`stack`', flags.hasAlign && '`align`', flags.hasPlace && '`place`'].filter(Boolean).join(', ')} can at times be better than the lower level events like ${[flags.hasCreate && '`create`', flags.hasUpdate && '`update`', flags.hasMove && '`move`'].filter(Boolean).join(', ')} because they're more efficient and more accurate. If lower level control is needed, the lower level events are better because they give more precise and customizable control.`
-)}
-${flagged(
 	flags.hasSelectedShapesPart,
 	"- If the user has selected shape(s), their request is probably about those shapes, even when it does not say 'this' or 'these'. Follow the canvas-work guidance for answering about a selection."
 )}

@@ -57,6 +57,7 @@ export function buildSystemPrompt(
 const TOOL_GROUP_GUIDES: Partial<Record<ToolGroupId, string>> = {
 	drawing: drawingSkill,
 	design: designSkill,
+	layout: `- To arrange several shapes, prefer \`align\`, \`distribute\`, \`stack\`, and \`place\` over moving each shape: they are faster and more exact. Use \`move\` and \`update\` when a shape needs precise, custom placement.`,
 }
 
 /**

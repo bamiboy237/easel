@@ -18,10 +18,13 @@ export const LoadToolsActionUtil = registerActionUtil(
 
 		override applyAction(action: Streaming<LoadToolsAction>) {
 			if (!action.complete) return
-			const added = this.agent.toolGroups.load(action.groups ?? [])
-			if (added.length === 0) return
+			const groups = action.groups ?? []
+			if (groups.length === 0) return
+			// Always continue, even when the groups were already loaded (by a preload,
+			// or a repeated call): the agent stopped its pass to wait for them.
+			this.agent.toolGroups.load(groups)
 			this.agent.schedule(
-				`The ${added.join(' and ')} tools are now loaded. Continue the task: ${action.intent ?? ''}`.trim()
+				`The ${groups.join(' and ')} tools are loaded. Continue the task: ${action.intent ?? ''}`.trim()
 			)
 		}
 	}

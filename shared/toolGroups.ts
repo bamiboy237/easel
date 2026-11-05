@@ -47,7 +47,9 @@ export function getPreloadedToolGroups({
 	selectedCount: number
 }): ToolGroupId[] {
 	const groups: ToolGroupId[] = []
-	if (/\b(sketch|doodle|freehand|draw(?:ing)? (?:a|an|me|the|some) (?!flow|diagram|chart|graph|map|concept)|illustrat|circle (?:the|this|that|it)|underline|scribble|pen)\w*/i.test(text)) {
+	if (
+		/\b(?:sketch\w*|doodle\w*|freehand|scribble\w*|illustrat\w*|underlin\w*|pen|circle (?:the|this|that|it)|draw(?:ing)? (?:a|an|me|the|some) (?!flow|diagram|chart|graph|map|concept))\b/i.test(text)
+	) {
 		groups.push('drawing')
 	}
 	if (/\b(mock-?ups?|wireframes?|screens?|ui|ux|apps?|landing|website|web ?page|dashboard|prototype|interface|onboarding)\b/i.test(text)) {
