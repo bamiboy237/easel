@@ -77,9 +77,9 @@ export const AGENT_MODEL_DEFINITIONS = {
 
 	// ChatGPT plan models, served through chatgpt/helper.ts
 	// Terra billed to the ChatGPT plan instead of the API key.
-	'gpt-5.6-terra-plan': {
-		name: 'gpt-5.6-terra-plan',
-		id: 'gpt-5.6-terra',
+	'gpt-6.1-terra-plan': {
+		name: 'gpt-6.1-terra-plan',
+		id: 'gpt-6.1-terra',
 		provider: 'chatgpt',
 		supportsPrefill: false,
 		supportsTemperature: false,
@@ -144,6 +144,15 @@ export const AGENT_MODEL_DEFINITIONS = {
 		reasoningEffort: 'medium',
 	},
 
+	'gpt-6.1-terra': {
+		name: 'gpt-6.1-terra',
+		id: 'gpt-6.1-terra',
+		provider: 'openai',
+		supportsPrefill: false,
+		supportsTemperature: false,
+		reasoningEffort: 'medium',
+	},
+
 	'gpt-5.6-terra': {
 		name: 'gpt-5.6-terra',
 		id: 'gpt-5.6-terra',
@@ -163,7 +172,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 	},
 } as const
 
-export const DEFAULT_MODEL_NAME: AgentModelName = 'gpt-5.6-terra'
+export const DEFAULT_MODEL_NAME: AgentModelName = 'gpt-6.1-terra-plan'
 
 /**
  * Check if a string is a valid AgentModelName.
