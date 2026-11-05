@@ -262,9 +262,13 @@ export function sanitizeSceneObject(raw: unknown): { object: SceneObject } | { e
 	const label = str('label') || undefined
 	let object: SceneObject | null = null
 	switch (type) {
-		case 'let':
-			object = { ...base, type, expr: str('expr') }
+		case 'let': {
+			// Models sometimes name the formula differently; take the first one given.
+			const expr = str('expr') || str('expression') || str('formula') || str('value')
+			if (!expr) return { error: 'let needs an expr' }
+			object = { ...base, type, expr }
 			break
+		}
 		case 'point':
 			object = { ...base, type, x: str('x'), y: str('y'), ...(o.drag === true ? { drag: true } : {}), ...(label ? { label } : {}) }
 			break
@@ -312,10 +316,12 @@ export function sanitizeSceneObject(raw: unknown): { object: SceneObject } | { e
 		case 'readout':
 			object = { ...base, type, text: str('text') }
 			break
-		case 'check':
-			if (!str('expr')) return { error: 'check needs an expr that should hold' }
-			object = { ...base, type, expr: str('expr'), text: str('text') }
+		case 'check': {
+			const expr = str('expr') || str('expression') || str('formula')
+			if (!expr) return { error: 'check needs an expr that should hold' }
+			object = { ...base, type, expr, text: str('text') }
 			break
+		}
 	}
 	if (!object) return { error: 'could not read it' }
 	for (const source of expressionsOf(object)) {
