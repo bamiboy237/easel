@@ -37,6 +37,16 @@ declare module 'tldraw' {
 
 export type SceneShape = TLShape<typeof SCENE_TYPE>
 
+/**
+ * What the agent reads about a scene, plus any objects its last scene action
+ * could not use, so the agent can fix them instead of guessing from a picture.
+ */
+export function describeSceneShape(shape: SceneShape): string {
+	const dropped = (shape.meta.sceneDropped as string[] | undefined) ?? []
+	const text = describeScene(shape.props)
+	return dropped.length ? `${text} Not drawn, because they could not be read: ${dropped.join('; ')}.` : text
+}
+
 /** The play row, when the scene has a clock. */
 const CONTROLS = 34
 
@@ -83,7 +93,7 @@ export class SceneShapeUtil extends ShapeUtil<SceneShape> {
 	}
 
 	override getText(shape: SceneShape) {
-		return describeScene(shape.props)
+		return describeSceneShape(shape)
 	}
 
 	override component(shape: SceneShape) {

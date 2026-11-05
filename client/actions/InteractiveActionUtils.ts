@@ -12,8 +12,8 @@ import { AgentHelpers } from '../AgentHelpers'
 import { compileExpression } from '../shapes/math/expression'
 import { clampParameter, ShapeParameter } from '../shapes/math/parameters'
 import { EQUATION_TYPE, EquationShape, measureEquation } from '../shapes/EquationShapeUtil'
-import { SCENE_TYPE, sceneChromeHeight, SceneShape } from '../shapes/SceneShapeUtil'
-import { describeScene, SceneObject, sanitizeSceneObject } from '../shapes/scene/sceneModel'
+import { describeSceneShape, SCENE_TYPE, sceneChromeHeight, SceneShape } from '../shapes/SceneShapeUtil'
+import { SceneObject, sanitizeSceneObject } from '../shapes/scene/sceneModel'
 import { describeGraph, GRAPH_TYPE, GraphShape, parametersHeight } from '../shapes/GraphShapeUtil'
 import {
 	describeSimulation,
@@ -28,7 +28,7 @@ import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
 registerShapeDescriber(EQUATION_TYPE, (shape) => `Equation: ${(shape as EquationShape).props.latex}`)
 registerShapeDescriber(GRAPH_TYPE, (shape) => describeGraph((shape as GraphShape).props))
 registerShapeDescriber(SIMULATION_TYPE, (shape) => describeSimulation((shape as SimulationShape).props))
-registerShapeDescriber(SCENE_TYPE, (shape) => describeScene((shape as SceneShape).props))
+registerShapeDescriber(SCENE_TYPE, (shape) => describeSceneShape(shape as SceneShape))
 
 /**
  * The shape an interactive action works on: the existing one of that type, to
@@ -242,12 +242,13 @@ export const SceneActionUtil = registerActionUtil(
 				w: plotW,
 				h: plotH + sceneChromeHeight({ duration, params }),
 			}
+			const meta = { sceneDropped: streaming ? [] : dropped }
 			if (existing) {
-				editor.updateShape<SceneShape>({ id, type: SCENE_TYPE, props })
+				editor.updateShape<SceneShape>({ id, type: SCENE_TYPE, props, meta: { ...existing.meta, ...meta } })
 				return
 			}
 			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
-			editor.createShape<SceneShape>({ id, type: SCENE_TYPE, x: at.x, y: at.y, props })
+			editor.createShape<SceneShape>({ id, type: SCENE_TYPE, x: at.x, y: at.y, props, meta })
 		}
 	}
 )
