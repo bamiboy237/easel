@@ -51,11 +51,23 @@ export type Bends = number[]
  * they close, and long edges route around the boxes in between.
  */
 export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
+	// A label on a slanting arrow is squeezed when the arrow is wider than tall and
+	// too short for it; more room between layers makes such arrows steeper.
+	let bends: Bends = []
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const centers = new Map<string, Point>()
+		bends = layoutFlowOnce(nodes, edges, RANK_GAP + attempt * 48, centers)
+		if (!edges.some((e, i) => isSqueezed(nodes, e, centers, bends[i]))) break
+	}
+	return bends
+}
+
+function layoutFlowOnce(nodes: LayoutNode[], edges: LayoutEdge[], rankGap: number, center: Map<string, Point>): Bends {
 	const g = new Graph({ multigraph: true })
 	g.setGraph({
 		rankdir: 'TB',
 		nodesep: NODE_GAP,
-		ranksep: RANK_GAP,
+		ranksep: rankGap,
 		edgesep: 24,
 		marginx: 0,
 		marginy: 0,
@@ -79,7 +91,6 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 		)
 	})
 	dagreLayout(g)
-	const center = new Map<string, { x: number; y: number }>()
 	for (const n of nodes) {
 		const d = g.node(n.id) as { x: number; y: number }
 		center.set(n.id, { x: d.x, y: d.y })
@@ -527,12 +538,9 @@ function placeBends(nodes: LayoutNode[], edges: LayoutEdge[], centers: Map<strin
 		}
 		const ownA = boxes.get(e.from)!
 		const ownB = boxes.get(e.to)!
-		// The room for a label along a mostly level arrow is its length between the two boxes.
-		const levelRoom = Math.abs(b.x - a.x) - (ownA.maxX - ownA.minX) / 2 - (ownB.maxX - ownB.minX) / 2
-		const level = Math.abs(b.x - a.x) > Math.abs(b.y - a.y)
 		let best = { cost: Infinity, bend: 0, label: null as Rect | null, arc: [] as Point[] }
 		for (const bend of candidates) {
-			const arc = arcPoints(a, b, bend, 12)
+			const arc = arcPoints(a, b, bend, e.labelW > 0 ? 24 : 12)
 			let cost = Math.abs(bend - preferred[i]) / 40 + Math.abs(bend) / 80
 			for (const [id, box] of boxes) {
 				if (id === e.from || id === e.to) continue
@@ -546,7 +554,7 @@ function placeBends(nodes: LayoutNode[], edges: LayoutEdge[], centers: Map<strin
 				for (const box of boxes.values()) if (overlap(label, box, 6)) cost += 30
 				for (const other of placedLabels) if (overlap(label, other, 6)) cost += 30
 				for (const other of placedArcs) if (other.some((p) => p.x > label!.minX && p.x < label!.maxX && p.y > label!.minY && p.y < label!.maxY)) cost += 8
-				if (level && bend === 0 && levelRoom < e.labelW + LABEL_ARROW_ROOM) cost += 10
+				if (squeezes(arc, ownA, ownB, e.labelW)) cost += 25
 			}
 			// An arc that runs through a label already placed hides it.
 			for (const other of placedLabels) if (arc.some((p) => p.x > other.minX && p.x < other.maxX && p.y > other.minY && p.y < other.maxY)) cost += 8
@@ -559,3 +567,26 @@ function placeBends(nodes: LayoutNode[], edges: LayoutEdge[], centers: Map<strin
 	return bends
 }
 
+
+/**
+ * Whether tldraw would squeeze a label onto more lines: it does when the part
+ * of the arrow between its boxes is wider than tall and shorter than the label
+ * plus its padding.
+ */
+function squeezes(arc: Point[], a: { minX: number; minY: number; maxX: number; maxY: number }, b: typeof a, labelW: number) {
+	const inside = (p: Point, r: typeof a) => p.x > r.minX && p.x < r.maxX && p.y > r.minY && p.y < r.maxY
+	const body = arc.filter((p) => !inside(p, a) && !inside(p, b))
+	if (body.length < 2) return true
+	const w = Math.max(...body.map((p) => p.x)) - Math.min(...body.map((p) => p.x))
+	const h = Math.max(...body.map((p) => p.y)) - Math.min(...body.map((p) => p.y))
+	return w > h && w - LABEL_ARROW_ROOM < labelW
+}
+
+function isSqueezed(nodes: LayoutNode[], e: LayoutEdge, centers: Map<string, Point>, bend: number) {
+	if (e.labelW <= 0) return false
+	const box = (id: string) => {
+		const n = nodes.find((m) => m.id === id)!
+		return { minX: n.x, minY: n.y, maxX: n.x + n.w, maxY: n.y + n.h }
+	}
+	return squeezes(arcPoints(centers.get(e.from)!, centers.get(e.to)!, bend, 24), box(e.from), box(e.to), e.labelW)
+}
