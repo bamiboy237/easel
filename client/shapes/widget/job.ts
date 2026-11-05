@@ -54,6 +54,8 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 			const body = (await response.json()) as { html?: string; css?: string; js?: string; error?: string }
 			if (!response.ok || body.error) {
 				outcome = { error: body.error ?? `The writer returned ${response.status}.` }
+				// The retry is told what went wrong, so it does not repeat it.
+				request.problem = outcome.error
 				continue
 			}
 			const code = { html: body.html ?? '', css: body.css ?? '', js: body.js ?? '' }

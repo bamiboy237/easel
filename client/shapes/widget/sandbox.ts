@@ -41,6 +41,14 @@ export function guardLoops(js: string): { code: string } | { error: string } {
 	} catch (error) {
 		return { error: `The script does not parse: ${(error as Error).message}` }
 	}
+	// The script runs inside a function, so its names (such as top or name)
+	// never clash with the window's own. It must parse there too: a top-level
+	// return or await is not allowed in a widget.
+	try {
+		parse(`(() => {\n${js}\n})()`, { ecmaVersion: 'latest', sourceType: 'script' })
+	} catch (error) {
+		return { error: `The script does not run inside a function: ${(error as Error).message}` }
+	}
 	const edits: { at: number; text: string; close?: boolean; order?: number }[] = []
 	let reserved: string | null = null
 	// The guard goes after any directives, such as "use strict", so they still apply.
@@ -184,7 +192,9 @@ export function buildWidgetDocument(source: WidgetSource, values: WidgetValues):
 <style>html,body{margin:0;padding:0;overflow:hidden;font-family:'Inter',system-ui,sans-serif;background:#fffdf8;color:#302f2a}${sanitizeWidgetCss(source.css)}</style>
 <script nonce="${nonce}">${scriptSafe(runtimeScript(values))}</script>
 </head><body>${sanitizeWidgetHtml(source.html)}
-<script nonce="${nonce}">${HIDE_NONCE}${scriptSafe(guarded.code)}
+<script nonce="${nonce}">${HIDE_NONCE}(() => {
+${scriptSafe(guarded.code)}
+})()
 </script></body></html>`
 	return { doc }
 }
