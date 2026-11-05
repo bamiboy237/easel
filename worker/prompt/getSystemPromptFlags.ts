@@ -24,14 +24,10 @@ export function getSystemPromptFlags(actions: AgentAction['_type'][], parts: Pro
 
 		// Groups of shapes
 		hasPlace: actions.includes('place'),
-		hasBringToFront: actions.includes('bringToFront'),
-		hasSendToBack: actions.includes('sendToBack'),
-		hasRotate: actions.includes('rotate'),
 		hasResize: actions.includes('resize'),
 		hasAlign: actions.includes('align'),
 		hasDistribute: actions.includes('distribute'),
 		hasStack: actions.includes('stack'),
-		hasClear: actions.includes('clear'),
 
 		// Drawing
 		hasPen: actions.includes('pen'),

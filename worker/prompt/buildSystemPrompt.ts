@@ -62,7 +62,7 @@ This is the JSON schema for the events you can return. You must conform to this 
 
 Put explanations and progress updates in message actions. When no action is needed, return {"actions":[]}. Use this same response format for reviews and follow-up requests.
 
-${JSON.stringify(schema, null, 2)}
+${JSON.stringify(schema)}
 `
 }
 

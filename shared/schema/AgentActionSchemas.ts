@@ -41,62 +41,6 @@ export const AlignAction = z
 
 export type AlignAction = z.infer<typeof AlignAction>
 
-// Bring to Front Action
-export const BringToFrontAction = z
-	.object({
-		_type: z.literal('bringToFront'),
-		intent: z.string(),
-		shapeIds: z.array(SimpleShapeIdSchema),
-	})
-	.meta({
-		title: 'Bring to Front',
-		description:
-			'The AI brings one or more shapes to the front so that they appear in front of everything else.',
-		_systemPromptCategory: 'edit',
-	})
-
-export type BringToFrontAction = z.infer<typeof BringToFrontAction>
-
-// Clear Action
-export const ClearAction = z
-	.object({
-		_type: z.literal('clear'),
-	})
-	.meta({
-		title: 'Clear',
-		description: 'The agent deletes all shapes on the canvas.',
-	})
-
-export type ClearAction = z.infer<typeof ClearAction>
-
-// Count Shapes Action
-export const CountShapesAction = z
-	.object({
-		_type: z.literal('count'),
-		expression: z.string(),
-	})
-	.meta({
-		title: 'Count',
-		description:
-			'The AI requests to count the number of shapes in the canvas. The answer will be provided to the AI in a follow-up request.',
-	})
-
-export type CountShapesAction = z.infer<typeof CountShapesAction>
-
-// Country Info Action
-export const CountryInfoAction = z
-	.object({
-		_type: z.literal('countryInfo'),
-		code: z.string(),
-	})
-	.meta({
-		title: 'Country info',
-		description:
-			'The AI gets information about a country by providing its country code, eg: "de" for Germany.',
-	})
-
-export type CountryInfoAction = z.infer<typeof CountryInfoAction>
-
 // Create Action
 export const CreateAction = z
 	.object({
@@ -342,41 +286,6 @@ export const ReviewAction = z
 	})
 
 export type ReviewAction = z.infer<typeof ReviewAction>
-
-// Rotate Action
-export const RotateAction = z
-	.object({
-		_type: z.literal('rotate'),
-		centerY: z.number(),
-		degrees: z.number(),
-		intent: z.string(),
-		originX: z.number(),
-		originY: z.number(),
-		shapeIds: z.array(SimpleShapeIdSchema),
-	})
-	.meta({
-		title: 'Rotate',
-		description: 'The AI rotates one or more shapes around an origin point.',
-		_systemPromptCategory: 'edit',
-	})
-
-export type RotateAction = z.infer<typeof RotateAction>
-
-// Send to Back Action
-export const SendToBackAction = z
-	.object({
-		_type: z.literal('sendToBack'),
-		intent: z.string(),
-		shapeIds: z.array(SimpleShapeIdSchema),
-	})
-	.meta({
-		title: 'Send to Back',
-		description:
-			'The AI sends one or more shapes to the back so that they appear behind everything else.',
-		_systemPromptCategory: 'edit',
-	})
-
-export type SendToBackAction = z.infer<typeof SendToBackAction>
 
 // Set My View Action
 export const SetMyViewAction = z

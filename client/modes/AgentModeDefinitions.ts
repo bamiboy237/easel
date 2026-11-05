@@ -3,10 +3,6 @@ import type { PromptPart } from '../../shared/types/PromptPart'
 // Import action utils to ensure they register themselves
 import { AddDetailActionUtil } from '../actions/AddDetailActionUtil'
 import { AlignActionUtil } from '../actions/AlignActionUtil'
-import { BringToFrontActionUtil } from '../actions/BringToFrontActionUtil'
-import { ClearActionUtil } from '../actions/ClearActionUtil'
-import { CountryInfoActionUtil } from '../actions/CountryInfoActionUtil'
-import { CountShapesActionUtil } from '../actions/CountShapesActionUtil'
 import { CreateActionUtil } from '../actions/CreateActionUtil'
 import { DeleteActionUtil } from '../actions/DeleteActionUtil'
 import { DistributeActionUtil } from '../actions/DistributeActionUtil'
@@ -29,8 +25,6 @@ import { PenActionUtil } from '../actions/PenActionUtil'
 import { PlaceActionUtil } from '../actions/PlaceActionUtil'
 import { ResizeActionUtil } from '../actions/ResizeActionUtil'
 import { ReviewActionUtil } from '../actions/ReviewActionUtil'
-import { RotateActionUtil } from '../actions/RotateActionUtil'
-import { SendToBackActionUtil } from '../actions/SendToBackActionUtil'
 import { SetMyViewActionUtil } from '../actions/SetMyViewActionUtil'
 import { StackActionUtil } from '../actions/StackActionUtil'
 import { ThinkActionUtil } from '../actions/ThinkActionUtil'
@@ -180,21 +174,14 @@ export const AGENT_MODE_DEFINITIONS = [
 
 			// Groups of shapes
 			PlaceActionUtil.type,
-			BringToFrontActionUtil.type,
-			SendToBackActionUtil.type,
-			RotateActionUtil.type,
 			ResizeActionUtil.type,
 			AlignActionUtil.type,
 			DistributeActionUtil.type,
 			StackActionUtil.type,
-			ClearActionUtil.type,
 
 			// Drawing
 			PenActionUtil.type,
 
-			// External APIs
-			CountryInfoActionUtil.type,
-			CountShapesActionUtil.type,
 
 			// Internal (required)
 			UnknownActionUtil.type,

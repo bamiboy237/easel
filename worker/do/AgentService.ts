@@ -197,7 +197,7 @@ export class AgentService {
 						// One line per request, so prompt size and caching can be measured.
 						const usage = part.totalUsage
 						console.log(
-							`[usage] model=${modelId} actions=${prompt.mode.actionTypes.length} systemChars=${systemPrompt.length} input=${usage.inputTokens ?? '?'} cached=${usage.cachedInputTokens ?? 0} output=${usage.outputTokens ?? '?'} reasoning=${usage.reasoningTokens ?? 0}`
+							`[usage] model=${modelId} actions=${prompt.mode.actionTypes.length} systemChars=${systemPrompt.length} schemaChars=${systemPrompt.length - buildSystemPrompt(prompt, { withSchema: false }).length} input=${usage.inputTokens ?? '?'} cached=${usage.cachedInputTokens ?? 0} output=${usage.outputTokens ?? '?'} reasoning=${usage.reasoningTokens ?? 0}`
 						)
 						break
 					}
