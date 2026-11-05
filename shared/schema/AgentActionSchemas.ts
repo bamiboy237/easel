@@ -182,7 +182,7 @@ export const AskAction = z
 	.meta({
 		title: 'Ask',
 		description:
-			'The AI asks the user one short question with two to four short choices, then stops and waits for the answer. Use it only when the request could reasonably go more than one way and the answer changes the work, for example one full diagram or a step-by-step series. Put it before any board changes and make it the last action of the response.',
+			'The AI asks the user one short question with two to four short choices, then stops and waits for the answer. Use it only when the request could reasonably go more than one way and the answer changes the work, for example one full diagram or a step-by-step series, or when the request is too vague to start, such as "Help me study". Ask with this action, not in a message: the user sees the choices as buttons and can also type their own answer. Put it before any board changes and make it the last action of the response.',
 	})
 
 export type AskAction = z.infer<typeof AskAction>
