@@ -7,6 +7,7 @@ import { CreateActionUtil } from '../actions/CreateActionUtil'
 import { DeleteActionUtil } from '../actions/DeleteActionUtil'
 import { DistributeActionUtil } from '../actions/DistributeActionUtil'
 import { LabelActionUtil } from '../actions/LabelActionUtil'
+import { ClaimUserShapesActionUtil } from '../actions/ClaimUserShapesActionUtil'
 import { LoadToolsActionUtil } from '../actions/LoadToolsActionUtil'
 import { MapActionUtil } from '../actions/MapActionUtil'
 import { AskActionUtil } from '../actions/AskActionUtil'
@@ -164,6 +165,7 @@ export const AGENT_MODE_DEFINITIONS = [
 			UpsertTodoListItemActionUtil.type,
 			SetMyViewActionUtil.type,
 			LoadToolsActionUtil.type,
+			ClaimUserShapesActionUtil.type,
 
 			// Interactive objects: typeset math, laid-out diagrams, live graphs, simulations
 			EquationActionUtil.type,

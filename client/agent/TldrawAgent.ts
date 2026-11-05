@@ -281,6 +281,22 @@ export class TldrawAgent {
 		return this.allowedShapeIds
 	}
 
+	/** The user's own words in the current user request, kept through follow-up passes. */
+	private requestUserText = ''
+
+	/** Get the user's own words in the current user request. */
+	getRequestUserText(): string {
+		return this.requestUserText
+	}
+
+	/**
+	 * Let the agent change protected shapes for the rest of the current user
+	 * request. The caller checks that the user asked for it.
+	 */
+	allowShapeIds(ids: Iterable<TLShapeId>) {
+		this.allowedShapeIds = new Set([...this.allowedShapeIds, ...ids])
+	}
+
 	/** True after the agent asked the user a question, until the next request starts. */
 	private waitingForAnswer = false
 
@@ -690,6 +706,9 @@ export class TldrawAgent {
 			request.source === 'self'
 				? new Set([...this.allowedShapeIds, ...requestedShapeIds])
 				: requestedShapeIds
+		if (request.source !== 'self') {
+			this.requestUserText = [...request.agentMessages, ...request.userMessages].join('\n')
+		}
 		this.actions.onRequestStart(request.source)
 		this.marks.onRequestStart(request.source, request.agentMessages)
 		this.waitingForAnswer = false
