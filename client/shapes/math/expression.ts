@@ -339,12 +339,20 @@ function parse(source: string): Node {
 				if (args.length !== 3) throw new Error(`if takes a test and two values in "${source}"`)
 				return { kind: 'if', test: args[0], then: args[1], else: args[2] }
 			}
-			if (has(FUNCTIONS, token.value)) {
+			// A function name is a call only when "(" follows it. Otherwise it is
+			// an ordinary name, so a scene can call an object "floor".
+			const calls = isOp('(')
+			const next = tokens[position]
+			if (!calls && (has(FUNCTIONS, token.value) || has(MULTI_FUNCTIONS, token.value)) && next && next.type !== 'op') {
+				// "sin x" is a call without its parentheses, not sin times x.
+				throw new Error(`${token.value} needs parentheses in "${source}"`)
+			}
+			if (calls && has(FUNCTIONS, token.value)) {
 				const args = argumentList(token.value)
 				if (args.length !== 1) throw new Error(`${token.value} takes one value in "${source}"`)
 				return { kind: 'call', fn: token.value, args }
 			}
-			if (has(MULTI_FUNCTIONS, token.value)) {
+			if (calls && has(MULTI_FUNCTIONS, token.value)) {
 				const args = argumentList(token.value)
 				const [least, most] = MULTI_FUNCTIONS[token.value].arity
 				if (args.length < least || args.length > most) {
