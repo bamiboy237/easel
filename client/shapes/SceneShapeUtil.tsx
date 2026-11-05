@@ -9,12 +9,14 @@ import {
 	T,
 	TLShape,
 	useEditor,
+	useValue,
 } from 'tldraw'
 import { axisLabels, gridStep, parametersHeight } from './GraphShapeUtil'
-import { BUILT_IN_TEMPLATES, saveTemplate, SceneTemplate } from './scene/templates'
+import { newTemplateId, saveTemplate, SceneTemplate } from './scene/templates'
 import { clampParameter, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import {
 	checkHolds,
+	checkScene,
 	describeScene,
 	dragTargets,
 	evaluateIn,
@@ -140,7 +142,9 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const traces = useMemo(() => sampleTraces({ params, objects }, duration), [params, objects, duration])
 	// Each viewer can open the formulas behind the picture, as in Desmos.
 	const [showFormulas, setShowFormulas] = useState(false)
-	const [saved, setSaved] = useState(false)
+	const [saved, setSaved] = useState<'saved' | 'problems' | null>(null)
+	// Chat-history previews are read-only copies, where a save would go nowhere.
+	const readOnlyEditor = useValue('scene read-only', () => editor.getIsReadonly(), [editor])
 	const formulas = useMemo(
 		() => (showFormulas ? formulaRows(objects, values.scope) : []),
 		[showFormulas, objects, values.scope]
@@ -242,19 +246,33 @@ function Scene({ shape }: { shape: SceneShape }) {
 							)}
 						</div>
 					)}
+					{!readOnlyEditor && (
 					<button
 						className="scene-save-template"
 						title="Save this scene as a template the agent can place again"
 						onPointerDown={(e) => e.stopPropagation()}
 						onClick={() => {
+							// A scene with problems is not saved, since the agent would reuse them.
+							const current = editor.getShape<SceneShape>(shape.id)
+							if (!current || checkScene(current.props).length > 0) {
+								setSaved('problems')
+								setTimeout(() => setSaved(null), 2000)
+								return
+							}
 							editor.markHistoryStoppingPoint('save template')
-							saveTemplate(editor, templateFromScene(shape))
-							setSaved(true)
-							setTimeout(() => setSaved(false), 1500)
+							// Saving the same scene again updates its own template.
+							const id = (current.meta.savedTemplateId as string | undefined) ?? newTemplateId(editor, current.props.title)
+							editor.run(() => {
+								saveTemplate(editor, templateFromScene(current, id))
+								editor.updateShape<SceneShape>({ id: current.id, type: SCENE_TYPE, meta: { ...current.meta, savedTemplateId: id } })
+							})
+							setSaved('saved')
+							setTimeout(() => setSaved(null), 1500)
 						}}
 					>
-						{saved ? 'Saved' : 'Save as template'}
+						{saved === 'saved' ? 'Saved' : saved === 'problems' ? 'Fix its problems first' : 'Save as template'}
 					</button>
+					)}
 					<button
 						className="scene-formulas-toggle"
 						aria-pressed={showFormulas}
@@ -316,13 +334,10 @@ function usePlayback(duration: number) {
 
 /**
  * A template from a scene as it is now: its frame, its parameters at their
- * current values, and its objects. Its id comes from the title, kept apart from
- * the built-in templates so a saved scene never replaces one.
+ * current values, and its objects.
  */
-function templateFromScene(shape: SceneShape): SceneTemplate {
+function templateFromScene(shape: SceneShape, id: string): SceneTemplate {
 	const { title, w, h, xMin, xMax, yMin, yMax, duration, axes, params, objects } = shape.props
-	const slug = (title || 'scene').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'scene'
-	const id = BUILT_IN_TEMPLATES.some((t) => t.id === slug) ? `${slug}-saved` : slug
 	return {
 		id,
 		title: title || 'Saved scene',

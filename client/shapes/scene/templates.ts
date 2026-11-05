@@ -361,6 +361,19 @@ export function getAllTemplates(editor: Editor): SceneTemplate[] {
 }
 
 /**
+ * An id for a new saved template from a title: built from the title, and kept
+ * apart from every built-in and saved template, so saving never overwrites one.
+ */
+export function newTemplateId(editor: Editor, title: string): string {
+	const slug = (title || 'scene').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'scene'
+	const taken = new Set([...BUILT_IN_TEMPLATES, ...getSavedTemplates(editor)].map((t) => t.id))
+	if (!taken.has(slug)) return slug
+	let n = 2
+	while (taken.has(`${slug}-${n}`)) n++
+	return `${slug}-${n}`
+}
+
+/**
  * Save a template on the board, replacing one with the same id. It writes the
  * document record through the store, so it is an ordinary, undoable change.
  */

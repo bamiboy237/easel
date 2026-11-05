@@ -299,15 +299,27 @@ export const SceneTemplateActionUtil = registerActionUtil(
 
 		override applyAction(action: Streaming<SceneTemplateAction>, helpers: AgentHelpers) {
 			if (!action.complete) return
-			const template = getAllTemplates(this.editor).find((t) => t.id === String(action.template ?? '').trim())
-			if (!template) return
+			const name = String(action.template ?? '').trim()
+			const template = getAllTemplates(this.editor).find((t) => t.id === name)
+			if (!template) {
+				// Tell the agent, so it picks a listed template or writes the scene.
+				this.agent.schedule(
+					`There is no scene template named "${name}". Place one of the templates listed in the prompt, or write the scene with a scene action.`
+				)
+				return
+			}
+			// A template always becomes a new scene: it never merges into an existing
+			// one, which would keep that scene's values over the ones asked for here.
+			const shapeId = helpers.ensureShapeIdIsUnique(
+				String(action.shapeId || template.id) as Parameters<AgentHelpers['ensureShapeIdIsUnique']>[0]
+			)
 			const values = new Map((action.params ?? []).map((p) => [p.name, p.value]))
 			applySceneAction(
 				this.editor,
 				{
 					_type: 'scene',
 					intent: action.intent,
-					shapeId: action.shapeId,
+					shapeId,
 					title: template.title,
 					x: action.x,
 					y: action.y,

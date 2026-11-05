@@ -73,7 +73,7 @@ export interface SelectedShapesPart {
 
 export interface SceneTemplatesPart {
 	type: 'sceneTemplates'
-	templates: { id: string; title: string; useFor: string; params: string[] }[]
+	templates: { id: string; title: string; useFor: string; params: string[]; saved: boolean }[]
 }
 
 export interface TimePart {
@@ -512,22 +512,29 @@ export const SelectedShapesPartDefinition: PromptPartDefinition<SelectedShapesPa
 	},
 }
 
-// Time
 // SceneTemplates
 export const SceneTemplatesPartDefinition: PromptPartDefinition<SceneTemplatesPart> = {
 	type: 'sceneTemplates',
 	priority: -90,
 	buildContent({ templates }: SceneTemplatesPart) {
 		if (!templates || templates.length === 0) return []
+		const line = (t: SceneTemplatesPart['templates'][number]) =>
+			`  - ${t.id}: ${t.title}, for ${t.useFor}. Params: ${t.params.join(', ')}.`
+		const builtIn = templates.filter((t) => !t.saved)
+		const saved = templates.filter((t) => t.saved)
 		return [
 			[
-				'Scene templates you can place with scene_template. Each is checked and verified, so prefer one when it fits:',
-				...templates.map((t) => `  - ${t.id}: ${t.title}, for ${t.useFor}. Params: ${t.params.join(', ')}.`),
+				'Scene templates you can place with scene_template. These are checked and verified, so prefer one when it fits:',
+				...builtIn.map(line),
+				...(saved.length > 0
+					? ['Saved on this board by a person, not verified; use one when the user asks for it or it clearly fits:', ...saved.map(line)]
+					: []),
 			].join('\n'),
 		]
 	},
 }
 
+// Time
 export const TimePartDefinition: PromptPartDefinition<TimePart> = {
 	type: 'time',
 	priority: -100,
