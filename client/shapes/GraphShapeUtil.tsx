@@ -51,6 +51,22 @@ export function describeGraph(props: GraphShapeProps): string {
 }
 
 /**
+ * The space between grid lines for a range drawn across so many pixels: a
+ * round 1, 2, or 5 times a power of ten, with labels at least 48 pixels apart.
+ */
+function gridStep(range: number, pixels: number): number {
+	const raw = (range * 48) / Math.max(pixels, 1)
+	const power = Math.pow(10, Math.floor(Math.log10(raw)))
+	return ([1, 2, 5, 10].map((m) => m * power).find((step) => step >= raw) ?? 10 * power)
+}
+
+/** Labels for an axis, with as many decimals as its step needs, so no two ticks read the same. */
+function axisLabels(step: number) {
+	const decimals = Math.max(0, -Math.floor(Math.log10(step)))
+	return (value: number) => (Math.round(value / step) * step).toFixed(decimals).replace(/^-0$/, '0')
+}
+
+/**
  * A live graph on the board, drawn with Mafs. It plots functions of x whose
  * parameters are sliders on the shape. The user drags a slider or the agent
  * sets a value, and both see the same curve.
@@ -117,6 +133,8 @@ function Graph({ shape }: { shape: GraphShape }) {
 		[functions]
 	)
 	const scope = parameterScope(parameters)
+	const xStep = gridStep(xMax - xMin, w)
+	const yStep = gridStep(yMax - yMin, plotHeight)
 	const errors = compiled.filter((c) => c.error).map((c) => c.error)
 
 	return (
@@ -131,7 +149,11 @@ function Graph({ shape }: { shape: GraphShape }) {
 						preserveAspectRatio={false}
 						viewBox={{ x: [xMin, xMax], y: [yMin, yMax], padding: 0 }}
 					>
-						<Coordinates.Cartesian />
+						<Coordinates.Cartesian
+							subdivisions={false}
+							xAxis={{ lines: xStep, labels: axisLabels(xStep) }}
+							yAxis={{ lines: yStep, labels: axisLabels(yStep) }}
+						/>
 						{compiled.map((c, i) =>
 							c.fn ? (
 								<Plot.OfX key={i} y={(x) => c.fn!({ ...scope, x })} color={PLOT_INKS[i % PLOT_INKS.length]} weight={2.5} />

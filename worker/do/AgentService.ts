@@ -37,7 +37,11 @@ export class AgentService {
 	chatgpt: OpenAIProvider
 
 	constructor(env: Environment) {
-		this.openai = createOpenAI({ apiKey: env.OPENAI_API_KEY })
+		// The same base as the voice route, which in development goes through a local relay.
+		this.openai = createOpenAI({
+			apiKey: env.OPENAI_API_KEY,
+			...(env.OPENAI_API_BASE_URL ? { baseURL: `${env.OPENAI_API_BASE_URL.replace(/\/$/, '')}/v1` } : {}),
+		})
 		this.anthropic = createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })
 		this.google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_API_KEY })
 		this.meta = createOpenAI({

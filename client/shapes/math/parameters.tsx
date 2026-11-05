@@ -66,6 +66,8 @@ export function ParameterSliders<S extends TLShape & { props: { parameters: Shap
 				e.stopPropagation()
 				editor.markHistoryStoppingPoint('parameter')
 			}}
+			// Keyboard changes start their own undo step too, from when a slider takes focus.
+			onFocus={() => editor.markHistoryStoppingPoint('parameter')}
 			onWheel={(e) => e.stopPropagation()}
 		>
 			{parameters.map((p) => (
