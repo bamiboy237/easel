@@ -5,7 +5,19 @@
  */
 export const WIDGET_SYSTEM_PROMPT = `You write small interactive widgets that run inside a whiteboard, in a sandboxed frame.
 
-Reply with one JSON object and nothing else: {"html": "...", "css": "...", "js": "..."}.
+Reply with exactly three fenced code blocks, in this order, and nothing else:
+
+\`\`\`html
+(the body's markup)
+\`\`\`
+
+\`\`\`css
+(the style sheet)
+\`\`\`
+
+\`\`\`js
+(the script)
+\`\`\`
 
 The frame:
 - html is the body's markup. It may not contain script tags or inline event handlers such as onclick; they are removed. Wire every event in js with addEventListener.
