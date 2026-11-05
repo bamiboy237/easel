@@ -83,7 +83,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 		provider: 'chatgpt',
 		supportsPrefill: false,
 		supportsTemperature: false,
-		reasoningEffort: 'high',
+		reasoningEffort: 'medium',
 	},
 	'gpt-6.1-sol': {
 		name: 'gpt-6.1-sol',
@@ -150,7 +150,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 		provider: 'openai',
 		supportsPrefill: false,
 		supportsTemperature: false,
-		reasoningEffort: 'high',
+		reasoningEffort: 'medium',
 	},
 
 	'gpt-5.6-terra': {
