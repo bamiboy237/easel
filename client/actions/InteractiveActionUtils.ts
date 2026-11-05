@@ -38,7 +38,10 @@ function resolveTarget<S extends TLShape>(
 ): { id: TLShapeId; existing: S | null } {
 	const { editor } = helpers.agent
 	const simple = (shapeId || type) as Parameters<AgentHelpers['ensureShapeIdIsUnique']>[0]
-	const existing = editor.getShape(`shape:${simple}` as TLShapeId)
+	// An id the agent gave earlier in this turn may have been renamed to stay
+	// unique; it still means the shape it named then.
+	const mapped = helpers.shapeIdMap.get(String(simple)) ?? simple
+	const existing = editor.getShape(`shape:${mapped}` as TLShapeId)
 	if (existing && existing.type === type) return { id: existing.id, existing: existing as S }
 	const unique = helpers.ensureShapeIdIsUnique(simple)
 	return { id: `shape:${unique}` as TLShapeId, existing: null }

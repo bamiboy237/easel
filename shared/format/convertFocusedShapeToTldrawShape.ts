@@ -20,6 +20,7 @@ import {
 	Vec,
 	VecLike,
 } from 'tldraw'
+import { stripShapeDescription } from './convertTldrawShapeToFocusedShape'
 import { asColor } from './FocusedColor'
 import { convertFocusedFillToTldrawFill } from './FocusedFill'
 import { convertFocusedFontSizeToTldrawFontSizeAndScale } from './FocusedFontSize'
@@ -641,7 +642,11 @@ function convertUnknownShapeToTldrawShape(
 			opacity: defaultShape.opacity ?? 1,
 			props: defaultShape.props ?? ({} as any),
 			meta: {
-				note: focusedShape.note ?? defaultShape.meta?.note ?? '',
+				...defaultShape.meta,
+				note:
+					focusedShape.note !== undefined
+						? stripShapeDescription(defaultShape, focusedShape.note)
+						: (defaultShape.meta?.note ?? ''),
 			},
 		},
 	}

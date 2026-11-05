@@ -48,21 +48,6 @@ export function compileExpression(source: string): CompiledExpression {
 	return (scope) => evaluate(node, scope)
 }
 
-/** The variable names an expression uses, other than constants and functions. */
-export function expressionNames(source: string): string[] {
-	const names = new Set<string>()
-	const visit = (node: Node) => {
-		if (node.kind === 'name' && !(node.name in CONSTANTS)) names.add(node.name)
-		else if (node.kind === 'unary' || node.kind === 'call') visit(node.arg)
-		else if (node.kind === 'binary') {
-			visit(node.left)
-			visit(node.right)
-		}
-	}
-	visit(parse(source))
-	return [...names]
-}
-
 function evaluate(node: Node, scope: Scope): number {
 	switch (node.kind) {
 		case 'number':

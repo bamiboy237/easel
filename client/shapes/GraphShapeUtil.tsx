@@ -3,7 +3,7 @@ import 'mafs/core.css'
 import { useMemo } from 'react'
 import { Geometry2d, HTMLContainer, Rectangle2d, RecordProps, ShapeUtil, T, TLShape } from 'tldraw'
 import { compileExpression, CompiledExpression } from './math/expression'
-import { ParameterSliders, parameterScope, ShapeParameter, shapeParameterValidator } from './math/parameters'
+import { describeParameters, ParameterSliders, parameterScope, ShapeParameter, shapeParameterValidator } from './math/parameters'
 
 export const GRAPH_TYPE = 'graph'
 
@@ -46,7 +46,7 @@ export function parametersHeight(parameters: ShapeParameter[]): number {
 /** A line the agent reads about a graph: what it plots, over what range, with what values. */
 export function describeGraph(props: GraphShapeProps): string {
 	const fns = props.functions.map((f) => `y = ${f.expression}`).join('; ')
-	const params = props.parameters.map((p) => `${p.name} = ${p.value} (${p.min} to ${p.max})`).join(', ')
+	const params = describeParameters(props.parameters)
 	return `Graph of ${fns || 'nothing yet'}, x from ${props.xMin} to ${props.xMax}, y from ${props.yMin} to ${props.yMax}.${params ? ` Parameters: ${params}.` : ''}`
 }
 

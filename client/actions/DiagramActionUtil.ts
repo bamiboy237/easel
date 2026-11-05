@@ -29,9 +29,29 @@ interface DiagramEdge {
 	label: string
 }
 
-/** A shape id safe for tldraw, from the diagram's and the node's own ids. */
-function diagramShapeId(diagramId: string, part: string): TLShapeId {
-	return `shape:diagram-${diagramId}-${part}`.replace(/[^a-zA-Z0-9:_-]/g, '_') as TLShapeId
+/** A short, stable hash of a string (FNV-1a), so different ids never share a shape id. */
+function hash(value: string) {
+	let h = 0x811c9dc5
+	for (let i = 0; i < value.length; i++) h = Math.imul(h ^ value.charCodeAt(i), 0x01000193)
+	return (h >>> 0).toString(36)
+}
+
+/** A readable part of an id that tldraw accepts. */
+function slug(value: string) {
+	return value.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 24)
+}
+
+/**
+ * Shape ids for a diagram's parts. Each carries a hash of the exact ids it
+ * comes from, so `a -> b-c` and `a-b -> c`, or nodes `a b` and `a_b`, never
+ * share one.
+ */
+function nodeShapeId(diagramId: string, node: string): TLShapeId {
+	return `shape:diagram-${slug(diagramId)}-${hash(diagramId)}-n-${slug(node)}-${hash(node)}` as TLShapeId
+}
+
+function edgeShapeId(diagramId: string, from: string, to: string): TLShapeId {
+	return `shape:diagram-${slug(diagramId)}-${hash(diagramId)}-e-${hash(JSON.stringify([from, to]))}` as TLShapeId
 }
 
 /**
@@ -54,8 +74,10 @@ function layoutFlow(nodes: DiagramNode[], edges: DiagramEdge[]) {
 		return d
 	}
 	nodes.forEach((n) => depthOf(n.id))
-	const layers: DiagramNode[][] = []
-	for (const n of nodes) (layers[depth.get(n.id)!] ??= []).push(n)
+	const byDepth: DiagramNode[][] = []
+	for (const n of nodes) (byDepth[depth.get(n.id)!] ??= []).push(n)
+	// A cycle can leave a depth with no nodes; drop it, so no layer is empty.
+	const layers = byDepth.filter((layer) => layer?.length)
 	const centerX = new Map<string, number>()
 	const widths = layers.map((layer) => layer.reduce((sum, n) => sum + n.w, 0) + SIBLING_GAP * (layer.length - 1))
 	const widest = Math.max(...widths)
@@ -161,7 +183,7 @@ export const DiagramActionUtil = registerActionUtil(
 			// unless the user moved them away from where the layout last put them.
 			const keep = new Set<string>()
 			for (const node of nodes) {
-				const id = diagramShapeId(diagramId, `n-${node.id}`)
+				const id = nodeShapeId(diagramId, node.id)
 				keep.add(id)
 				const at = { x: origin.x + node.x, y: origin.y + node.y }
 				const meta = { diagram: diagramId, node: node.id, laidOutAt: at }
@@ -191,10 +213,10 @@ export const DiagramActionUtil = registerActionUtil(
 
 			// Arrows, bound to the boxes at both ends, so they follow when a box moves.
 			for (const edge of edges) {
-				const id = diagramShapeId(diagramId, `e-${edge.from}-${edge.to}`)
+				const id = edgeShapeId(diagramId, edge.from, edge.to)
 				keep.add(id)
-				const fromId = diagramShapeId(diagramId, `n-${edge.from}`)
-				const toId = diagramShapeId(diagramId, `n-${edge.to}`)
+				const fromId = nodeShapeId(diagramId, edge.from)
+				const toId = nodeShapeId(diagramId, edge.to)
 				const existing = editor.getShape<TLArrowShape>(id)
 				const label = { richText: toRichText(edge.label) }
 				if (existing) {

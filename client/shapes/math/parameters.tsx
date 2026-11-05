@@ -32,11 +32,14 @@ export function clampParameter(parameter: ShapeParameter, value: number): number
 	const clamped = Math.min(parameter.max, Math.max(parameter.min, value))
 	if (!(parameter.step > 0)) return clamped
 	const stepped = parameter.min + Math.round((clamped - parameter.min) / parameter.step) * parameter.step
-	return round(Math.min(parameter.max, stepped))
+	// Twelve significant digits drop float noise (0.30000000000000004) but keep
+	// small values, so a range of 0.0001 to 0.001 is not rounded to zero.
+	return Number(Math.min(parameter.max, stepped).toPrecision(12))
 }
 
+/** A value for reading: four significant digits, so small values stay readable. */
 function round(value: number) {
-	return Math.round(value * 1000) / 1000
+	return Number(value.toPrecision(4))
 }
 
 /**
