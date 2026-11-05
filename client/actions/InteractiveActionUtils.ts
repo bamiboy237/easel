@@ -8,6 +8,7 @@ import {
 	SceneTemplateAction,
 	SetParameterAction,
 	SimulationAction,
+	WidgetAction,
 } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
@@ -24,6 +25,8 @@ import {
 	SIMULATION_TYPE,
 	SimulationShape,
 } from '../shapes/SimulationShapeUtil'
+import { describeWidget, WIDGET_TYPE, widgetChromeHeight, WidgetShape } from '../shapes/WidgetShapeUtil'
+import { runWidgetJob } from '../shapes/widget/job'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
 
 // The agent reads these shapes as a line each: the equation's LaTeX, and a
@@ -32,6 +35,7 @@ registerShapeDescriber(EQUATION_TYPE, (shape) => `Equation: ${(shape as Equation
 registerShapeDescriber(GRAPH_TYPE, (shape) => describeGraph((shape as GraphShape).props))
 registerShapeDescriber(SIMULATION_TYPE, (shape) => describeSimulation((shape as SimulationShape).props))
 registerShapeDescriber(SCENE_TYPE, (shape) => describeSceneShape(shape as SceneShape))
+registerShapeDescriber(WIDGET_TYPE, (shape) => describeWidget((shape as WidgetShape).props, shape.id as TLShapeId))
 
 /**
  * The shape an interactive action works on: the existing one of that type, to
@@ -415,12 +419,24 @@ export const SetParameterActionUtil = registerActionUtil(
 				| GraphShape
 				| SimulationShape
 				| SceneShape
+				| WidgetShape
 				| undefined
 			if (!shape) return
+			if (shape.type === WIDGET_TYPE) {
+				const widget = shape as unknown as WidgetShape
+				if (!Object.hasOwn(widget.props.params, action.name) || !Number.isFinite(action.value)) return
+				const p = widget.props.params[action.name]
+				editor.updateShape<WidgetShape>({
+					id: widget.id,
+					type: WIDGET_TYPE,
+					props: { params: { ...widget.props.params, [action.name]: { ...p, value: clampParameter(p, action.value) } } },
+				})
+				return
+			}
 			if (shape.type === SCENE_TYPE) {
 				// Only this parameter's value changes, so the edit touches one field.
+				if (!Object.hasOwn(shape.props.params, action.name) || !Number.isFinite(action.value)) return
 				const p = shape.props.params[action.name]
-				if (!p || !Number.isFinite(action.value)) return
 				editor.updateShape<SceneShape>({
 					id: shape.id,
 					type: SCENE_TYPE,
@@ -433,6 +449,71 @@ export const SetParameterActionUtil = registerActionUtil(
 				p.name === action.name && Number.isFinite(action.value) ? { ...p, value: clampParameter(p, action.value) } : p
 			)
 			editor.updateShape({ id: shape.id, type: shape.type, props: { parameters } } as never)
+		}
+	}
+)
+
+/**
+ * The agent starts a widget: a placeholder lands now, as this action's command,
+ * and the code is written in a background job that fills it in later. Sending
+ * the action again for the same widget updates its brief and size and starts a
+ * new job; parameters keep the values the user set.
+ */
+export const WidgetActionUtil = registerActionUtil(
+	class WidgetActionUtil extends AgentActionUtil<WidgetAction> {
+		static override type = 'widget' as const
+
+		override getInfo(action: Streaming<WidgetAction>) {
+			return { icon: 'pencil' as const, description: action.intent ?? '' }
+		}
+
+		override applyAction(action: Streaming<WidgetAction>, helpers: AgentHelpers) {
+			if (!action.complete) return
+			const { editor } = this
+			const { id, existing } = resolveTarget<WidgetShape>(helpers, action.shapeId, WIDGET_TYPE)
+			const params: Record<string, ShapeParameter> = {}
+			for (const p of sanitizeParameters(action.params)) {
+				const current = existing?.props.params[p.name]
+				params[p.name] = current ? { ...p, value: clampParameter(p, current.value) } : p
+			}
+			const state: Record<string, unknown> = {}
+			for (const entry of action.state ?? []) {
+				const key = String(entry?.key ?? '').trim().slice(0, 64)
+				if (!key) continue
+				state[key] = existing && Object.hasOwn(existing.props.state, key) ? existing.props.state[key] : (entry.value ?? null)
+			}
+			const chrome = widgetChromeHeight({ params })
+			const w = existing ? existing.props.w : Math.min(900, Math.max(200, action.width || 420))
+			const h = existing
+				? existing.props.h - widgetChromeHeight(existing.props) + chrome
+				: Math.min(800, Math.max(120, action.height || 320)) + chrome
+			const props = {
+				title: String(action.title ?? ''),
+				brief: String(action.brief ?? ''),
+				status: 'writing' as const,
+				error: '',
+				params,
+				state,
+				w,
+				h,
+			}
+			if (existing) {
+				editor.updateShape<WidgetShape>({ id, type: WIDGET_TYPE, props })
+			} else {
+				const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
+				editor.createShape<WidgetShape>({ id, type: WIDGET_TYPE, x: at.x, y: at.y, props })
+			}
+			// The job starts once this command is recorded, so its base revision
+			// follows it, and only if the command was applied: a rejected command
+			// was rolled back, so the widget does not show this brief as writing.
+			const agent = this.agent
+			const context = { ...agent.getPassIds(), allowedShapeIds: agent.getAllowedShapeIds() }
+			const brief = props.brief
+			setTimeout(() => {
+				const placed = editor.getShape<WidgetShape>(id)
+				if (!placed || placed.props.status !== 'writing' || placed.props.brief !== brief) return
+				void runWidgetJob(agent, id, context)
+			}, 0)
 		}
 	}
 )

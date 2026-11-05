@@ -139,7 +139,7 @@ export function ChatPanel() {
 
 			// If the user's message is empty, just cancel the current request (if there is one)
 			if (value === '') {
-				agent.cancel()
+				agent.stop()
 				return
 			}
 

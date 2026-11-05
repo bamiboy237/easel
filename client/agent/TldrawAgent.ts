@@ -1,3 +1,4 @@
+import { cancelWidgetJobs } from '../shapes/widget/jobs'
 import { Editor, RecordsDiff, reverseRecordsDiff, structuredClone, TLRecord, TLShapeId } from 'tldraw'
 import { convertTldrawShapeToFocusedShape } from '../../shared/format/convertTldrawShapeToFocusedShape'
 import { AgentModelName } from '../../shared/models'
@@ -654,6 +655,16 @@ export class TldrawAgent {
 
 		this.requests.cancel()
 		this.frames.reset()
+	}
+
+	/**
+	 * The user stops the agent: its current request and its background work,
+	 * such as widgets still being written. A new request interrupting an old one
+	 * calls cancel instead, which leaves background work running.
+	 */
+	stop() {
+		this.cancel()
+		cancelWidgetJobs()
 	}
 
 	/**
