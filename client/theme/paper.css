@@ -1624,6 +1624,8 @@
 	--mafs-line-color: #e6e2d9;
 	--mafs-origin-color: #a39d92;
 	--mafs-font-family: 'Inter', sans-serif;
+	/* Tick numbers a size up from the default, so they read when the board is zoomed out. */
+	font-size: 13px;
 }
 
 /* Axis titles and curve names, set on the plot with a halo of the sheet so a grid line never cuts them. */

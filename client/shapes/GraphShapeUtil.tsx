@@ -58,12 +58,12 @@ export function describeGraph(props: GraphShapeProps): string {
 
 /**
  * The space between grid lines for a range drawn across so many pixels: a
- * round 1, 2, or 5 times a power of ten. Labels are at least 48 pixels apart,
+ * round 1, 2, or 5 times a power of ten. Labels are at least 60 pixels apart,
  * and further for long numbers, so they never run into each other.
  */
 export function gridStep(range: number, pixels: number, largest = 0): number {
 	const chars = Math.max(2, formatTick(largest || range, range / 10).length)
-	const gap = Math.max(48, chars * 7 + 16)
+	const gap = Math.max(60, chars * 8 + 20)
 	const raw = (range * gap) / Math.max(pixels, 1)
 	const power = Math.pow(10, Math.floor(Math.log10(raw)))
 	return ([1, 2, 5, 10].map((m) => m * power).find((step) => step >= raw) ?? 10 * power)
