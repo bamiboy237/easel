@@ -44,7 +44,8 @@ interface NodeStyle {
  * first box is tinted in the branch's ink, and the boxes past it are outlined
  * in that ink: hierarchy shows in size, then in weight, then in color.
  */
-function nodeStyle(tree: TreeInfo | null, id: string): NodeStyle {
+function nodeStyle(tree: TreeInfo | null, id: string, hub: string | null = null): NodeStyle {
+	if (id === hub) return { size: 'm', color: 'black', fill: 'solid' }
 	if (!tree) return { size: 's', color: 'black', fill: 'none' }
 	if (id === tree.root) return { size: 'm', color: 'black', fill: 'solid' }
 	const color = BRANCH_COLORS[(tree.branch.get(id) ?? 0) % BRANCH_COLORS.length]
@@ -78,6 +79,34 @@ function flowSymbols(layout: string, ids: string[], labels: Map<string, string>,
 		else if (/\?\s*$/.test(labels.get(id) ?? '') && out.get(id)! >= 2) geo.set(id, 'diamond')
 	}
 	return geo
+}
+
+/**
+ * The main concept of a concept map that is not a tree: the one concept that
+ * only points out, to three or more others. A concept map reads from its most
+ * general concept (Novak), so that one gets the root's look. Null when no
+ * single concept is that.
+ */
+function hubOf(layout: string, tree: TreeInfo | null, ids: string[], edges: DiagramEdge[]) {
+	if (layout !== 'map' || tree) return null
+	const into = new Set(edges.map((e) => e.to))
+	const out = new Map<string, number>()
+	for (const e of edges) out.set(e.from, (out.get(e.from) ?? 0) + 1)
+	const sources = ids.filter((id) => !into.has(id) && (out.get(id) ?? 0) >= 3)
+	return sources.length === 1 ? sources[0] : null
+}
+
+/**
+ * The ink of a flow's arrow from its label: a branch that goes ahead (yes,
+ * passes, signs) is green, and one that stops or turns back (no, fails,
+ * vetoes) is red, so the two ways out of a choice differ at a glance. Every
+ * other arrow stays in plain ink.
+ */
+function branchInk(layout: string, label: string): TLDefaultColorStyle | null {
+	if (layout !== 'flow') return null
+	if (/^(yes|true|pass(es|ed)?|succeeds?|success|approved?|signs?|valid|found)\b/i.test(label)) return 'green'
+	if (/^(no|false|fails?|failed|rejected?|vetoe?s?|invalid|not)\b/i.test(label)) return 'red'
+	return null
 }
 
 /** A short, stable hash of a string (FNV-1a), so different ids never share a shape id. */
@@ -180,6 +209,12 @@ export const DiagramActionUtil = registerActionUtil(
 							edges
 						)
 					: null
+			const hub = hubOf(
+				action.layout ?? 'flow',
+				tree,
+				named.map((n) => n.id),
+				edges
+			)
 			const geoOf = flowSymbols(
 				action.layout ?? 'flow',
 				named.map((n) => n.id),
@@ -187,7 +222,7 @@ export const DiagramActionUtil = registerActionUtil(
 				edges
 			)
 			const nodes: (LayoutNode & { label: string })[] = named.map(({ id, label }) => {
-				const fontSize = LABEL_FONT_SIZE[nodeStyle(tree, id).size]
+				const fontSize = LABEL_FONT_SIZE[nodeStyle(tree, id, hub).size]
 				const maxW = NODE_MAX_W + (fontSize - 18) * 8
 				const measured = measure(label, fontSize, maxW - NODE_PAD)
 				let w = Math.min(maxW, Math.max(NODE_MIN_W, measured.w + NODE_PAD))
@@ -267,7 +302,7 @@ export const DiagramActionUtil = registerActionUtil(
 				const existing = editor.getShape<TLGeoShape>(id)
 				const geo = geoOf.get(node.id) ?? 'rectangle'
 				// Ends of a flow are tinted lightly: the smallest difference that still reads (Tufte).
-				const style = geo === 'oval' ? { ...nodeStyle(tree, node.id), fill: 'solid' as const } : nodeStyle(tree, node.id)
+				const style = geo === 'oval' ? { ...nodeStyle(tree, node.id, hub), fill: 'solid' as const } : nodeStyle(tree, node.id, hub)
 				const props = { w: node.w, h: node.h, geo, richText: toRichText(node.label), ...style }
 				if (!existing) {
 					editor.createShape<TLGeoShape>({
@@ -302,13 +337,17 @@ export const DiagramActionUtil = registerActionUtil(
 				const existing = editor.getShape<TLArrowShape>(id)
 				const bend = bendOf(edge)
 				// A mind map's branches take the ink of the box they lead to, and are plain
-				// lines: the tree already says which way it reads.
+				// lines: the tree already says which way it reads. A flow's yes and no
+				// branches take green and red.
+				const ink = branchInk(action.layout ?? 'flow', edge.label)
 				const branchStyle = tree
 					? {
 							color: nodeStyle(tree, (tree.depth.get(edge.to) ?? 0) > (tree.depth.get(edge.from) ?? 0) ? edge.to : edge.from).color,
 							arrowheadEnd: 'none' as const,
 						}
-					: {}
+					: ink
+						? { color: ink }
+						: {}
 				if (existing) {
 					// The bend follows the layout only while it is still the layout's: not
 					// once the user bent the arrow or moved a box at either end.
