@@ -71,13 +71,118 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 	if (snake) return snake
 	// A label on a slanting arrow is squeezed when the arrow is wider than tall and
 	// too short for it; more room between layers makes such arrows steeper.
-	let bends: Bends = []
-	for (let attempt = 0; attempt < 3; attempt++) {
-		const centers = new Map<string, Point>()
-		bends = layoutFlowOnce(nodes, edges, RANK_GAP + attempt * 48, centers)
-		if (!edges.some((e, i) => isSqueezed(nodes, e, centers, bends[i]))) break
+	const run = (rankdir: 'TB' | 'LR') => {
+		let bends: Bends = []
+		let squeezed = false
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const centers = new Map<string, Point>()
+			bends = layoutFlowOnce(nodes, edges, RANK_GAP + attempt * 48, centers, rankdir)
+			squeezed = edges.some((e, i) => isSqueezed(nodes, e, centers, bends[i]))
+			if (!squeezed) break
+		}
+		const w = Math.max(...nodes.map((n) => n.x + n.w)) - Math.min(...nodes.map((n) => n.x))
+		const h = Math.max(...nodes.map((n) => n.y + n.h)) - Math.min(...nodes.map((n) => n.y))
+		return { bends, squeezed, fit: Math.min(1, FIT_W / w, FIT_H / h), at: nodes.map((n) => ({ x: n.x, y: n.y })) }
 	}
-	return bends
+	const down = run('TB')
+	// A long flow with branches drawn top to bottom can come out far taller than
+	// a screen, which shrinks its text past reading size at fit. The same flow
+	// read left to right often fits; it wins when it reads larger and keeps every
+	// label whole. A tree keeps top to bottom, as trees are drawn.
+	if (down.fit >= MIN_FIT || isTree(nodes, edges)) return down.bends
+	const options = [down]
+	const across = run('LR')
+	if (!across.squeezed) options.push(across)
+	const leadIn = layoutLeadIn(nodes, edges)
+	if (leadIn) options.push(leadIn)
+	const best = options.reduce((a, b) => (b.fit > a.fit + 0.05 ? b : a))
+	nodes.forEach((n, i) => Object.assign(n, best.at[i]))
+	return best.bends
+}
+
+/**
+ * A flow that runs a long way in a single line before it branches, such as a
+ * bill's path through Congress before the President's choices, drawn as one
+ * column is far taller than a screen. Its lead-in wraps into rows, as a
+ * process wraps (see layoutSnake), and the branching part hangs below the
+ * lead-in's last step, laid out top to bottom. Returns null for a flow without
+ * such a lead-in.
+ */
+function layoutLeadIn(nodes: LayoutNode[], edges: LayoutEdge[]) {
+	const into = new Map<string, number>(nodes.map((n) => [n.id, 0]))
+	const outOf = new Map<string, number[]>(nodes.map((n) => [n.id, []]))
+	edges.forEach((e, i) => {
+		into.set(e.to, into.get(e.to)! + 1)
+		outOf.get(e.from)!.push(i)
+	})
+	const sources = nodes.filter((n) => into.get(n.id) === 0)
+	if (sources.length !== 1) return null
+	const byId = new Map(nodes.map((n) => [n.id, n]))
+	const lead: LayoutNode[] = [sources[0]]
+	for (;;) {
+		const last = lead[lead.length - 1]
+		const out = outOf.get(last.id)!
+		if (out.length !== 1) break
+		const next = byId.get(edges[out[0]].to)!
+		if (into.get(next.id) !== 1 || lead.includes(next)) break
+		lead.push(next)
+	}
+	// The head is where the flow branches; it goes with the part below.
+	const head = lead.pop()!
+	if (lead.length < 3 || outOf.get(head.id)!.length < 2) return null
+	const inLead = new Set(lead.map((n) => n.id))
+	const rest = nodes.filter((n) => !inLead.has(n.id))
+	const restEdges = edges.map((e, i) => ({ e, i })).filter(({ e }) => !inLead.has(e.from) && !inLead.has(e.to))
+	const restCenters = new Map<string, Point>()
+	const restNodes = rest.map((n) => ({ ...n }))
+	const restBends = layoutFlowOnce(
+		restNodes,
+		restEdges.map(({ e }) => e),
+		RANK_GAP,
+		restCenters
+	)
+	// The lead-in, with the head as its last step, in rows of up to four.
+	const chain = [...lead, head]
+	const chainEdges = chain.slice(0, -1).map((n) => edges[outOf.get(n.id)![0]])
+	const cellW = Math.max(...chain.map((n) => n.w))
+	const cellH = Math.max(...chain.map((n) => n.h))
+	const cols = Math.min(4, Math.ceil(chain.length / Math.ceil(chain.length / 4)))
+	const gapX = Math.max(72, ...chainEdges.map((e) => (e.labelW > 0 ? e.labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 0)))
+	const gapY = Math.max(64, ...chainEdges.map((e) => (e.labelH > 0 ? e.labelH + LABEL_ARROW_ROOM : 0)))
+	const at = new Map<string, Point>()
+	chain.forEach((n, k) => {
+		const row = Math.floor(k / cols)
+		const col = row % 2 === 0 ? k % cols : cols - 1 - (k % cols)
+		at.set(n.id, { x: col * (cellW + gapX) + (cellW - n.w) / 2, y: row * (cellH + gapY) + (cellH - n.h) / 2 })
+	})
+	// The part below hangs from the head: shift it so the head lands on its place in the rows.
+	const restHead = restNodes.find((n) => n.id === head.id)!
+	const dx = at.get(head.id)!.x - restHead.x
+	const dy = at.get(head.id)!.y - restHead.y
+	for (const n of restNodes) if (n.id !== head.id) at.set(n.id, { x: n.x + dx, y: n.y + dy })
+	const bends: Bends = edges.map(() => 0)
+	restEdges.forEach(({ i }, k) => (bends[i] = restBends[k]))
+	const placed = nodes.map((n) => ({ ...n, ...at.get(n.id)! }))
+	// The part below must not run into the rows above it.
+	const rows = placed.filter((n) => inLead.has(n.id))
+	const below = placed.filter((n) => !inLead.has(n.id) && n.id !== head.id)
+	if (below.some((b) => rows.some((r) => b.x < r.x + r.w + 16 && r.x < b.x + b.w + 16 && b.y < r.y + r.h + 16 && r.y < b.y + b.h + 16))) return null
+	const minX = Math.min(...placed.map((n) => n.x))
+	const minY = Math.min(...placed.map((n) => n.y))
+	const w = Math.max(...placed.map((n) => n.x + n.w)) - minX
+	const h = Math.max(...placed.map((n) => n.y + n.h)) - minY
+	return { bends, squeezed: false, fit: Math.min(1, FIT_W / w, FIT_H / h), at: placed.map((n) => ({ x: n.x - minX, y: n.y - minY })) }
+}
+
+/** The screen a diagram is read on, less a margin, and the least zoom at which its text still reads. */
+const FIT_W = 1480
+const FIT_H = 880
+const MIN_FIT = 0.8
+
+function isTree(nodes: LayoutNode[], edges: LayoutEdge[]) {
+	const into = new Map<string, number>()
+	for (const e of edges) into.set(e.to, (into.get(e.to) ?? 0) + 1)
+	return edges.length === nodes.length - 1 && [...into.values()].every((k) => k <= 1)
 }
 
 /** Where an edge's label puts its child: a "left" or "no" branch first, a "right" or "yes" branch last. */
@@ -268,10 +373,16 @@ function layoutLoop(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
 	return edges.map(() => 0)
 }
 
-function layoutFlowOnce(nodes: LayoutNode[], edges: LayoutEdge[], rankGap: number, center: Map<string, Point>): Bends {
+function layoutFlowOnce(
+	nodes: LayoutNode[],
+	edges: LayoutEdge[],
+	rankGap: number,
+	center: Map<string, Point>,
+	rankdir: 'TB' | 'LR' = 'TB'
+): Bends {
 	const g = new Graph({ multigraph: true })
 	g.setGraph({
-		rankdir: 'TB',
+		rankdir,
 		nodesep: NODE_GAP,
 		ranksep: rankGap,
 		edgesep: 24,
@@ -304,7 +415,7 @@ function layoutFlowOnce(nodes: LayoutNode[], edges: LayoutEdge[], rankGap: numbe
 	// In a tree, siblings keep the order the agent gave them, so a binary tree's
 	// left child stays on the left. dagre reorders siblings to cut crossings,
 	// which a tree has none of, and that can swap them.
-	const tree = orderSiblings(nodes, edges, center)
+	const tree = rankdir === 'TB' && orderSiblings(nodes, edges, center)
 	for (const n of nodes) {
 		const c = center.get(n.id)!
 		n.x = c.x - n.w / 2

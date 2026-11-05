@@ -1465,7 +1465,7 @@
 	padding: 0 6px;
 	border-radius: 4px;
 	background: color-mix(in srgb, var(--paper-card) 85%, transparent);
-	font: italic 15px 'Source Serif 4 Variable', Georgia, serif;
+	font: italic 17px 'Source Serif 4 Variable', Georgia, serif;
 	color: var(--paper-ink);
 	pointer-events: none;
 }
@@ -1489,7 +1489,7 @@
 	padding: 1px 6px;
 	border-radius: 4px;
 	background: color-mix(in srgb, var(--paper-card) 85%, transparent);
-	font: 500 12px 'Inter', sans-serif;
+	font: 500 14px 'Inter', sans-serif;
 	font-variant-numeric: tabular-nums;
 	color: var(--paper-ink);
 	white-space: pre-wrap;
