@@ -30,6 +30,7 @@ import { AgentModelNameManager } from './managers/AgentModelNameManager'
 import { AgentModeManager } from './managers/AgentModeManager'
 import { AgentRequestManager } from './managers/AgentRequestManager'
 import { AgentTodoManager } from './managers/AgentTodoManager'
+import { AgentToolGroupsManager } from './managers/AgentToolGroupsManager'
 import { AgentUserActionTracker } from './managers/AgentUserActionTracker'
 import { BoardCommandManager } from './managers/BoardCommandManager'
 
@@ -123,6 +124,9 @@ export class TldrawAgent {
 	/** The todo manager associated with this agent. */
 	todos: AgentTodoManager
 
+	/** The tool groups this conversation has loaded. */
+	toolGroups: AgentToolGroupsManager
+
 	/** The user action tracker associated with this agent. */
 	userAction: AgentUserActionTracker
 
@@ -169,6 +173,7 @@ export class TldrawAgent {
 		this.modelName = new AgentModelNameManager(this)
 		this.requests = new AgentRequestManager(this)
 		this.todos = new AgentTodoManager(this)
+		this.toolGroups = new AgentToolGroupsManager(this)
 		this.userAction = new AgentUserActionTracker(this)
 
 		// Note: Agent registration is handled by AgentAppAgentsManager.createAgent()
@@ -653,6 +658,7 @@ export class TldrawAgent {
 		this.mode.reset()
 		this.requests.reset()
 		this.todos.reset()
+		this.toolGroups.reset()
 		this.userAction.reset()
 	}
 

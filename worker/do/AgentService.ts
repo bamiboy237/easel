@@ -19,7 +19,7 @@ import { AgentPrompt } from '../../shared/types/AgentPrompt'
 import { Streaming } from '../../shared/types/Streaming'
 import { Environment } from '../environment'
 import { buildMessages } from '../prompt/buildMessages'
-import { buildSystemPrompt } from '../prompt/buildSystemPrompt'
+import { buildLoadedToolsPrompt, buildSystemPrompt } from '../prompt/buildSystemPrompt'
 import { getModelName } from '../prompt/getModelName'
 import { ActionStream } from './ActionStream'
 
@@ -83,7 +83,10 @@ export class AgentService {
 		}
 
 		const modelDefinition = getAgentModelDefinition(modelId)
-		const systemPrompt = buildSystemPrompt(prompt)
+		const corePrompt = buildSystemPrompt(prompt)
+		// Loaded tool groups go after the stable core, so the core stays cached.
+		const loadedToolsPrompt = buildLoadedToolsPrompt(prompt)
+		const systemPrompt = corePrompt + loadedToolsPrompt
 		const usesNativeJsonSchema = ['meta', 'openai', 'chatgpt'].includes(modelDefinition.provider)
 
 		// Build messages with provider-specific options
@@ -94,13 +97,17 @@ export class AgentService {
 		// prompt, so all system content (which changes together) is cached.
 		const systemInMessages = provider === 'anthropic.messages'
 		if (systemInMessages) {
-			messages.push({
-				role: 'system',
-				content: systemPrompt,
-				providerOptions: {
-					anthropic: { cacheControl: { type: 'ephemeral' } },
-				},
-			})
+			// Two cache breakpoints: the stable core, then the loaded tool groups,
+			// which only grow at their end.
+			for (const content of [corePrompt, loadedToolsPrompt].filter(Boolean)) {
+				messages.push({
+					role: 'system',
+					content,
+					providerOptions: {
+						anthropic: { cacheControl: { type: 'ephemeral' } },
+					},
+				})
+			}
 		}
 
 		// Add prompt messages
@@ -192,9 +199,15 @@ export class AgentService {
 						commentary.delete(part.id)
 						break
 					}
-					case 'finish':
+					case 'finish': {
 						finishReason = part.finishReason
+						// One line per request, so prompt size and caching can be measured.
+						const usage = part.totalUsage
+						console.log(
+							`[usage] model=${modelId} actions=${prompt.mode.actionTypes.length} groups=${prompt.mode.loadedToolGroups?.join('+') || 'none'} systemChars=${systemPrompt.length} loadedChars=${loadedToolsPrompt.length} input=${usage.inputTokens ?? '?'} cached=${usage.cachedInputTokens ?? 0} output=${usage.outputTokens ?? '?'} reasoning=${usage.reasoningTokens ?? 0}`
+						)
 						break
+					}
 					case 'error':
 						// Some providers end the stream with an error that carries nothing.
 						throw part.error ??

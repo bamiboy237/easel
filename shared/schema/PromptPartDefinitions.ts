@@ -1,3 +1,4 @@
+import type { ToolGroupId } from '../toolGroups'
 import { BoxModel, JsonValue } from 'tldraw'
 import { BlurryShape } from '../format/BlurryShape'
 import { FocusedShape } from '../format/FocusedShape'
@@ -142,6 +143,8 @@ export interface ModePart {
 	modeType: string
 	partTypes: PromptPart['type'][]
 	actionTypes: AgentAction['_type'][]
+	/** Tool groups loaded in this conversation, in the order they loaded. */
+	loadedToolGroups?: ToolGroupId[]
 }
 
 export interface DebugPart {
