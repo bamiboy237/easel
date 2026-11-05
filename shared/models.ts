@@ -141,7 +141,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 		provider: 'openai',
 		supportsPrefill: false,
 		supportsTemperature: false,
-		reasoningEffort: 'high',
+		reasoningEffort: 'medium',
 	},
 
 	'gpt-5.6-luna': {
@@ -154,7 +154,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 	},
 } as const
 
-export const DEFAULT_MODEL_NAME: AgentModelName = 'muse-wonder-1.0'
+export const DEFAULT_MODEL_NAME: AgentModelName = 'gpt-5.6-terra'
 
 /**
  * Check if a string is a valid AgentModelName.
