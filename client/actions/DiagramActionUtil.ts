@@ -1,9 +1,9 @@
-import { Box, TLArrowShape, TLDefaultColorStyle, TLGeoShape, TLShapeId, TLTextShape, toRichText } from 'tldraw'
+import { Box, TLArrowShape, TLDefaultColorStyle, TLGeoShape, TLRichText, TLShapeId, TLTextShape, toRichText } from 'tldraw'
 import { DiagramAction } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
-import { layoutFlow, LayoutNode, layoutMap, TreeInfo, treeOf } from '../shapes/diagram/layout'
+import { Bends, EdgeRoute, layoutFlow, LayoutNode, layoutMap, TreeInfo, treeOf } from '../shapes/diagram/layout'
 import { drawTimeline, groupInks, isDatedChain } from '../shapes/diagram/timeline'
 
 /** Box sizes for a node: wide enough for a short label on one or two lines. */
@@ -65,7 +65,7 @@ function nodeStyle(tree: TreeInfo | null, id: string, hub: string | null = null)
 /** The look of a diagram box from before the layout recorded its own, for older boards. */
 const DEFAULT_NODE_STYLE = { geo: 'rectangle', color: 'black', fill: 'none', size: 's' } as const
 
-type NodeGeo = 'rectangle' | 'oval' | 'diamond'
+type NodeGeo = 'rectangle' | 'oval' | 'diamond' | 'ellipse'
 
 /**
  * The flowchart symbol for each step of a process flow (ISO 5807): the steps
@@ -130,6 +130,7 @@ function isProcessTree(ids: string[], labels: Map<string, string>, edges: Diagra
 function outcomeInk(label: string, incoming: TLDefaultColorStyle | null): TLDefaultColorStyle | null {
 	if (/\b(not|fails?|failed|dies|died|rejected|denied|vetoed|killed|stops?|blocked|invalid|lost|error)\b/i.test(label)) return 'red'
 	if (/\b(becomes?|became|approved|accepted|passes|passed|succeeds?|success|done|complete[ds]?|enacted|wins?|valid|found)\b/i.test(label)) return 'green'
+	if (/\b(law|overrid(e|es|den))\b/i.test(label)) return 'green'
 	if (/\bveto(ed)?\b/i.test(label)) return 'red'
 	return incoming === 'green' || incoming === 'red' ? incoming : null
 }
@@ -166,6 +167,17 @@ function branchInk(layout: string, label: string): TLDefaultColorStyle | null {
 	if (/^(yes|true|pass(es|ed)?|succeeds?|success|approved?|signs?|valid|found)\b/i.test(label)) return 'green'
 	if (/^(no|false|fails?|failed|rejected?|vetoe?s?|invalid|not)\b/i.test(label)) return 'red'
 	return null
+}
+
+/** A bold name on one line and the rest on the next. */
+function headedText({ head, rest }: { head: string; rest: string }): TLRichText {
+	return {
+		type: 'doc',
+		content: [
+			{ type: 'paragraph', content: [{ type: 'text', text: head, marks: [{ type: 'bold' }] }] },
+			{ type: 'paragraph', content: [{ type: 'text', text: rest }] },
+		],
+	}
 }
 
 /** A short, stable hash of a string (FNV-1a), so different ids never share a shape id. */
@@ -212,7 +224,7 @@ export const DiagramActionUtil = registerActionUtil(
 		}
 
 		/** The last preview's layout, so a preview redrawn for every streamed token is laid out once per change. */
-		previewLayout: { key: string; positions: { x: number; y: number }[]; bends: number[] } | null = null
+		previewLayout: { key: string; positions: { x: number; y: number }[]; bends: Bends } | null = null
 
 		override applyAction(action: Streaming<DiagramAction>, helpers: AgentHelpers) {
 			if (!action.diagramId) return
@@ -320,14 +332,37 @@ export const DiagramActionUtil = registerActionUtil(
 			const groupInk = useGroups
 				? groupInks(groupNames, withChoices ? ['blue', 'violet', 'orange', 'light-blue', 'yellow'] : ['blue', 'red', 'green', 'violet', 'orange'])
 				: new Map<string, TLDefaultColorStyle>()
+			// A binary tree, such as a search tree: its arrows say only "left" or
+			// "right". The layout uses those words to place each child, and the tree
+			// then reads by position alone, as textbooks draw it: short keys in small
+			// circles, and no words on the arrows.
+			const sidesOnly =
+				(action.layout ?? 'flow') === 'flow' &&
+				edges.length === named.length - 1 &&
+				new Set(edges.map((e) => e.to)).size === edges.length &&
+				edges.some((e) => e.label) &&
+				edges.every((e) => /^(left|right|)$/i.test(e.label))
 			// A decision's question as it is drawn, on one line or two.
 			const lines = new Map<string, string>()
+			// Map labels drawn as a bold name over the rest.
+			const headed = new Map<string, { head: string; rest: string }>()
 			const nodes: (LayoutNode & { label: string })[] = named.map(({ id, label }) => {
 				const fontSize = LABEL_FONT_SIZE[nodeStyle(tree, id, hub).size]
 				const maxW = NODE_MAX_W + (fontSize - 18) * 8
 				const measured = measure(label, fontSize, maxW - NODE_PAD)
 				let w = Math.min(maxW, Math.max(NODE_MIN_W, measured.w + NODE_PAD))
 				let h = Math.max(NODE_H, measured.h + 28)
+				// In a map, a label that names a thing and then says more about it, such
+				// as "Noun: dog" or "Supervised: learns from labels", sets the name in bold
+				// on its own line and the rest under it, so the name reads first.
+				const parts = action.layout === 'map' && id !== tree?.root && id !== hub ? /^([^:]{2,28}):\s+(.{2,})$/.exec(label) : null
+				if (parts) {
+					const head = measure(parts[1], fontSize, maxW - NODE_PAD)
+					const rest = measure(parts[2], fontSize, maxW - NODE_PAD)
+					headed.set(id, { head: parts[1], rest: parts[2] })
+					w = Math.min(maxW, Math.max(NODE_MIN_W, head.w * 1.1 + NODE_PAD, rest.w + NODE_PAD))
+					h = Math.max(NODE_H, head.h + rest.h + 28)
+				}
 				// A pill's round ends and a diamond's corners take room from the label.
 				if (geoOf.get(id) === 'oval') w += 28
 				if (geoOf.get(id) === 'diamond') {
@@ -350,25 +385,30 @@ export const DiagramActionUtil = registerActionUtil(
 					if (split && split.w <= DIAMOND_MAX_LINE) {
 						lines.set(id, `${split.a}\n${split.b}`)
 						w = Math.round(Math.max(170, split.w * 1.9 + 40))
-						h = Math.round(Math.max(120, line.h * 2 * 2.3, w * 0.45))
+						h = Math.round(Math.max(104, line.h * 2 * 2.1, w * 0.4))
 					} else if (line.w <= DIAMOND_MAX_LINE) {
 						w = Math.round(Math.max(170, line.w * 1.9 + 40))
-						h = Math.round(Math.max(110, line.h * 3, w * 0.42))
+						h = Math.round(Math.max(96, line.h * 3, w * 0.38))
 					} else {
 						geoOf.set(id, 'rectangle')
 					}
+				}
+				if (sidesOnly && label.length <= 4 && geoOf.get(id) === 'rectangle') {
+					geoOf.set(id, 'ellipse' as NodeGeo)
+					w = h = Math.max(76, measured.w + 40)
 				}
 				return { id, label, w, h, x: 0, y: 0 }
 			})
 			// Each label gets its own room in the layout, so it is never squeezed or covered.
 			const layoutEdges = edges.map((e) => {
+				if (sidesOnly) return { from: e.from, to: e.to, label: e.label, labelW: 0, labelH: 0 }
 				if (!e.label) return { from: e.from, to: e.to, labelW: 0, labelH: 0 }
 				const size = measure(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_W)
 				return { from: e.from, to: e.to, label: e.label, labelW: size.w + EDGE_LABEL_PAD, labelH: size.h + EDGE_LABEL_PAD }
 			})
 			const layout = (tries?: number) =>
 				action.layout === 'map' ? layoutMap(nodes, layoutEdges, tries) : layoutFlow(nodes, layoutEdges)
-			let bends: number[]
+			let bends: Bends
 			if (preview) {
 				const key = JSON.stringify([action.layout, nodes.map((n) => [n.id, n.w, n.h]), layoutEdges])
 				if (this.previewLayout?.key !== key) {
@@ -377,7 +417,7 @@ export const DiagramActionUtil = registerActionUtil(
 					this.previewLayout = { key, positions: nodes.map((n) => ({ x: n.x, y: n.y })), bends: previewBends }
 				}
 				nodes.forEach((n, i) => Object.assign(n, this.previewLayout!.positions[i]))
-				bends = [...this.previewLayout.bends]
+				bends = Object.assign([...this.previewLayout.bends], { routes: this.previewLayout.bends.routes })
 			} else {
 				this.previewLayout = null
 				bends = layout()
@@ -391,6 +431,15 @@ export const DiagramActionUtil = registerActionUtil(
 				if ((pairs.get(pairKey(e)) ?? 0) > 1 && Math.abs(bends[i]) < 30) bends[i] = 40
 			})
 			const bendOf = (edge: DiagramEdge) => bends[edges.indexOf(edge)] ?? 0
+			// An arrow the layout routes at right angles, such as one that continues a
+			// procedure at the top of its next column, runs as an elbow arrow from fixed
+			// sides of its boxes.
+			const routeOf = (edge: DiagramEdge): EdgeRoute | null => bends.routes?.[edges.indexOf(edge)] ?? null
+			const routeProps = (route: EdgeRoute | null) => (route ? { kind: 'elbow' as const, elbowMidPoint: route.mid, bend: 0 } : { kind: 'arc' as const })
+			const anchorsOf = (route: EdgeRoute | null) =>
+				route
+					? { start: { normalizedAnchor: route.start, isPrecise: true }, end: { normalizedAnchor: route.end, isPrecise: true } }
+					: { start: { normalizedAnchor: { x: 0.5, y: 0.5 }, isPrecise: false }, end: { normalizedAnchor: { x: 0.5, y: 0.5 }, isPrecise: false } }
 
 			const origin = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 			// The model cannot know how big the layout comes out, so a new diagram can land
@@ -419,6 +468,11 @@ export const DiagramActionUtil = registerActionUtil(
 			// unless the user moved them away from where the layout last put them.
 			const keep = new Set<string>()
 			const movedNodes = new Set<string>()
+			// The groups whose wash still shows on some box: an end recolored as a
+			// success or a failure no longer shows its group's.
+			const shownGroups = new Set<string>()
+			// The ink of each end that reads as a success or a failure.
+			const endInks = new Map<string, TLDefaultColorStyle>()
 			for (const node of nodes) {
 				const id = nodeShapeId(diagramId, node.id)
 				keep.add(id)
@@ -437,13 +491,15 @@ export const DiagramActionUtil = registerActionUtil(
 					geo === 'oval' && incoming.length && !edges.some((e) => e.from === node.id)
 						? outcomeInk(node.label, incoming.length === 1 ? branchInk(action.layout ?? 'flow', incoming[0].label) : null)
 						: null
+				if (endInk) endInks.set(node.id, endInk)
 				// A step a redraw adds, such as a step the user asked for, is tinted until
 				// the next redraw, so the change is easy to find, as a teacher marks what
 				// is new on a board. Group colors and the ends' colors keep their meaning.
 				const added = !isNew && !existing && !preview && !ink && geo === 'rectangle'
 				const shown = added ? { ...base, color: 'orange' as const, fill: 'solid' as const } : base
 				const style = geo === 'oval' ? { ...shown, fill: 'solid' as const, ...(endInk ? { color: endInk } : {}) } : shown
-				const props = { w: node.w, h: node.h, geo, richText: toRichText(lines.get(node.id) ?? node.label), ...style }
+				if (ink && style.color === ink) shownGroups.add(groupOfNode.get(node.id)!)
+				const props = { w: node.w, h: node.h, geo, richText: headed.has(node.id) ? headedText(headed.get(node.id)!) : toRichText(lines.get(node.id) ?? node.label), ...style }
 				// The look the layout chose, kept so a redraw can tell it from the user's own.
 				const laidOutStyle = { geo, color: style.color, fill: style.fill, size: style.size }
 				if (!existing) {
@@ -488,7 +544,7 @@ export const DiagramActionUtil = registerActionUtil(
 			if (useGroups && !preview) {
 				const bottom = Math.max(...nodes.map((n) => origin.y + n.y + n.h)) + 36
 				let x = Math.min(...nodes.map((n) => origin.x + n.x))
-				for (const g of groupNames) {
+				for (const g of groupNames.filter((name) => shownGroups.has(name))) {
 					const swatchId = `${prefix}legend-${slug(g)}-${hash(g)}` as TLShapeId
 					const textId = `${prefix}legendt-${slug(g)}-${hash(g)}` as TLShapeId
 					keep.add(swatchId)
@@ -514,32 +570,47 @@ export const DiagramActionUtil = registerActionUtil(
 				const existing = editor.getShape<TLArrowShape>(id)
 				const bend = bendOf(edge)
 				// A mind map's branches take the ink of the box they lead to, and are plain
-				// lines: the tree already says which way it reads. A flow's yes and no
-				// branches take green and red.
-				const ink = branchInk(action.layout ?? 'flow', edge.label)
+				// lines: the tree already says which way it reads. In a flow, an arrow into
+				// an end takes the end's green or red, so color always means the outcome:
+				// a "yes" that leads to a pocket veto is red. Arrows between steps stay in
+				// ink, their yes and no written on them.
+				const ink = (action.layout ?? 'flow') === 'flow' ? (endInks.get(edge.to) ?? null) : null
 				const branchStyle = tree
 					? {
 							color: nodeStyle(tree, (tree.depth.get(edge.to) ?? 0) > (tree.depth.get(edge.from) ?? 0) ? edge.to : edge.from).color,
 							arrowheadEnd: 'none' as const,
 						}
-					: ink
-						? { color: ink }
-						: {}
+					: sidesOnly
+						? { arrowheadEnd: 'none' as const }
+						: ink
+							? { color: ink }
+							: {}
 				if (existing) {
 					// The bend follows the layout only while it is still the layout's: not
 					// once the user bent the arrow or moved a box at either end.
 					const laidOutBend = existing.meta.bend as number | undefined
 					const ownBend =
 						laidOutBend === existing.props.bend && !movedNodes.has(edge.from) && !movedNodes.has(edge.to)
+					const route = routeOf(edge)
 					editor.updateShape<TLArrowShape>({
 						id,
 						type: 'arrow',
 						meta: ownBend ? { ...existing.meta, bend } : existing.meta,
-						props: { richText: toRichText(edge.label), ...branchStyle, ...(ownBend ? { bend } : {}) },
+						props: { richText: toRichText(sidesOnly ? '' : edge.label), ...branchStyle, ...(ownBend ? { bend, ...routeProps(route) } : {}) },
 					})
+					// The arrow's ends follow its route while the route is still the layout's.
+					if (ownBend) {
+						const anchors = anchorsOf(route)
+						for (const binding of editor.getBindingsFromShape(id, 'arrow')) {
+							const terminal = (binding.props as { terminal: 'start' | 'end' }).terminal
+							editor.updateBinding({ ...binding, props: { ...binding.props, ...anchors[terminal] } } as Parameters<typeof editor.updateBinding>[0])
+						}
+					}
 					continue
 				}
-				const label = { richText: toRichText(edge.label), bend }
+				const route = routeOf(edge)
+				const anchors = anchorsOf(route)
+				const label = { richText: toRichText(sidesOnly ? '' : edge.label), bend, ...routeProps(route) }
 				const from = editor.getShapePageBounds(fromId)!
 				const to = editor.getShapePageBounds(toId)!
 				editor.createShape<TLArrowShape>({
@@ -559,7 +630,7 @@ export const DiagramActionUtil = registerActionUtil(
 						type: 'arrow',
 						fromId: id,
 						toId: target,
-						props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false },
+						props: { terminal, ...anchors[terminal], isExact: false },
 					} as Parameters<typeof editor.createBinding>[0])
 				}
 			}

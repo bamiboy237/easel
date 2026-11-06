@@ -60,11 +60,44 @@ export function settleBlock(agent: TldrawAgent, id: TLShapeId) {
 		else moved.x = Math.max(...hits.map((b) => b.maxX)) + GAP
 		bounds = moved
 	}
+	// An explanation written beside a visual the agent just made, such as a scene
+	// or a diagram, sits close to it: the model guesses the visual's width, and a
+	// wide gap reads as two separate things. Only across clear space.
+	if (shape.type === 'text') {
+		const visuals = [
+			...agent.lints
+				.getCreatedShapes()
+				.filter((s) => s.id !== id && s.parentId === parentId && VISUALS.includes(s.type))
+				.map((s) => editor.getShapePageBounds(s))
+				.filter((b): b is Box => !!b),
+			...diagrams,
+		]
+		const current: Box = bounds
+		const beside = visuals
+			.filter((b) => b.maxX + NEAR < current.minX && current.minY >= b.minY - 8 && current.minY < b.maxY - 40)
+			.sort((a, b) => b.maxX - a.maxX)[0]
+		if (beside) {
+			const corridor = new Box(beside.maxX + 1, current.minY, current.minX - beside.maxX - 2, current.h)
+			const blocked = editor
+				.getCurrentPageShapes()
+				.filter((s) => s.id !== id && s.type !== 'frame' && s.type !== 'arrow')
+				.some((s) => {
+					const b = editor.getShapePageBounds(s)
+					return !!b && overlap(b, corridor)
+				})
+			if (!blocked) bounds = current.clone().translate({ x: beside.maxX + NEAR - current.minX, y: 0 })
+		}
+	}
 	const dx = bounds.x - start.x
 	const dy = bounds.y - start.y
 	if (dx === 0 && dy === 0) return
 	editor.updateShape({ id, type: shape.type, x: shape.x + dx, y: shape.y + dy })
 }
+
+/** The gap kept between a visual and the explanation beside it. */
+const NEAR = 40
+/** Visuals an explanation is written beside. */
+const VISUALS = ['graph', 'scene', 'simulation', 'widget']
 
 /** Shapes that hold content of their own: typeset math, plots, scenes, and text. */
 function isBlock(type: string) {

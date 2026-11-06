@@ -59,7 +59,21 @@ const LABEL_ARROW_ROOM = 64
  * far from the middle of the straight line (see bendNormal). One per edge, in
  * the edges' order.
  */
-export type Bends = number[]
+export type Bends = number[] & {
+	/** Edges drawn as right-angled (elbow) arrows instead of arcs, by edge index. */
+	routes?: (EdgeRoute | null)[]
+}
+
+/**
+ * A right-angled arrow: where it leaves and enters its boxes, as tldraw's
+ * normalized anchors, and where its middle run sits, as a fraction of the way
+ * from its start to its end (tldraw's elbowMidPoint).
+ */
+export interface EdgeRoute {
+	start: Point
+	end: Point
+	mid: number
+}
 
 /**
  * Flow layout: a layered drawing (Sugiyama style) by dagre, top to bottom.
@@ -92,7 +106,25 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 	// A process that branches only at its end, such as a bill's path to the
 	// President's choices, is a tree too, but a tall one: it may still wrap its
 	// lead-in into rows.
-	if (down.fit >= MIN_FIT) return down.bends
+	if (down.fit >= MIN_FIT) {
+		// A short pipeline drawn top to bottom, such as a request path through a
+		// system's parts, comes out a thin column that leaves most of a screen
+		// empty. When it runs three steps or more in a line before it branches, it
+		// reads left to right, as the request travels, if that fits as well.
+		const at = nodes.map((n) => ({ x: n.x, y: n.y }))
+		const w = Math.max(...nodes.map((n) => n.x + n.w)) - Math.min(...nodes.map((n) => n.x))
+		const h = Math.max(...nodes.map((n) => n.y + n.h)) - Math.min(...nodes.map((n) => n.y))
+		if (h > 1.5 * w && leadRun(nodes, edges) >= 2) {
+			const across = run('LR')
+			const value = (o: { fit: number; at: Point[]; bends: Bends }) => Math.min(1, o.fit) - flowPenalty(nodes, edges, o.at, o.bends)
+			if (!across.squeezed && across.fit >= MIN_FIT && value(across) >= value(down) - 0.1) {
+				nodes.forEach((n, i) => Object.assign(n, across.at[i]))
+				return across.bends
+			}
+		}
+		nodes.forEach((n, i) => Object.assign(n, at[i]))
+		return down.bends
+	}
 	const options = [down]
 	if (!isTree(nodes, edges)) {
 		const across = run('LR')
@@ -102,11 +134,15 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 	if (leadIn) options.push(leadIn)
 	const spine = layoutSpine(nodes, edges)
 	if (spine) options.push(spine)
+	const procedure = layoutProcedure(nodes, edges)
+	if (procedure) options.push(procedure)
 	const columns = layoutColumns(nodes, edges)
 	if (columns) options.push(columns)
 	// A drawing that fits but reads badly loses: crossing arrows, arrows that run
 	// back up the page, and arrows through boxes each cost it.
-	const value = (o: (typeof options)[number] & { continued?: Set<number> }) => Math.min(1, o.fit) - flowPenalty(nodes, edges, o.at, o.bends, o.continued)
+	// A procedure that reads straight down its columns wins over rows that turn back, unless it is much smaller.
+	const value = (o: (typeof options)[number] & { continued?: Set<number>; procedure?: boolean }) =>
+		Math.min(1, o.fit) - flowPenalty(nodes, edges, o.at, o.bends, o.continued) + (o.procedure ? PROCEDURE_BONUS : 0)
 	const best = options.reduce((a, b) => (value(b) > value(a) + 0.05 ? b : a))
 	nodes.forEach((n, i) => Object.assign(n, best.at[i]))
 	return best.bends
@@ -186,17 +222,12 @@ function layoutLeadIn(nodes: LayoutNode[], edges: LayoutEdge[]) {
 }
 
 /**
- * A process whose main line runs a long way while its choices drop off to
- * quick ends ("No: bill stalls"), as most decision flows do, drawn top to
- * bottom is a column far taller than a screen: every early exit costs a
- * rank. Its main line wraps into rows that read left to right, then right to
- * left, as a process poster does, and each early exit hangs just under the
- * step it leaves. Rows break where no exit hangs, so each turn is a short
- * step straight down. The part after the main line's first real fork hangs
- * below the last row, laid out top to bottom. Returns null when the flow has
- * no such main line.
+ * A flow's main line: from its one source, each step goes on to one step, and
+ * any other way out is a quick end (an exit). A detour that rejoins the main
+ * line, such as chambers that reconcile their versions, stays on it, and the
+ * direct way past it is a skip. Null when the flow has no single source.
  */
-function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
+function mainLine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 	const into = new Map<string, number>(nodes.map((n) => [n.id, 0]))
 	const outOf = new Map<string, number[]>(nodes.map((n) => [n.id, []]))
 	edges.forEach((e, i) => {
@@ -268,6 +299,258 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 		exitsOf.delete(chain[chain.length - 1].id)
 		skips.pop()
 	}
+	return { chain, exitsOf, skips, noBreak, into, outOf, byId }
+}
+
+/** Room an elbow arrow takes past the boxes it runs above and below (tldraw's leg for size s, and a margin). */
+const ELBOW_ROOM = 40
+
+/**
+ * A long procedure, such as a bill's path through Congress, drawn the way a
+ * printed flowchart is: its main line runs straight down a column, and every
+ * quick end ("Bill fails") sits to the right of the step it leaves, on that
+ * step's row, so the eye reads down and the failures stay on one side. A
+ * detour, such as reconciling two versions, steps out to the right and comes
+ * back to the step it rejoins, while the direct way runs straight down. A
+ * line too tall for a screen continues at the top of the next column, joined
+ * by a right-angled arrow that runs down the gutter between them, as a poster
+ * continues. The part after the main line's first real fork hangs below the
+ * main line's last step, top to bottom. Returns null when the flow has no
+ * such main line.
+ */
+function layoutProcedure(nodes: LayoutNode[], edges: LayoutEdge[]) {
+	const line = mainLine(nodes, edges)
+	if (!line) return null
+	const { exitsOf, byId } = line
+	let { chain, skips } = line
+	// A step with two quick ends, such as a President who signs, vetoes, or does
+	// nothing, is a fork: the main line stops there, and its choices fan out below it.
+	const fork = chain.findIndex((n, k) => k > 0 && k < chain.length - 1 && (exitsOf.get(n.id)?.length ?? 0) >= 2)
+	if (fork > 0) {
+		const spans = skips.map((i) => [chain.findIndex((n) => n.id === edges[i].from), chain.findIndex((n) => n.id === edges[i].to)])
+		if (!spans.some(([a, b]) => a < fork && fork < b)) {
+			for (const n of chain.slice(fork)) exitsOf.delete(n.id)
+			skips = skips.filter((_, j) => spans[j][1] <= fork)
+			chain = chain.slice(0, fork + 1)
+		}
+	}
+	// Where the main line ends in three or more choices and one of them ends at
+	// once ("signs: becomes law"), that end sits beside the last step, as the
+	// quick ends above it do, and only the longer choices fan out below.
+	{
+		const last = chain[chain.length - 1]
+		const outs = edges.map((e, i) => ({ e, i })).filter(({ e }) => e.from === last.id)
+		const isLeaf = (id: string) => !edges.some((e) => e.from === id) && edges.filter((e) => e.to === id).length === 1
+		const leaves = outs.filter(({ e }) => isLeaf(e.to))
+		if (outs.length >= 3 && leaves.length === 1) exitsOf.set(last.id, [leaves[0].i])
+	}
+	const exitCount = [...exitsOf.values()].reduce((s, a) => s + a.length, 0)
+	if (chain.length < 5 || exitCount === 0) return null
+	const head = chain[chain.length - 1]
+	const inChain = new Set(chain.map((n) => n.id))
+	const exitIds = new Set([...exitsOf.values()].flat().map((i) => edges[i].to))
+	const rest = nodes.filter((n) => !inChain.has(n.id) && !exitIds.has(n.id))
+	const restSet = new Set([head.id, ...rest.map((n) => n.id)])
+	const edgeOf = (from: string, to: string) => edges.findIndex((e) => e.from === from && e.to === to)
+	const restEdges = edges.map((e, i) => ({ e, i })).filter(({ e }) => restSet.has(e.from) && restSet.has(e.to))
+	// Detours: the steps between a skip's ends step out to the right.
+	const detours = skips.map((i) => {
+		const a = chain.findIndex((n) => n.id === edges[i].from)
+		const b = chain.findIndex((n) => n.id === edges[i].to)
+		return { skip: i, a, b, inner: chain.slice(a + 1, b) }
+	})
+	if (detours.some((d) => d.a < 0 || d.b <= d.a + 1 || d.inner.length > 2)) return null
+	const innerIds = new Set(detours.flatMap((d) => d.inner.map((n) => n.id)))
+	const spine = chain.filter((n) => !innerIds.has(n.id))
+	const mainIdx = spine.slice(0, -1).map((n, k) => edgeOf(n.id, spine[k + 1].id))
+	if (mainIdx.some((i) => i < 0)) return null
+	const chainIdx = chain.slice(0, -1).map((n, k) => edgeOf(n.id, chain[k + 1].id))
+	// Every arrow is on the main line, a quick end, a detour, or in the part below.
+	const covered = new Set([...chainIdx, ...skips, ...[...exitsOf.values()].flat(), ...restEdges.map(({ i }) => i)])
+	if (chainIdx.some((i) => i < 0) || covered.size !== edges.length) return null
+	const gapFor = (i: number) => {
+		const e = edges[i]
+		return Math.max(64, e.labelW > 0 ? e.labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 0)
+	}
+	const exits = (n: LayoutNode) => (exitsOf.get(n.id) ?? []).map((i) => ({ i, node: byId.get(edges[i].to)! }))
+	// Each spine step's row: boxes beside it, as offsets of their left edges from the step's center.
+	type Item = { node: LayoutNode; dx: number }
+	const rowOf = new Map<string, Item[]>()
+	const outward = (items: Item[], side: 1 | -1, from: number, list: { i: number; node: LayoutNode }[]) => {
+		let x = from
+		for (const { i, node } of list) {
+			const gap = gapFor(i)
+			if (side > 0) {
+				items.push({ node, dx: x + gap })
+				x += gap + node.w
+			} else {
+				items.push({ node, dx: x - gap - node.w })
+				x -= gap + node.w
+			}
+		}
+	}
+	for (const n of spine) {
+		const items: Item[] = []
+		const ex = exits(n)
+		const k = chain.indexOf(n)
+		const d = detours.find((t) => t.a === k || (t.inner.length === 2 && t.b === k))
+		if (!d) {
+			outward(items, 1, n.w / 2, ex.slice(0, 1))
+			outward(items, -1, -n.w / 2, ex.slice(1))
+		} else {
+			// A detour's steps share a lane right of the spine, one on each of the two rows.
+			const start = chain[d.a]
+			const join = chain[d.b]
+			const first = d.inner[0]
+			const last = d.inner[d.inner.length - 1]
+			const twoRows = d.inner.length === 2
+			const lane =
+				Math.max(start.w / 2 + gapFor(edgeOf(start.id, first.id)), twoRows ? join.w / 2 + gapFor(edgeOf(last.id, join.id)) : 0) +
+				Math.max(...d.inner.map((m) => m.w)) / 2
+			const inner = n === start ? first : last
+			items.push({ node: inner, dx: lane - inner.w / 2 })
+			outward(items, 1, lane + inner.w / 2, exits(inner))
+			outward(items, -1, -n.w / 2, ex)
+		}
+		rowOf.set(n.id, items)
+	}
+	const rowH = (n: LayoutNode) => Math.max(n.h, ...rowOf.get(n.id)!.map((x) => x.node.h))
+	const left = (n: LayoutNode) => Math.max(n.w / 2, ...rowOf.get(n.id)!.map((x) => -x.dx))
+	const right = (n: LayoutNode) => Math.max(n.w / 2, ...rowOf.get(n.id)!.map((x) => x.dx + x.node.w))
+	const stepGap = (k: number) => {
+		const label = (i: number) => (edges[i].labelH > 0 ? Math.max(64, edges[i].labelH + 34) : 48)
+		let gap = label(mainIdx[k])
+		// A detour's two steps sit one above the other, with its own arrow between them.
+		const d = detours.find((t) => chain[t.a] === spine[k] && t.inner.length === 2)
+		if (d) gap = Math.max(gap, label(edgeOf(d.inner[0].id, d.inner[1].id)))
+		return gap
+	}
+	// The part below, laid out once, relative to the head's center.
+	const laid = [head, ...rest].map((n) => ({ ...n }))
+	const restBends = laid.length > 1 ? layoutFlowOnce(laid, restEdges.map(({ e }) => e), RANK_GAP, new Map()) : []
+	// Boxes on one rank of the part below keep a gap, as reordering siblings can close it.
+	const ranks = new Map<number, LayoutNode[]>()
+	for (const m of laid.slice(1)) {
+		const key = Math.round(m.y + m.h / 2)
+		const near = [...ranks.keys()].find((k) => Math.abs(k - key) < 24)
+		ranks.set(near ?? key, [...(ranks.get(near ?? key) ?? []), m])
+	}
+	for (const rank of ranks.values()) {
+		rank.sort((a, b) => a.x - b.x)
+		for (let i = 1; i < rank.length; i++) rank[i].x = Math.max(rank[i].x, rank[i - 1].x + rank[i - 1].w + 32)
+	}
+	const restHead = laid[0]
+	const hx = restHead.x + restHead.w / 2
+	const restLeft = Math.max(head.w / 2, ...laid.map((n) => hx - n.x))
+	const restRight = Math.max(head.w / 2, ...laid.map((n) => n.x + n.w - hx))
+	const restBelow = Math.max(0, ...laid.map((n) => n.y + n.h - (restHead.y + restHead.h)))
+	// A column may not end on a detour's first row.
+	const inside = new Set(detours.map((d) => spine.indexOf(chain[d.a])))
+	type Col = { from: number; to: number; left: number; right: number; height: number }
+	const column = (from: number, to: number): Col => {
+		const steps = spine.slice(from, to + 1)
+		let l = Math.max(...steps.map(left))
+		let r = Math.max(...steps.map(right))
+		let height = steps.reduce((h, n) => h + rowH(n), 0)
+		for (let k = from; k < to; k++) height += stepGap(k)
+		if (to === spine.length - 1) {
+			l = Math.max(l, restLeft)
+			r = Math.max(r, restRight)
+			height += restBelow + (rowH(head) > head.h && restBelow > 0 ? 32 : 0)
+		}
+		return { from, to, left: l, right: r, height }
+	}
+	const gutter = (k: number) => {
+		const e = edges[mainIdx[k]]
+		return Math.max(88, e.labelW > 0 ? e.labelW + 48 : 0)
+	}
+	// Columns: every way to cut the main line into one to four runs.
+	const n = spine.length
+	let best: { cols: Col[]; score: number } | null = null
+	const visit = (start: number, cols: Col[]) => {
+		if (start === n) {
+			const W = cols.reduce((w, c) => w + c.left + c.right, 0) + cols.slice(1).reduce((w, c) => w + gutter(c.from - 1), 0)
+			const tallest = Math.max(...cols.map((c) => c.height))
+			const fit = Math.min(1, FIT_W / W, FIT_H / (tallest + (cols.length > 1 ? 2 * ELBOW_ROOM : 0)))
+			// Fewer columns read more simply, and columns of about one height look planned.
+			const uneven = cols.length > 1 ? (tallest - Math.min(...cols.map((c) => c.height))) / tallest : 0
+			const score = fit - (cols.length - 1) * 0.03 - uneven * 0.06
+			if (!best || score > best.score) best = { cols: [...cols], score }
+			return
+		}
+		if (cols.length === 4) return
+		for (let end = start; end < n; end++) {
+			// A column holds three steps or more, unless it is the last, and ends outside a detour.
+			if (end < n - 1 && (inside.has(end) || end - start < 2 || cols.length === 3)) continue
+			cols.push(column(start, end))
+			visit(end + 1, cols)
+			cols.pop()
+		}
+	}
+	visit(0, [])
+	const chosen = best as { cols: Col[]; score: number } | null
+	if (!chosen) return null
+	const at = new Map<string, Point>()
+	const bends: Bends = edges.map(() => 0)
+	const routes: (EdgeRoute | null)[] = edges.map(() => null)
+	const top = chosen.cols.length > 1 ? ELBOW_ROOM : 0
+	let x = 0
+	const spineX: number[] = []
+	chosen.cols.forEach((c, ci) => {
+		if (ci > 0) x += gutter(c.from - 1)
+		const cx = x + c.left
+		spineX.push(cx)
+		let y = top
+		for (let k = c.from; k <= c.to; k++) {
+			const step = spine[k]
+			const cy = y + rowH(step) / 2
+			at.set(step.id, { x: cx - step.w / 2, y: cy - step.h / 2 })
+			for (const it of rowOf.get(step.id)!) at.set(it.node.id, { x: cx + it.dx, y: cy - it.node.h / 2 })
+			y += rowH(step) + (k < c.to ? stepGap(k) : 0)
+		}
+		x = cx + c.right
+	})
+	// The part below hangs from the head.
+	const headAt = at.get(head.id)!
+	// It starts below anything beside the head, such as a detour's last step.
+	const below = (rowH(head) - head.h) / 2 + (rowH(head) > head.h ? 32 : 0)
+	for (const m of laid.slice(1)) at.set(m.id, { x: m.x - restHead.x + headAt.x, y: m.y - restHead.y + headAt.y + below })
+	restEdges.forEach(({ i }, j) => (bends[i] = restBends[j] ?? 0))
+	// From the foot of one column to the head of the next, down the gutter.
+	chosen.cols.slice(1).forEach((c, k) => {
+		const i = mainIdx[c.from - 1]
+		const ax = spineX[k]
+		const bx = spineX[k + 1]
+		const gx = spineX[k] + chosen.cols[k].right + gutter(c.from - 1) / 2
+		routes[i] = { start: { x: 0.5, y: 1 }, end: { x: 0.5, y: 0 }, mid: (gx - ax) / (bx - ax) }
+	})
+	bends.routes = routes
+	if (nodes.some((m) => !at.has(m.id))) return null
+	const placed = nodes.map((m) => ({ ...m, ...at.get(m.id)! }))
+	const touch = (a: LayoutNode, b: LayoutNode) => a.x < b.x + b.w + 12 && b.x < a.x + a.w + 12 && a.y < b.y + b.h + 12 && b.y < a.y + a.h + 12
+	if (placed.some((a, i) => placed.some((b, j) => j > i && touch(a, b)))) return null
+	const minX = Math.min(...placed.map((m) => m.x))
+	const minY = Math.min(0, ...placed.map((m) => m.y))
+	const w = Math.max(...placed.map((m) => m.x + m.w)) - minX
+	const h = Math.max(...placed.map((m) => m.y + m.h)) - minY + (chosen.cols.length > 1 ? ELBOW_ROOM : 0)
+	return { bends, squeezed: false, fit: Math.min(1, FIT_W / w, FIT_H / h), at: placed.map((m) => ({ x: m.x - minX, y: m.y - minY })), procedure: true }
+}
+
+/**
+ * A process whose main line runs a long way while its choices drop off to
+ * quick ends ("No: bill stalls"), as most decision flows do, drawn top to
+ * bottom is a column far taller than a screen: every early exit costs a
+ * rank. Its main line wraps into rows that read left to right, then right to
+ * left, as a process poster does, and each early exit hangs just under the
+ * step it leaves. Rows break where no exit hangs, so each turn is a short
+ * step straight down. The part after the main line's first real fork hangs
+ * below the last row, laid out top to bottom. Returns null when the flow has
+ * no such main line.
+ */
+function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
+	const line = mainLine(nodes, edges)
+	if (!line) return null
+	const { chain, exitsOf, skips, noBreak, outOf, byId } = line
 	const exitCount = [...exitsOf.values()].reduce((s, a) => s + a.length, 0)
 	if (chain.length < 5 || exitCount === 0) return null
 	// The head, the main line's last step, goes with the part below it.
@@ -594,6 +877,8 @@ function layoutColumns(nodes: LayoutNode[], edges: LayoutEdge[]) {
  * not one of its ends.
  */
 function flowPenalty(nodes: LayoutNode[], edges: LayoutEdge[], at: Point[], bends: Bends, continued?: Set<number>) {
+	// A right-angled arrow is routed clear of every box by construction.
+	const routed = (i: number) => !!bends.routes?.[i]
 	const placed = nodes.map((n, i) => ({ ...n, ...at[i] }))
 	const byId = new Map(placed.map((n) => [n.id, n]))
 	const center = (id: string) => {
@@ -608,6 +893,10 @@ function flowPenalty(nodes: LayoutNode[], edges: LayoutEdge[], at: Point[], bend
 		// The further back up an arrow runs, the more it costs.
 		// An arrow from the foot of one column to the head of the next reads as
 		// "continued", as on a poster, and costs only a little.
+		if (routed(i)) {
+			penalty += 0.03
+			return
+		}
 		const rise = a.y - (b.y + b.h)
 		if (continued?.has(i)) penalty += 0.08
 		else if (rise > 0) penalty += 0.03 + rise / 700
@@ -617,6 +906,7 @@ function flowPenalty(nodes: LayoutNode[], edges: LayoutEdge[], at: Point[], bend
 		}
 		for (let j = i + 1; j < edges.length; j++) {
 			const f = edges[j]
+			if (routed(j)) continue
 			if ([e.from, e.to].some((id) => id === f.from || id === f.to)) continue
 			if (polylinesCross(arcs[i], arcs[j])) penalty += 0.1
 		}
@@ -628,6 +918,26 @@ function flowPenalty(nodes: LayoutNode[], edges: LayoutEdge[], at: Point[], bend
 const FIT_W = 1480
 const FIT_H = 880
 const MIN_FIT = 0.8
+/** How much smaller a procedure drawn down its columns may come out and still win. */
+const PROCEDURE_BONUS = 0.12
+
+/** How many steps a flow runs in a line from its one start before it first branches; 0 without one start. */
+function leadRun(nodes: LayoutNode[], edges: LayoutEdge[]) {
+	const pointedTo = new Set(edges.map((e) => e.to))
+	const starts = nodes.filter((n) => !pointedTo.has(n.id))
+	if (starts.length !== 1) return 0
+	let at: string | undefined = starts[0].id
+	const seen = new Set<string>()
+	let run = 0
+	while (at && !seen.has(at)) {
+		seen.add(at)
+		const out = edges.filter((e) => e.from === at)
+		if (out.length !== 1) break
+		run++
+		at = out[0].to
+	}
+	return run
+}
 
 function isTree(nodes: LayoutNode[], edges: LayoutEdge[]) {
 	const into = new Map<string, number>()
