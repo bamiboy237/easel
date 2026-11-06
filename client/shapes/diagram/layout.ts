@@ -89,10 +89,15 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 	// a screen, which shrinks its text past reading size at fit. The same flow
 	// read left to right often fits; it wins when it reads larger and keeps every
 	// label whole. A tree keeps top to bottom, as trees are drawn.
-	if (down.fit >= MIN_FIT || isTree(nodes, edges)) return down.bends
+	// A process that branches only at its end, such as a bill's path to the
+	// President's choices, is a tree too, but a tall one: it may still wrap its
+	// lead-in into rows.
+	if (down.fit >= MIN_FIT) return down.bends
 	const options = [down]
-	const across = run('LR')
-	if (!across.squeezed) options.push(across)
+	if (!isTree(nodes, edges)) {
+		const across = run('LR')
+		if (!across.squeezed) options.push(across)
+	}
 	const leadIn = layoutLeadIn(nodes, edges)
 	if (leadIn) options.push(leadIn)
 	const best = options.reduce((a, b) => (b.fit > a.fit + 0.05 ? b : a))
@@ -625,8 +630,8 @@ function layoutTree(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
 			used += leaves(k)
 		} else left.push(k)
 	}
-	const centers = new Map<string, Point>([[root.id, { x: 0, y: 0 }]])
-	const ROW_GAP = 22
+	let centers = new Map<string, Point>([[root.id, { x: 0, y: 0 }]])
+	let ROW_GAP = 22
 	const placeSide = (side: string[], dir: 1 | -1) => {
 		// Columns by depth: each as wide as its widest box, after room for the labels into it.
 		const columns: string[][] = []
@@ -671,8 +676,28 @@ function layoutTree(nodes: LayoutNode[], edges: LayoutEdge[]): Bends | null {
 			y += height(k) + ROW_GAP * 2
 		}
 	}
-	placeSide(right, 1)
-	placeSide(left, -1)
+	// A mind map is wider than tall, as its branches spread sideways; a thin band
+	// leaves the screen's height empty. Rows open up, as long as the map stays
+	// well inside a screen's shape, so it reads as a balanced whole.
+	const extent = () => {
+		const xs = nodes.map((n) => [centers.get(n.id)!.x - n.w / 2, centers.get(n.id)!.x + n.w / 2])
+		const ys = nodes.map((n) => [centers.get(n.id)!.y - n.h / 2, centers.get(n.id)!.y + n.h / 2])
+		return { w: Math.max(...xs.map((x) => x[1])) - Math.min(...xs.map((x) => x[0])), h: Math.max(...ys.map((y) => y[1])) - Math.min(...ys.map((y) => y[0])) }
+	}
+	for (const gap of [22, 32, 44, 56]) {
+		const was = centers
+		const gapWas = ROW_GAP
+		ROW_GAP = gap
+		centers = new Map<string, Point>([[root.id, { x: 0, y: 0 }]])
+		placeSide(right, 1)
+		placeSide(left, -1)
+		const { w, h } = extent()
+		if (gap > 22 && (h > w * 0.6 || h > FIT_H * 0.9)) {
+			centers = was
+			ROW_GAP = gapWas
+			break
+		}
+	}
 	const minX = Math.min(...nodes.map((n) => centers.get(n.id)!.x - n.w / 2))
 	const minY = Math.min(...nodes.map((n) => centers.get(n.id)!.y - n.h / 2))
 	for (const n of nodes) {
