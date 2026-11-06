@@ -334,6 +334,16 @@ function layoutProcedure(nodes: LayoutNode[], edges: LayoutEdge[]) {
 			chain = chain.slice(0, fork + 1)
 		}
 	}
+	// Where the main line ends in three or more choices and one of them ends at
+	// once ("signs: becomes law"), that end sits beside the last step, as the
+	// quick ends above it do, and only the longer choices fan out below.
+	{
+		const last = chain[chain.length - 1]
+		const outs = edges.map((e, i) => ({ e, i })).filter(({ e }) => e.from === last.id)
+		const isLeaf = (id: string) => !edges.some((e) => e.from === id) && edges.filter((e) => e.to === id).length === 1
+		const leaves = outs.filter(({ e }) => isLeaf(e.to))
+		if (outs.length >= 3 && leaves.length === 1) exitsOf.set(last.id, [leaves[0].i])
+	}
 	const exitCount = [...exitsOf.values()].reduce((s, a) => s + a.length, 0)
 	if (chain.length < 5 || exitCount === 0) return null
 	const head = chain[chain.length - 1]
