@@ -429,12 +429,20 @@ export const DiagramActionUtil = registerActionUtil(
 				// Ends of a flow are tinted lightly: the smallest difference that still reads (Tufte).
 				const ink = groupInk.get(groupOfNode.get(node.id) ?? '')
 				const base = ink ? { ...nodeStyle(tree, node.id, hub), color: ink, fill: 'solid' as const } : nodeStyle(tree, node.id, hub)
-				const incoming = edges.find((e) => e.to === node.id)
+				// An end takes the ink of the way into it only when there is one way in:
+				// an end that both a "no" and a plain step reach, such as "Enjoy your tea",
+				// is not a failure.
+				const incoming = edges.filter((e) => e.to === node.id)
 				const endInk =
-					geo === 'oval' && incoming && !edges.some((e) => e.from === node.id)
-						? outcomeInk(node.label, branchInk(action.layout ?? 'flow', incoming.label))
+					geo === 'oval' && incoming.length && !edges.some((e) => e.from === node.id)
+						? outcomeInk(node.label, incoming.length === 1 ? branchInk(action.layout ?? 'flow', incoming[0].label) : null)
 						: null
-				const style = geo === 'oval' ? { ...base, fill: 'solid' as const, ...(endInk ? { color: endInk } : {}) } : base
+				// A step a redraw adds, such as a step the user asked for, is tinted until
+				// the next redraw, so the change is easy to find, as a teacher marks what
+				// is new on a board. Group colors and the ends' colors keep their meaning.
+				const added = !isNew && !existing && !preview && !ink && geo === 'rectangle'
+				const shown = added ? { ...base, color: 'orange' as const, fill: 'solid' as const } : base
+				const style = geo === 'oval' ? { ...shown, fill: 'solid' as const, ...(endInk ? { color: endInk } : {}) } : shown
 				const props = { w: node.w, h: node.h, geo, richText: toRichText(lines.get(node.id) ?? node.label), ...style }
 				// The look the layout chose, kept so a redraw can tell it from the user's own.
 				const laidOutStyle = { geo, color: style.color, fill: style.fill, size: style.size }
