@@ -580,9 +580,11 @@ export const DiagramActionUtil = registerActionUtil(
 							color: nodeStyle(tree, (tree.depth.get(edge.to) ?? 0) > (tree.depth.get(edge.from) ?? 0) ? edge.to : edge.from).color,
 							arrowheadEnd: 'none' as const,
 						}
-					: ink
-						? { color: ink }
-						: {}
+					: sidesOnly
+						? { arrowheadEnd: 'none' as const }
+						: ink
+							? { color: ink }
+							: {}
 				if (existing) {
 					// The bend follows the layout only while it is still the layout's: not
 					// once the user bent the arrow or moved a box at either end.
