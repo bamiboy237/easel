@@ -22,7 +22,7 @@ import { EQUATION_TYPE, EquationShape, measureEquation } from '../shapes/Equatio
 import { describeSceneShape, SCENE_TYPE, sceneChromeHeight, SceneShape } from '../shapes/SceneShapeUtil'
 import { checkSceneObjectId, SceneObject, sanitizeSceneObject } from '../shapes/scene/sceneModel'
 import { getAllTemplates } from '../shapes/scene/templates'
-import { describeGraph, GRAPH_TYPE, GraphShape, parametersHeight } from '../shapes/GraphShapeUtil'
+import { describeGraph, GRAPH_TYPE, GraphFunction, GraphShape, parametersHeight } from '../shapes/GraphShapeUtil'
 import {
 	describeSimulation,
 	PROJECTILE_PARAMETERS,
@@ -111,6 +111,9 @@ export const EquationActionUtil = registerActionUtil(
 	}
 )
 
+/** The inks of one-curve graphs in order: blue, red pencil, forest, charcoal (indices into PLOT_INKS). */
+const SINGLE_CURVE_INKS = [2, 1, 3, 0]
+
 export const GraphActionUtil = registerActionUtil(
 	class GraphActionUtil extends AgentActionUtil<GraphAction> {
 		static override type = 'graph' as const
@@ -125,7 +128,7 @@ export const GraphActionUtil = registerActionUtil(
 			const parameters = sanitizeParameters(action.parameters)
 			// Only functions that parse are kept, so the graph never shows a broken plot.
 			const labels = Array.isArray(action.labels) ? action.labels : []
-			const functions = (action.functions ?? [])
+			const functions: GraphFunction[] = (action.functions ?? [])
 				.map((expression, i) => ({
 					expression: String(expression).trim().replace(/^y\s*=\s*/, ''),
 					label: String(labels[i] ?? '').trim(),
@@ -170,6 +173,15 @@ export const GraphActionUtil = registerActionUtil(
 				...(points ? { points } : {}),
 			}
 			const { id, existing } = resolveTarget<GraphShape>(helpers, action.shapeId, GRAPH_TYPE)
+			// A graph of one curve takes its own ink, so two graphs of one situation,
+			// such as height and velocity, read apart: blue, then red, then green, in
+			// the order the graphs land on the board. A redraw keeps the graph's ink.
+			if (functions.length === 1) {
+				const kept = existing?.props.functions[0]?.ink
+				const others = editor.getCurrentPageShapes().filter((s) => s.type === GRAPH_TYPE && s.id !== id && (s as GraphShape).props.functions.length === 1)
+				const ink = Number.isInteger(kept) ? kept! : SINGLE_CURVE_INKS[others.length % SINGLE_CURVE_INKS.length]
+				functions[0] = { ...functions[0], ink }
+			}
 			if (existing) {
 				editor.updateShape<GraphShape>({ id, type: GRAPH_TYPE, props })
 				return
