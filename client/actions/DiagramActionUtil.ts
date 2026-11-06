@@ -65,7 +65,7 @@ function nodeStyle(tree: TreeInfo | null, id: string, hub: string | null = null)
 /** The look of a diagram box from before the layout recorded its own, for older boards. */
 const DEFAULT_NODE_STYLE = { geo: 'rectangle', color: 'black', fill: 'none', size: 's' } as const
 
-type NodeGeo = 'rectangle' | 'oval' | 'diamond'
+type NodeGeo = 'rectangle' | 'oval' | 'diamond' | 'ellipse'
 
 /**
  * The flowchart symbol for each step of a process flow (ISO 5807): the steps
@@ -321,6 +321,16 @@ export const DiagramActionUtil = registerActionUtil(
 			const groupInk = useGroups
 				? groupInks(groupNames, withChoices ? ['blue', 'violet', 'orange', 'light-blue', 'yellow'] : ['blue', 'red', 'green', 'violet', 'orange'])
 				: new Map<string, TLDefaultColorStyle>()
+			// A binary tree, such as a search tree: its arrows say only "left" or
+			// "right". The layout uses those words to place each child, and the tree
+			// then reads by position alone, as textbooks draw it: short keys in small
+			// circles, and no words on the arrows.
+			const sidesOnly =
+				(action.layout ?? 'flow') === 'flow' &&
+				edges.length === named.length - 1 &&
+				new Set(edges.map((e) => e.to)).size === edges.length &&
+				edges.some((e) => e.label) &&
+				edges.every((e) => /^(left|right|)$/i.test(e.label))
 			// A decision's question as it is drawn, on one line or two.
 			const lines = new Map<string, string>()
 			const nodes: (LayoutNode & { label: string })[] = named.map(({ id, label }) => {
@@ -359,10 +369,15 @@ export const DiagramActionUtil = registerActionUtil(
 						geoOf.set(id, 'rectangle')
 					}
 				}
+				if (sidesOnly && label.length <= 4 && geoOf.get(id) === 'rectangle') {
+					geoOf.set(id, 'ellipse' as NodeGeo)
+					w = h = Math.max(76, measured.w + 40)
+				}
 				return { id, label, w, h, x: 0, y: 0 }
 			})
 			// Each label gets its own room in the layout, so it is never squeezed or covered.
 			const layoutEdges = edges.map((e) => {
+				if (sidesOnly) return { from: e.from, to: e.to, label: e.label, labelW: 0, labelH: 0 }
 				if (!e.label) return { from: e.from, to: e.to, labelW: 0, labelH: 0 }
 				const size = measure(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_W)
 				return { from: e.from, to: e.to, label: e.label, labelW: size.w + EDGE_LABEL_PAD, labelH: size.h + EDGE_LABEL_PAD }
@@ -555,7 +570,7 @@ export const DiagramActionUtil = registerActionUtil(
 						id,
 						type: 'arrow',
 						meta: ownBend ? { ...existing.meta, bend } : existing.meta,
-						props: { richText: toRichText(edge.label), ...branchStyle, ...(ownBend ? { bend, ...routeProps(route) } : {}) },
+						props: { richText: toRichText(sidesOnly ? '' : edge.label), ...branchStyle, ...(ownBend ? { bend, ...routeProps(route) } : {}) },
 					})
 					// The arrow's ends follow its route while the route is still the layout's.
 					if (ownBend) {
@@ -569,7 +584,7 @@ export const DiagramActionUtil = registerActionUtil(
 				}
 				const route = routeOf(edge)
 				const anchors = anchorsOf(route)
-				const label = { richText: toRichText(edge.label), bend, ...routeProps(route) }
+				const label = { richText: toRichText(sidesOnly ? '' : edge.label), bend, ...routeProps(route) }
 				const from = editor.getShapePageBounds(fromId)!
 				const to = editor.getShapePageBounds(toId)!
 				editor.createShape<TLArrowShape>({
