@@ -3,7 +3,7 @@ import { DiagramAction } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
-import { layoutFlow, LayoutNode, layoutMap, TreeInfo, treeOf } from '../shapes/diagram/layout'
+import { Bends, EdgeRoute, layoutFlow, LayoutNode, layoutMap, TreeInfo, treeOf } from '../shapes/diagram/layout'
 import { drawTimeline, groupInks, isDatedChain } from '../shapes/diagram/timeline'
 
 /** Box sizes for a node: wide enough for a short label on one or two lines. */
@@ -130,6 +130,7 @@ function isProcessTree(ids: string[], labels: Map<string, string>, edges: Diagra
 function outcomeInk(label: string, incoming: TLDefaultColorStyle | null): TLDefaultColorStyle | null {
 	if (/\b(not|fails?|failed|dies|died|rejected|denied|vetoed|killed|stops?|blocked|invalid|lost|error)\b/i.test(label)) return 'red'
 	if (/\b(becomes?|became|approved|accepted|passes|passed|succeeds?|success|done|complete[ds]?|enacted|wins?|valid|found)\b/i.test(label)) return 'green'
+	if (/\b(law|overrid(e|es|den))\b/i.test(label)) return 'green'
 	if (/\bveto(ed)?\b/i.test(label)) return 'red'
 	return incoming === 'green' || incoming === 'red' ? incoming : null
 }
@@ -212,7 +213,7 @@ export const DiagramActionUtil = registerActionUtil(
 		}
 
 		/** The last preview's layout, so a preview redrawn for every streamed token is laid out once per change. */
-		previewLayout: { key: string; positions: { x: number; y: number }[]; bends: number[] } | null = null
+		previewLayout: { key: string; positions: { x: number; y: number }[]; bends: Bends } | null = null
 
 		override applyAction(action: Streaming<DiagramAction>, helpers: AgentHelpers) {
 			if (!action.diagramId) return
@@ -368,7 +369,7 @@ export const DiagramActionUtil = registerActionUtil(
 			})
 			const layout = (tries?: number) =>
 				action.layout === 'map' ? layoutMap(nodes, layoutEdges, tries) : layoutFlow(nodes, layoutEdges)
-			let bends: number[]
+			let bends: Bends
 			if (preview) {
 				const key = JSON.stringify([action.layout, nodes.map((n) => [n.id, n.w, n.h]), layoutEdges])
 				if (this.previewLayout?.key !== key) {
@@ -377,7 +378,7 @@ export const DiagramActionUtil = registerActionUtil(
 					this.previewLayout = { key, positions: nodes.map((n) => ({ x: n.x, y: n.y })), bends: previewBends }
 				}
 				nodes.forEach((n, i) => Object.assign(n, this.previewLayout!.positions[i]))
-				bends = [...this.previewLayout.bends]
+				bends = Object.assign([...this.previewLayout.bends], { routes: this.previewLayout.bends.routes })
 			} else {
 				this.previewLayout = null
 				bends = layout()
@@ -391,6 +392,15 @@ export const DiagramActionUtil = registerActionUtil(
 				if ((pairs.get(pairKey(e)) ?? 0) > 1 && Math.abs(bends[i]) < 30) bends[i] = 40
 			})
 			const bendOf = (edge: DiagramEdge) => bends[edges.indexOf(edge)] ?? 0
+			// An arrow the layout routes at right angles, such as one that continues a
+			// procedure at the top of its next column, runs as an elbow arrow from fixed
+			// sides of its boxes.
+			const routeOf = (edge: DiagramEdge): EdgeRoute | null => bends.routes?.[edges.indexOf(edge)] ?? null
+			const routeProps = (route: EdgeRoute | null) => (route ? { kind: 'elbow' as const, elbowMidPoint: route.mid, bend: 0 } : { kind: 'arc' as const })
+			const anchorsOf = (route: EdgeRoute | null) =>
+				route
+					? { start: { normalizedAnchor: route.start, isPrecise: true }, end: { normalizedAnchor: route.end, isPrecise: true } }
+					: { start: { normalizedAnchor: { x: 0.5, y: 0.5 }, isPrecise: false }, end: { normalizedAnchor: { x: 0.5, y: 0.5 }, isPrecise: false } }
 
 			const origin = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 			// The model cannot know how big the layout comes out, so a new diagram can land
@@ -419,6 +429,9 @@ export const DiagramActionUtil = registerActionUtil(
 			// unless the user moved them away from where the layout last put them.
 			const keep = new Set<string>()
 			const movedNodes = new Set<string>()
+			// The groups whose wash still shows on some box: an end recolored as a
+			// success or a failure no longer shows its group's.
+			const shownGroups = new Set<string>()
 			for (const node of nodes) {
 				const id = nodeShapeId(diagramId, node.id)
 				keep.add(id)
@@ -443,6 +456,7 @@ export const DiagramActionUtil = registerActionUtil(
 				const added = !isNew && !existing && !preview && !ink && geo === 'rectangle'
 				const shown = added ? { ...base, color: 'orange' as const, fill: 'solid' as const } : base
 				const style = geo === 'oval' ? { ...shown, fill: 'solid' as const, ...(endInk ? { color: endInk } : {}) } : shown
+				if (ink && style.color === ink) shownGroups.add(groupOfNode.get(node.id)!)
 				const props = { w: node.w, h: node.h, geo, richText: toRichText(lines.get(node.id) ?? node.label), ...style }
 				// The look the layout chose, kept so a redraw can tell it from the user's own.
 				const laidOutStyle = { geo, color: style.color, fill: style.fill, size: style.size }
@@ -488,7 +502,7 @@ export const DiagramActionUtil = registerActionUtil(
 			if (useGroups && !preview) {
 				const bottom = Math.max(...nodes.map((n) => origin.y + n.y + n.h)) + 36
 				let x = Math.min(...nodes.map((n) => origin.x + n.x))
-				for (const g of groupNames) {
+				for (const g of groupNames.filter((name) => shownGroups.has(name))) {
 					const swatchId = `${prefix}legend-${slug(g)}-${hash(g)}` as TLShapeId
 					const textId = `${prefix}legendt-${slug(g)}-${hash(g)}` as TLShapeId
 					keep.add(swatchId)
@@ -531,15 +545,26 @@ export const DiagramActionUtil = registerActionUtil(
 					const laidOutBend = existing.meta.bend as number | undefined
 					const ownBend =
 						laidOutBend === existing.props.bend && !movedNodes.has(edge.from) && !movedNodes.has(edge.to)
+					const route = routeOf(edge)
 					editor.updateShape<TLArrowShape>({
 						id,
 						type: 'arrow',
 						meta: ownBend ? { ...existing.meta, bend } : existing.meta,
-						props: { richText: toRichText(edge.label), ...branchStyle, ...(ownBend ? { bend } : {}) },
+						props: { richText: toRichText(edge.label), ...branchStyle, ...(ownBend ? { bend, ...routeProps(route) } : {}) },
 					})
+					// The arrow's ends follow its route while the route is still the layout's.
+					if (ownBend) {
+						const anchors = anchorsOf(route)
+						for (const binding of editor.getBindingsFromShape(id, 'arrow')) {
+							const terminal = (binding.props as { terminal: 'start' | 'end' }).terminal
+							editor.updateBinding({ ...binding, props: { ...binding.props, ...anchors[terminal] } } as Parameters<typeof editor.updateBinding>[0])
+						}
+					}
 					continue
 				}
-				const label = { richText: toRichText(edge.label), bend }
+				const route = routeOf(edge)
+				const anchors = anchorsOf(route)
+				const label = { richText: toRichText(edge.label), bend, ...routeProps(route) }
 				const from = editor.getShapePageBounds(fromId)!
 				const to = editor.getShapePageBounds(toId)!
 				editor.createShape<TLArrowShape>({
@@ -559,7 +584,7 @@ export const DiagramActionUtil = registerActionUtil(
 						type: 'arrow',
 						fromId: id,
 						toId: target,
-						props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false },
+						props: { terminal, ...anchors[terminal], isExact: false },
 					} as Parameters<typeof editor.createBinding>[0])
 				}
 			}
