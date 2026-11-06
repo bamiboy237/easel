@@ -97,11 +97,11 @@ export function settleBlock(agent: TldrawAgent, id: TLShapeId) {
 /** The gap kept between a visual and the explanation beside it. */
 const NEAR = 40
 /** Visuals an explanation is written beside. */
-const VISUALS = ['graph', 'scene', 'simulation', 'widget']
+const VISUALS = ['graph', 'scene', 'simulation', 'widget', 'animation']
 
 /** Shapes that hold content of their own: typeset math, plots, scenes, and text. */
 function isBlock(type: string) {
-	return ['equation', 'graph', 'scene', 'simulation', 'widget', 'text'].includes(type)
+	return ['equation', 'graph', 'scene', 'simulation', 'widget', 'animation', 'text'].includes(type)
 }
 
 function overlap(a: Box, b: Box) {

@@ -7,6 +7,7 @@ import { registerShapeDescriber } from '../../shared/format/convertTldrawShapeTo
 import {
 	EquationAction,
 	GraphAction,
+	RenderAnimationAction,
 	SceneAction,
 	SceneObjectAction,
 	SceneTemplateAction,
@@ -31,6 +32,8 @@ import {
 } from '../shapes/SimulationShapeUtil'
 import { describeWidget, WIDGET_TYPE, widgetChromeHeight, WidgetShape } from '../shapes/WidgetShapeUtil'
 import { runWidgetJob } from '../shapes/widget/job'
+import { describeVideo, VIDEO_TYPE, videoHeightForWidth, VideoShape } from '../shapes/VideoShapeUtil'
+import { runVideoJob } from '../shapes/video/job'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
 
 // The agent reads these shapes as a line each: the equation's LaTeX, and a
@@ -40,6 +43,7 @@ registerShapeDescriber(GRAPH_TYPE, (shape) => describeGraph((shape as GraphShape
 registerShapeDescriber(SIMULATION_TYPE, (shape) => describeSimulation((shape as SimulationShape).props))
 registerShapeDescriber(SCENE_TYPE, (shape) => describeSceneShape(shape as SceneShape))
 registerShapeDescriber(WIDGET_TYPE, (shape) => describeWidget((shape as WidgetShape).props, shape.id as TLShapeId))
+registerShapeDescriber(VIDEO_TYPE, (shape) => describeVideo((shape as VideoShape).props, shape.id as TLShapeId))
 
 /**
  * The shape an interactive action works on: the existing one of that type, to
@@ -645,6 +649,54 @@ export const WidgetActionUtil = registerActionUtil(
 				const placed = editor.getShape<WidgetShape>(id)
 				if (!placed || placed.props.status !== 'writing' || placed.props.brief !== brief) return
 				void runWidgetJob(agent, id, context)
+			}, 0)
+		}
+	}
+)
+
+/**
+ * The agent starts an animation: a placeholder lands now, as this action's
+ * command, and a background job writes and renders the video, which lands
+ * later as one more agent command. Sending the action again for the same
+ * animation updates its brief and starts a new job.
+ */
+export const RenderAnimationActionUtil = registerActionUtil(
+	class RenderAnimationActionUtil extends AgentActionUtil<RenderAnimationAction> {
+		static override type = 'render_animation' as const
+
+		override getInfo(action: Streaming<RenderAnimationAction>) {
+			return { icon: 'pencil' as const, description: action.intent ?? '' }
+		}
+
+		override applyAction(action: Streaming<RenderAnimationAction>, helpers: AgentHelpers) {
+			if (!action.complete) return
+			const { editor } = this
+			const { id, existing } = resolveTarget<VideoShape>(helpers, action.shapeId, VIDEO_TYPE)
+			const w = existing ? existing.props.w : Math.min(1200, Math.max(320, Number.isFinite(action.width) ? action.width! : 640))
+			const props = {
+				title: String(action.title ?? ''),
+				brief: String(action.brief ?? ''),
+				status: 'rendering' as const,
+				error: '',
+				w,
+				h: videoHeightForWidth(w),
+			}
+			if (existing) {
+				editor.updateShape<VideoShape>({ id, type: VIDEO_TYPE, props })
+			} else {
+				const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
+				editor.createShape<VideoShape>({ id, type: VIDEO_TYPE, x: at.x, y: at.y, props })
+				settleBlock(this.agent, id)
+			}
+			// The job starts once this command is recorded, so its base revision
+			// follows it, and only if the command was applied.
+			const agent = this.agent
+			const context = { ...agent.getPassIds(), allowedShapeIds: agent.getAllowedShapeIds() }
+			const brief = props.brief
+			setTimeout(() => {
+				const placed = editor.getShape<VideoShape>(id)
+				if (!placed || placed.props.status !== 'rendering' || placed.props.brief !== brief) return
+				void runVideoJob(agent, id, context)
 			}, 0)
 		}
 	}

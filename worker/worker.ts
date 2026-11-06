@@ -6,6 +6,7 @@ import { appendCommands, loadBoard, saveSnapshot } from './routes/board'
 import { stream } from './routes/stream'
 import { createVoiceSession } from './routes/voice'
 import { writeWidget } from './routes/widget'
+import { writeAnimation } from './routes/animation'
 
 const requireLocalPage: RequestHandler<IRequest, [Environment, ExecutionContext]> = (request) => {
 	const url = new URL(request.url)
@@ -37,6 +38,7 @@ const router = AutoRouter<IRequest, [env: Environment, ctx: ExecutionContext]>({
 	.post('/stream', requireLocalPage, stream)
 	.post('/voice/session', requireLocalPage, createVoiceSession)
 	.post('/widget', requireLocalPage, writeWidget)
+	.post('/animation', requireLocalPage, writeAnimation)
 	.get('/board/:boardId', requireLocalPage, loadBoard)
 	.post('/board/:boardId/commands', requireLocalPage, appendCommands)
 	.post('/board/:boardId/snapshots', requireLocalPage, saveSnapshot)

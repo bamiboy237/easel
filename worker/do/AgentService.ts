@@ -22,6 +22,7 @@ import { Environment } from '../environment'
 import { buildMessages } from '../prompt/buildMessages'
 import { buildLoadedToolsPrompt, buildSystemPrompt } from '../prompt/buildSystemPrompt'
 import { getModelName } from '../prompt/getModelName'
+import { ANIMATION_REVIEW_PROMPT, ANIMATION_SYSTEM_PROMPT } from '../prompt/animationPrompt'
 import { WIDGET_SYSTEM_PROMPT } from '../prompt/widgetPrompt'
 import { ActionStream } from './ActionStream'
 
@@ -33,6 +34,10 @@ const MAX_OUTPUT_TOKENS = 16384
 
 /** How hard an OpenAI model reasons while writing a widget's code. */
 const WIDGET_WRITER_EFFORT: OpenAIReasoningEffort = 'medium'
+
+/** How hard an OpenAI model reasons while writing, and while checking, an animation. */
+const ANIMATION_WRITER_EFFORT: OpenAIReasoningEffort = 'low'
+const ANIMATION_REVIEW_EFFORT: OpenAIReasoningEffort = 'low'
 
 /** What the board sends to have a widget written. */
 export interface WidgetRequest {
@@ -47,6 +52,23 @@ export interface WidgetRequest {
 	problem?: string
 }
 
+/** What the board sends to have an animation written, or a render of it checked. */
+export interface AnimationRequest {
+	modelName: string
+	title: string
+	brief: string
+	/** write: a new scene, or a rewrite after a failed render. review: check frames of a render of source. */
+	mode?: 'write' | 'review'
+	/** The scene so far: the one that failed, or the one whose frames are checked. */
+	source?: string
+	/** What was wrong with the last attempt, such as Manim's error, for a rewrite. */
+	problem?: string
+	/** Frames of a low-resolution render, as PNG data URLs, each with its time in seconds. */
+	frames?: { image: string; time: number }[]
+	/** What the automatic layout check found in the render. */
+	layout?: string[]
+	duration?: number
+}
 
 export class AgentService {
 	openai: OpenAIProvider
@@ -113,6 +135,59 @@ export class AgentService {
 			.then((usage) =>
 				console.log(
 					`[widget] model=${modelName} seconds=${Math.round((Date.now() - started) / 1000)} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0}`
+				)
+			)
+			.catch(() => {})
+		return result.textStream
+	}
+
+	/**
+	 * Write a Manim scene from a brief, or check frames of a render of one and
+	 * fix it, in one model call, streamed as it is written.
+	 */
+	streamAnimation(request: AnimationRequest): AsyncIterable<string> {
+		const modelName = isValidModelName(request.modelName) ? request.modelName : getModelName({} as AgentPrompt)
+		const model = this.getModel(modelName)
+		const definition = getAgentModelDefinition(modelName)
+		const review = request.mode === 'review' && !!request.source
+		const intro = [`Title: ${request.title}`, `Brief: ${request.brief}`]
+		let content: Exclude<ModelMessage['content'], string> = []
+		if (review) {
+			const frames = (request.frames ?? []).slice(0, 6)
+			content = [
+				{
+					type: 'text',
+					text: [
+						...intro,
+						`The scene you wrote:\n\`\`\`python\n${request.source}\n\`\`\``,
+						`It runs ${request.duration ?? '?'} seconds. The frames below are at ${frames.map((f) => `${f.time.toFixed(1)} s`).join(', ')}; the last is the final picture.`,
+						request.layout?.length ? `The automatic layout check found:\n${request.layout.map((p) => `- ${p}`).join('\n')}` : 'The automatic layout check found nothing.',
+					].join('\n\n'),
+				},
+				...frames.map((f) => ({ type: 'image' as const, image: f.image.replace(/^data:image\/\w+;base64,/, ''), mediaType: 'image/png' })),
+			]
+		} else {
+			const lines = [...intro]
+			if (request.source && request.problem) {
+				lines.push(`Your last version:\n\`\`\`python\n${request.source}\n\`\`\``, `It failed with this error, so fix it and send the whole file again: ${request.problem}`)
+			} else if (request.problem) {
+				lines.push(`Your last attempt had this problem, so avoid it: ${request.problem}`)
+			}
+			content = [{ type: 'text', text: lines.join('\n\n') }]
+		}
+		const started = Date.now()
+		const result = streamText({
+			model,
+			system: review ? ANIMATION_REVIEW_PROMPT : ANIMATION_SYSTEM_PROMPT,
+			messages: [{ role: 'user', content } as ModelMessage],
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			...(definition.supportsTemperature ? { temperature: 0 } : {}),
+			providerOptions: getProviderOptions(definition, review ? ANIMATION_REVIEW_EFFORT : ANIMATION_WRITER_EFFORT),
+		})
+		void Promise.resolve(result.usage)
+			.then((usage) =>
+				console.log(
+					`[animation] ${review ? 'review' : 'write'} model=${modelName} seconds=${Math.round((Date.now() - started) / 1000)} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0}`
 				)
 			)
 			.catch(() => {})
