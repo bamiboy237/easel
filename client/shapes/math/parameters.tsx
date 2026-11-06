@@ -1,6 +1,34 @@
 import { T, TLShape, useEditor } from 'tldraw'
 
 /** A named number on a graph or a simulation, which the user and the agent can both change. */
+const GREEK: Record<string, string> = {
+	alpha: 'α',
+	beta: 'β',
+	gamma: 'γ',
+	delta: 'δ',
+	theta: 'θ',
+	lambda: 'λ',
+	mu: 'μ',
+	omega: 'ω',
+	phi: 'φ',
+	rho: 'ρ',
+	sigma: 'σ',
+	tau: 'τ',
+}
+const SUBSCRIPT = '₀₁₂₃₄₅₆₇₈₉'
+
+/**
+ * A parameter's name as a textbook prints it: "mu" as μ, "theta" as θ, and a
+ * trailing digit as a subscript, so "v0" reads v₀. The name itself, which the
+ * formulas use, does not change.
+ */
+export function displayName(name: string) {
+	const m = /^([a-zA-Z]+)(\d?)$/.exec(name)
+	if (!m) return name
+	const base = GREEK[m[1]] ?? m[1]
+	return base + (m[2] ? SUBSCRIPT[Number(m[2])] : '')
+}
+
 export interface ShapeParameter {
 	name: string
 	value: number
@@ -85,7 +113,7 @@ export function SliderRows({
 			{parameters.map((p) => (
 				<label key={p.name} className="shape-parameter">
 					<span className="shape-parameter-name" title={p.name}>
-						{p.name}
+						{displayName(p.name)}
 					</span>
 					<input
 						type="range"
