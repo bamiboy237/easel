@@ -15,6 +15,8 @@ const NODE_PAD = 36
 const LEGEND_ROOM = 60
 /** The longest one-line question a decision diamond holds. */
 const DIAMOND_MAX_LINE = 210
+/** A question wider than this on one line breaks onto two inside its diamond. */
+const DIAMOND_SPLIT_LINE = 150
 /** Arrow labels: tldraw's small arrow label size, and the padding around it. */
 const EDGE_LABEL_FONT_SIZE = 18
 const EDGE_LABEL_PAD = 9
@@ -318,6 +320,8 @@ export const DiagramActionUtil = registerActionUtil(
 			const groupInk = useGroups
 				? groupInks(groupNames, withChoices ? ['blue', 'violet', 'orange', 'light-blue', 'yellow'] : ['blue', 'red', 'green', 'violet', 'orange'])
 				: new Map<string, TLDefaultColorStyle>()
+			// A decision's question as it is drawn, on one line or two.
+			const lines = new Map<string, string>()
 			const nodes: (LayoutNode & { label: string })[] = named.map(({ id, label }) => {
 				const fontSize = LABEL_FONT_SIZE[nodeStyle(tree, id, hub).size]
 				const maxW = NODE_MAX_W + (fontSize - 18) * 8
@@ -332,7 +336,22 @@ export const DiagramActionUtil = registerActionUtil(
 					// line sits inside when the diamond is about twice as wide; a long one
 					// stays a box, which holds it, and keeps its colored ways out.
 					const line = measure(label, fontSize, 1000)
-					if (line.w <= DIAMOND_MAX_LINE) {
+					// A longer question breaks onto two balanced lines, which keeps the
+					// diamond about half as wide as one line would need.
+					const words = label.split(/\s+/)
+					const split =
+						line.w > DIAMOND_SPLIT_LINE && words.length > 1
+							? words
+									.map((_, i) => [words.slice(0, i + 1).join(' '), words.slice(i + 1).join(' ')])
+									.slice(0, -1)
+									.map(([a, b]) => ({ a, b, w: Math.max(measure(a, fontSize, 1000).w, measure(b, fontSize, 1000).w) }))
+									.reduce((p, q) => (q.w < p.w ? q : p))
+							: null
+					if (split && split.w <= DIAMOND_MAX_LINE) {
+						lines.set(id, `${split.a}\n${split.b}`)
+						w = Math.round(Math.max(170, split.w * 1.9 + 40))
+						h = Math.round(Math.max(120, line.h * 2 * 2.3, w * 0.45))
+					} else if (line.w <= DIAMOND_MAX_LINE) {
 						w = Math.round(Math.max(170, line.w * 1.9 + 40))
 						h = Math.round(Math.max(110, line.h * 3, w * 0.42))
 					} else {
@@ -416,7 +435,7 @@ export const DiagramActionUtil = registerActionUtil(
 						? outcomeInk(node.label, branchInk(action.layout ?? 'flow', incoming.label))
 						: null
 				const style = geo === 'oval' ? { ...base, fill: 'solid' as const, ...(endInk ? { color: endInk } : {}) } : base
-				const props = { w: node.w, h: node.h, geo, richText: toRichText(node.label), ...style }
+				const props = { w: node.w, h: node.h, geo, richText: toRichText(lines.get(node.id) ?? node.label), ...style }
 				// The look the layout chose, kept so a redraw can tell it from the user's own.
 				const laidOutStyle = { geo, color: style.color, fill: style.fill, size: style.size }
 				if (!existing) {

@@ -283,7 +283,7 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 	const exitEdges = [...exitsOf.values()].flat().map((i) => edges[i])
 	const exitGap = Math.max(56, ...exitEdges.map((e) => (e.labelH > 0 ? e.labelH + LABEL_ARROW_ROOM : 0)))
 	const turnGap = Math.max(64, ...mainEdges.map((e) => (e.labelH > 0 ? e.labelH + LABEL_ARROW_ROOM : 0)))
-	let chosen: { fit: number; at: Map<string, Point>; bends: Bends } | null = null
+	let chosen: { fit: number; value: number; at: Map<string, Point>; bends: Bends } | null = null
 	// The part after the main line, laid out once: top to bottom, or in columns.
 	const restLaid = (() => {
 		const rest = nodes.filter((n) => !inChain.has(n.id) && !exitIds.has(n.id))
@@ -293,12 +293,20 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 		const restBends = laid.length > 1 ? layoutDown(laid, restEdges.map(({ e }) => e), new Map()) : []
 		return { nodes: laid, restEdges, restBends }
 	})()
-	for (const cols of [3, 4, 5]) {
+	// The part below either hangs centered under the head, or wholly to the far
+	// side of it, so its arrows do not cut through the quick ends of the steps
+	// before the head.
+	for (const [cols, away] of [3, 4, 5].flatMap((c) => [[c, false] as const, [c, true] as const])) {
 		// Rows of up to cols steps, each ending on a step with no exit when it can.
 		const rows: LayoutNode[][] = []
 		let k = 0
 		while (k < chain.length) {
 			let len = Math.min(cols, chain.length - k)
+			// A row that would end inside a detour takes the rest of the detour, up to
+			// two steps more, so the arc over it stays in one row.
+			let longer = len
+			while (longer < cols + 2 && k + longer < chain.length && noBreak.has(chain[k + longer - 1].id)) longer++
+			if (k + longer >= chain.length || !noBreak.has(chain[k + longer - 1].id)) len = longer
 			while (len > 2 && k + len < chain.length && ((exitsOf.get(chain[k + len - 1].id)?.length ?? 0) > 1 || noBreak.has(chain[k + len - 1].id))) len--
 			rows.push(chain.slice(k, k + len))
 			k += len
@@ -366,9 +374,15 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 		const { restEdges, restBends } = restLaid
 		const restHead = restNodes[0]
 		const headAt = at.get(head.id)!
-		const dx = headAt.x - restHead.x
+		let dx = headAt.x - restHead.x
 		let dy = headAt.y - restHead.y
 		const others = restNodes.slice(1)
+		if (away && others.length) {
+			const lastRow = rows.length - 1
+			const forward = lastRow % 2 === 0 ? 1 : -1
+			if (forward > 0) dx += headAt.x - Math.min(...others.map((n) => n.x + dx))
+			else dx += headAt.x + head.w - Math.max(...others.map((n) => n.x + dx + n.w))
+		}
 		if (others.length) {
 			const rowsBottom = Math.max(...[...at.entries()].filter(([id]) => id !== head.id).map(([id, p]) => p.y + byId.get(id)!.h))
 			const top = Math.min(...others.map((n) => n.y + dy))
@@ -411,11 +425,12 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 		const w = Math.max(...placed.map((n) => n.x + n.w)) - minX
 		const h = Math.max(...placed.map((n) => n.y + n.h)) - minY
 		const fit = Math.min(1, FIT_W / w, FIT_H / h)
-		if (!chosen || fit > chosen.fit + 0.02) {
-			chosen = { fit, bends, at: new Map(placed.map((n) => [n.id, { x: n.x - minX, y: n.y - minY }])) }
+		const value = fit - flowPenalty(nodes, edges, placed, bends)
+		if (!chosen || value > chosen.value + 0.02) {
+			chosen = { fit, value, bends, at: new Map(placed.map((n) => [n.id, { x: n.x - minX, y: n.y - minY }])) }
 		}
 	}
-	const result = chosen as { fit: number; at: Map<string, Point>; bends: Bends } | null
+	const result = chosen as { fit: number; value: number; at: Map<string, Point>; bends: Bends } | null
 	if (!result) return null
 	return { bends: result.bends, squeezed: false, fit: result.fit, at: nodes.map((n) => result.at.get(n.id)!) }
 }
@@ -813,7 +828,8 @@ function layoutFlowOnce(
 	edges: LayoutEdge[],
 	rankGap: number,
 	center: Map<string, Point>,
-	rankdir: 'TB' | 'LR' = 'TB'
+	rankdir: 'TB' | 'LR' = 'TB',
+	ranking: 'sources' | 'short' = 'sources'
 ): Bends {
 	const g = new Graph({ multigraph: true })
 	g.setGraph({
@@ -827,7 +843,9 @@ function layoutFlowOnce(
 		// choices out of one step sit side by side in the next layer. dagre's
 		// default, network simplex, shortens edges in total instead, and can push
 		// a choice down past its siblings, which a one-arc arrow cannot route around.
-		ranker: rankFromSources,
+		// A map of causes takes network simplex: each cause sits just above what it
+		// leads to, so no arrow runs the whole height of the drawing.
+		ranker: ranking === 'short' ? 'network-simplex' : rankFromSources,
 	})
 	g.setDefaultEdgeLabel(() => ({}))
 	for (const n of nodes) g.setNode(n.id, { width: n.w, height: n.h })
@@ -922,12 +940,15 @@ export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[], tries = MAP_
 	// through the room the layers kept for it.
 	const layeredBends = new Map<number, Bends>()
 	if (isAcyclic(nodes, edges)) {
-		for (const rankdir of ['TB', 'LR'] as const) {
+		for (const [rankdir, ranking] of [
+			['TB', 'short'],
+			['TB', 'sources'],
+		] as const) {
 			const k = starts.length
 			starts.push(() => {
 				const copy = nodes.map((n) => ({ ...n }))
 				const centers = new Map<string, Point>()
-				layeredBends.set(k, layoutFlowOnce(copy, edges, RANK_GAP, centers, rankdir))
+				layeredBends.set(k, layoutFlowOnce(copy, edges, RANK_GAP, centers, rankdir, ranking))
 				return centers
 			})
 			kinds.push('layers-' + rankdir)
@@ -1563,7 +1584,10 @@ function separate(bodies: (SimulationNodeDatum & { w: number; h: number })[]) {
 function scoreLayout(placed: LayoutNode[], edges: LayoutEdge[], centers: Map<string, Point>, bends: Bends) {
 	const boxes = placed.map((n) => ({ minX: n.x, minY: n.y, maxX: n.x + n.w, maxY: n.y + n.h, id: n.id }))
 	const center = (id: string) => centers.get(id)!
-	// Each label sits where tldraw puts it: the middle of its arc.
+	const own = (id: string) => boxes.find((b) => b.id === id)!
+	// Each label sits where tldraw puts it: the middle of its arc. A label too
+	// long for the arrow between its boxes is squeezed: narrower, on more lines,
+	// so it takes more height and can reach a neighbor.
 	const labelBoxes = edges.flatMap((e, i) => {
 		if (e.labelW <= 0) return []
 		const a = center(e.from)
@@ -1571,20 +1595,22 @@ function scoreLayout(placed: LayoutNode[], edges: LayoutEdge[], centers: Map<str
 		const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
 		const n = bendNormal(a, b)
 		const at = { x: (a.x + b.x) / 2 + n.x * bends[i], y: (a.y + b.y) / 2 + n.y * bends[i] }
-		return [{ minX: at.x - e.labelW / 2, maxX: at.x + e.labelW / 2, minY: at.y - e.labelH / 2, maxY: at.y + e.labelH / 2, len, edge: e, index: i }]
+		// tldraw's rule: on an arrow whose body is wider than tall, the label is
+		// at most the body's width less 64. The estimate keeps a margin.
+		const body = arcBody(arcPoints(a, b, bends[i], 24), own(e.from), own(e.to))
+		const squeezed = body.w > body.h && body.w - LABEL_ARROW_ROOM < e.labelW + 50
+		const w = squeezed ? Math.max(LABEL_ARROW_ROOM, Math.min(e.labelW, body.w - LABEL_ARROW_ROOM)) : e.labelW
+		const h = squeezed ? e.labelH * Math.min(4, Math.ceil(e.labelW / w)) : e.labelH
+		return [{ minX: at.x - w / 2, maxX: at.x + w / 2, minY: at.y - h / 2, maxY: at.y + h / 2, len, edge: e, index: i, squeezed }]
 	})
 	const hit = (A: { minX: number; minY: number; maxX: number; maxY: number }, B: typeof A) =>
 		Math.min(A.maxX, B.maxX) - Math.max(A.minX, B.minX) > -6 && Math.min(A.maxY, B.maxY) - Math.max(A.minY, B.minY) > -6
 	let problems = 0
 	for (let i = 0; i < labelBoxes.length; i++) {
-		for (const box of boxes) if (hit(labelBoxes[i], box)) problems += 3
-		for (let j = i + 1; j < labelBoxes.length; j++) if (hit(labelBoxes[i], labelBoxes[j])) problems += 3
-		// A label wider than the room between its boxes is squeezed onto more lines,
-		// as tldraw does it: on an arrow wider than tall and too short for the label.
-		const { edge, index } = labelBoxes[i]
-		const own = (id: string) => boxes.find((b) => b.id === id)!
-		// The estimate keeps a margin, since a squeezed label grows onto its neighbors.
-		if (squeezes(arcPoints(center(edge.from), center(edge.to), bends[index], 24), own(edge.from), own(edge.to), edge.labelW + 50)) problems += 1
+		for (const box of boxes) if (hit(labelBoxes[i], box)) problems += 5
+		for (let j = i + 1; j < labelBoxes.length; j++) if (hit(labelBoxes[i], labelBoxes[j])) problems += 5
+		// A squeezed label reads badly on its extra lines.
+		if (labelBoxes[i].squeezed) problems += 1
 	}
 	const arcs = edges.map((e, i) => arcPoints(center(e.from), center(e.to), bends[i], 16))
 	edges.forEach((e, i) => {
@@ -1764,6 +1790,14 @@ function placeBends(nodes: LayoutNode[], edges: LayoutEdge[], centers: Map<strin
 	return bends
 }
 
+
+/** The size of the part of an arc between its two boxes. */
+function arcBody(arc: Point[], a: { minX: number; minY: number; maxX: number; maxY: number }, b: typeof a) {
+	const inside = (p: Point, r: typeof a) => p.x > r.minX && p.x < r.maxX && p.y > r.minY && p.y < r.maxY
+	const body = arc.filter((p) => !inside(p, a) && !inside(p, b))
+	if (body.length < 2) return { w: 0, h: 0 }
+	return { w: Math.max(...body.map((p) => p.x)) - Math.min(...body.map((p) => p.x)), h: Math.max(...body.map((p) => p.y)) - Math.min(...body.map((p) => p.y)) }
+}
 
 /**
  * Whether tldraw would squeeze a label onto more lines: it does when the part
