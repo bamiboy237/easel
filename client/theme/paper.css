@@ -1465,7 +1465,7 @@
 	padding: 0 6px;
 	border-radius: 4px;
 	background: color-mix(in srgb, var(--paper-card) 85%, transparent);
-	font: italic 15px 'Source Serif 4 Variable', Georgia, serif;
+	font: italic 17px 'Source Serif 4 Variable', Georgia, serif;
 	color: var(--paper-ink);
 	pointer-events: none;
 }
@@ -1489,7 +1489,7 @@
 	padding: 1px 6px;
 	border-radius: 4px;
 	background: color-mix(in srgb, var(--paper-card) 85%, transparent);
-	font: 500 12px 'Inter', sans-serif;
+	font: 500 14px 'Inter', sans-serif;
 	font-variant-numeric: tabular-nums;
 	color: var(--paper-ink);
 	white-space: pre-wrap;
@@ -1624,6 +1624,31 @@
 	--mafs-line-color: #e6e2d9;
 	--mafs-origin-color: #a39d92;
 	--mafs-font-family: 'Inter', sans-serif;
+	/* Tick numbers a size up from the default, so they read when the board is zoomed out. */
+	font-size: 13px;
+}
+
+/* Axis titles and curve names, set on the plot with a halo of the sheet so a grid line never cuts them. */
+.graph-label {
+	position: absolute;
+	white-space: nowrap;
+	pointer-events: none;
+	font-family: 'Source Serif 4 Variable', Georgia, serif;
+	line-height: 1.3;
+	text-shadow:
+		0 0 3px var(--paper-card),
+		0 0 3px var(--paper-card),
+		0 0 2px var(--paper-card);
+}
+
+.graph-label-axis {
+	font-size: 15px;
+	font-style: italic;
+}
+
+.graph-label-curve {
+	font-size: 15px;
+	font-weight: 500;
 }
 
 .graph-error {

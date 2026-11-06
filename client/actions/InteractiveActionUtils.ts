@@ -1,4 +1,6 @@
 import { Editor, TLShape, TLShapeId } from 'tldraw'
+import { alignStep } from '../agent/alignSteps'
+import { fitInFrame } from '../agent/fitInFrame'
 import { settleBlock } from '../agent/settleBlock'
 import { registerShapeDescriber } from '../../shared/format/convertTldrawShapeToFocusedShape'
 import {
@@ -99,6 +101,7 @@ export const EquationActionUtil = registerActionUtil(
 			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 			editor.createShape<EquationShape>({ id, type: EQUATION_TYPE, x: at.x, y: at.y, props })
 			settleBlock(this.agent, id)
+			alignStep(this.agent, id)
 		}
 	}
 )
@@ -116,9 +119,13 @@ export const GraphActionUtil = registerActionUtil(
 			const { editor } = this
 			const parameters = sanitizeParameters(action.parameters)
 			// Only functions that parse are kept, so the graph never shows a broken plot.
+			const labels = Array.isArray(action.labels) ? action.labels : []
 			const functions = (action.functions ?? [])
-				.map((expression) => String(expression).trim().replace(/^y\s*=\s*/, ''))
-				.filter((expression) => {
+				.map((expression, i) => ({
+					expression: String(expression).trim().replace(/^y\s*=\s*/, ''),
+					label: String(labels[i] ?? '').trim(),
+				}))
+				.filter(({ expression }) => {
 					try {
 						compileExpression(expression)
 						return true
@@ -126,14 +133,18 @@ export const GraphActionUtil = registerActionUtil(
 						return false
 					}
 				})
-				.map((expression) => ({ expression }))
+				.map(({ expression, label }) => (label ? { expression, label } : { expression }))
+			const axisTitles = {
+				xLabel: String(action.xLabel ?? '').trim(),
+				yLabel: String(action.yLabel ?? '').trim(),
+			}
 			const range = (min: number, max: number, fallback: [number, number]) =>
 				Number.isFinite(min) && Number.isFinite(max) && max > min ? [min, max] : fallback
 			const [xMin, xMax] = range(action.xMin, action.xMax, [-6, 6])
 			const [yMin, yMax] = range(action.yMin, action.yMax, [-4, 4])
 			const plotW = Math.min(800, Math.max(200, action.width || 360))
 			const plotH = Math.min(600, Math.max(120, action.height || 240))
-			const props = { functions, parameters, xMin, xMax, yMin, yMax, w: plotW, h: plotH + parametersHeight(parameters) }
+			const props = { functions, ...axisTitles, parameters, xMin, xMax, yMin, yMax, w: plotW, h: plotH + parametersHeight(parameters) }
 			const { id, existing } = resolveTarget<GraphShape>(helpers, action.shapeId, GRAPH_TYPE)
 			if (existing) {
 				editor.updateShape<GraphShape>({ id, type: GRAPH_TYPE, props })
@@ -272,6 +283,8 @@ function applySceneAction(editor: Editor, action: Streaming<SceneAction>, helper
 	editor.createShape<SceneShape>({ id, type: SCENE_TYPE, x: at.x, y: at.y, props, meta })
 	// The preview and the finished scene settle the same way, so the scene does not jump.
 	settleBlock(helpers.agent, id)
+	// A scene squeezed into a full frame gets readable room, in the frame or beside it.
+	fitInFrame(helpers.agent, id, chrome)
 }
 
 /**

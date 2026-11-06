@@ -650,9 +650,15 @@ export const ClearSpacePartDefinition: PromptPartDefinition<ClearSpacePart> = {
 			near === 'subject'
 				? 'beside the shapes this request is about'
 				: "in the part of the board the user can see"
-		return [
+		const lines = [
 			`Clear space for new work ${where}: ${JSON.stringify(space)}. Unless the request names another place, put new work there, and grow it from there into open space rather than over other shapes.`,
 		]
+		if (near === 'subject') {
+			lines.push(
+				'When you answer a question about the selection in this space, draw one short arrow from the edge of your answer to the selected shape, so the two read together, and keep the answer compact: a heading-sized first line, then a few lines.'
+			)
+		}
+		return lines
 	},
 }
 
