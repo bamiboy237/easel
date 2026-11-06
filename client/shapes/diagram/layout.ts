@@ -106,7 +106,25 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 	// A process that branches only at its end, such as a bill's path to the
 	// President's choices, is a tree too, but a tall one: it may still wrap its
 	// lead-in into rows.
-	if (down.fit >= MIN_FIT) return down.bends
+	if (down.fit >= MIN_FIT) {
+		// A short pipeline drawn top to bottom, such as a request path through a
+		// system's parts, comes out a thin column that leaves most of a screen
+		// empty. When it runs three steps or more in a line before it branches, it
+		// reads left to right, as the request travels, if that fits as well.
+		const at = nodes.map((n) => ({ x: n.x, y: n.y }))
+		const w = Math.max(...nodes.map((n) => n.x + n.w)) - Math.min(...nodes.map((n) => n.x))
+		const h = Math.max(...nodes.map((n) => n.y + n.h)) - Math.min(...nodes.map((n) => n.y))
+		if (h > 1.5 * w && leadRun(nodes, edges) >= 2) {
+			const across = run('LR')
+			const value = (o: { fit: number; at: Point[]; bends: Bends }) => Math.min(1, o.fit) - flowPenalty(nodes, edges, o.at, o.bends)
+			if (!across.squeezed && across.fit >= MIN_FIT && value(across) >= value(down) - 0.1) {
+				nodes.forEach((n, i) => Object.assign(n, across.at[i]))
+				return across.bends
+			}
+		}
+		nodes.forEach((n, i) => Object.assign(n, at[i]))
+		return down.bends
+	}
 	const options = [down]
 	if (!isTree(nodes, edges)) {
 		const across = run('LR')
@@ -892,6 +910,24 @@ const FIT_H = 880
 const MIN_FIT = 0.8
 /** How much smaller a procedure drawn down its columns may come out and still win. */
 const PROCEDURE_BONUS = 0.12
+
+/** How many steps a flow runs in a line from its one start before it first branches; 0 without one start. */
+function leadRun(nodes: LayoutNode[], edges: LayoutEdge[]) {
+	const pointedTo = new Set(edges.map((e) => e.to))
+	const starts = nodes.filter((n) => !pointedTo.has(n.id))
+	if (starts.length !== 1) return 0
+	let at: string | undefined = starts[0].id
+	const seen = new Set<string>()
+	let run = 0
+	while (at && !seen.has(at)) {
+		seen.add(at)
+		const out = edges.filter((e) => e.from === at)
+		if (out.length !== 1) break
+		run++
+		at = out[0].to
+	}
+	return run
+}
 
 function isTree(nodes: LayoutNode[], edges: LayoutEdge[]) {
 	const into = new Map<string, number>()
