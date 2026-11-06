@@ -1,4 +1,4 @@
-import { Box, TLArrowShape, TLDefaultColorStyle, TLGeoShape, TLShapeId, TLTextShape, toRichText } from 'tldraw'
+import { Box, TLArrowShape, TLDefaultColorStyle, TLGeoShape, TLRichText, TLShapeId, TLTextShape, toRichText } from 'tldraw'
 import { DiagramAction } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
@@ -169,6 +169,17 @@ function branchInk(layout: string, label: string): TLDefaultColorStyle | null {
 	return null
 }
 
+/** A bold name on one line and the rest on the next. */
+function headedText({ head, rest }: { head: string; rest: string }): TLRichText {
+	return {
+		type: 'doc',
+		content: [
+			{ type: 'paragraph', content: [{ type: 'text', text: head, marks: [{ type: 'bold' }] }] },
+			{ type: 'paragraph', content: [{ type: 'text', text: rest }] },
+		],
+	}
+}
+
 /** A short, stable hash of a string (FNV-1a), so different ids never share a shape id. */
 function hash(value: string) {
 	let h = 0x811c9dc5
@@ -333,12 +344,25 @@ export const DiagramActionUtil = registerActionUtil(
 				edges.every((e) => /^(left|right|)$/i.test(e.label))
 			// A decision's question as it is drawn, on one line or two.
 			const lines = new Map<string, string>()
+			// Map labels drawn as a bold name over the rest.
+			const headed = new Map<string, { head: string; rest: string }>()
 			const nodes: (LayoutNode & { label: string })[] = named.map(({ id, label }) => {
 				const fontSize = LABEL_FONT_SIZE[nodeStyle(tree, id, hub).size]
 				const maxW = NODE_MAX_W + (fontSize - 18) * 8
 				const measured = measure(label, fontSize, maxW - NODE_PAD)
 				let w = Math.min(maxW, Math.max(NODE_MIN_W, measured.w + NODE_PAD))
 				let h = Math.max(NODE_H, measured.h + 28)
+				// In a map, a label that names a thing and then says more about it, such
+				// as "Noun: dog" or "Supervised: learns from labels", sets the name in bold
+				// on its own line and the rest under it, so the name reads first.
+				const parts = action.layout === 'map' && id !== tree?.root && id !== hub ? /^([^:]{2,28}):\s+(.{2,})$/.exec(label) : null
+				if (parts) {
+					const head = measure(parts[1], fontSize, maxW - NODE_PAD)
+					const rest = measure(parts[2], fontSize, maxW - NODE_PAD)
+					headed.set(id, { head: parts[1], rest: parts[2] })
+					w = Math.min(maxW, Math.max(NODE_MIN_W, head.w * 1.1 + NODE_PAD, rest.w + NODE_PAD))
+					h = Math.max(NODE_H, head.h + rest.h + 28)
+				}
 				// A pill's round ends and a diamond's corners take room from the label.
 				if (geoOf.get(id) === 'oval') w += 28
 				if (geoOf.get(id) === 'diamond') {
@@ -475,7 +499,7 @@ export const DiagramActionUtil = registerActionUtil(
 				const shown = added ? { ...base, color: 'orange' as const, fill: 'solid' as const } : base
 				const style = geo === 'oval' ? { ...shown, fill: 'solid' as const, ...(endInk ? { color: endInk } : {}) } : shown
 				if (ink && style.color === ink) shownGroups.add(groupOfNode.get(node.id)!)
-				const props = { w: node.w, h: node.h, geo, richText: toRichText(lines.get(node.id) ?? node.label), ...style }
+				const props = { w: node.w, h: node.h, geo, richText: headed.has(node.id) ? headedText(headed.get(node.id)!) : toRichText(lines.get(node.id) ?? node.label), ...style }
 				// The look the layout chose, kept so a redraw can tell it from the user's own.
 				const laidOutStyle = { geo, color: style.color, fill: style.fill, size: style.size }
 				if (!existing) {
