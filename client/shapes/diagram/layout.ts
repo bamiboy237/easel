@@ -1085,6 +1085,9 @@ export function treeOf(ids: string[], edges: { from: string; to: string }[]): Tr
 		children.set(id, kids)
 	}
 	if (depth.size !== ids.length) return null
+	// A mind map grows out from its root. Links that point in, such as inputs
+	// that feed a process, make a map of causes that only happens to be a tree.
+	if (edges.some((e) => depth.get(e.to)! < depth.get(e.from)!)) return null
 	return { root, depth, branch, children }
 }
 
