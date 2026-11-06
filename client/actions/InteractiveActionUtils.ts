@@ -1,5 +1,6 @@
 import { Editor, TLShape, TLShapeId } from 'tldraw'
 import { alignStep } from '../agent/alignSteps'
+import { attachStepNotes } from '../agent/stepNotes'
 import { fitInFrame } from '../agent/fitInFrame'
 import { settleBlock } from '../agent/settleBlock'
 import { registerShapeDescriber } from '../../shared/format/convertTldrawShapeToFocusedShape'
@@ -99,9 +100,13 @@ export const EquationActionUtil = registerActionUtil(
 				return
 			}
 			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
-			editor.createShape<EquationShape>({ id, type: EQUATION_TYPE, x: at.x, y: at.y, props })
+			// Where the model asked for the step, before it settles: notes beside the
+			// derivation were placed level with that (see attachStepNotes).
+			editor.createShape<EquationShape>({ id, type: EQUATION_TYPE, x: at.x, y: at.y, props, meta: { askedY: at.y } })
 			settleBlock(this.agent, id)
 			alignStep(this.agent, id)
+			const step = editor.getShape(id)
+			if (step) attachStepNotes(this.agent, step.parentId, id)
 		}
 	}
 )
@@ -144,7 +149,26 @@ export const GraphActionUtil = registerActionUtil(
 			const [yMin, yMax] = range(action.yMin, action.yMax, [-4, 4])
 			const plotW = Math.min(800, Math.max(200, action.width || 360))
 			const plotH = Math.min(600, Math.max(120, action.height || 240))
-			const props = { functions, ...axisTitles, parameters, xMin, xMax, yMin, yMax, w: plotW, h: plotH + parametersHeight(parameters) }
+			// Marked points: only whole ones, and only when the action names them, so a
+			// redraw that leaves them out keeps the ones already there.
+			const points = Array.isArray(action.points)
+				? action.points
+						.filter((p) => p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)))
+						.slice(0, 6)
+						.map((p) => ({ x: Number(p.x), y: Number(p.y), label: String(p.label ?? '').trim() }))
+				: undefined
+			const props = {
+				functions,
+				...axisTitles,
+				parameters,
+				xMin,
+				xMax,
+				yMin,
+				yMax,
+				w: plotW,
+				h: plotH + parametersHeight(parameters),
+				...(points ? { points } : {}),
+			}
 			const { id, existing } = resolveTarget<GraphShape>(helpers, action.shapeId, GRAPH_TYPE)
 			if (existing) {
 				editor.updateShape<GraphShape>({ id, type: GRAPH_TYPE, props })
