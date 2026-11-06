@@ -19,6 +19,35 @@ export interface TimelineEvent {
 /** Inks for the groups, in the order they first appear; neighbors differ in hue. */
 const GROUP_COLORS: TLDefaultColorStyle[] = ['blue', 'red', 'green', 'violet', 'orange', 'light-blue']
 
+/** Sides with an ink of their own by long convention, such as the Cold War's red and blue. */
+const CONVENTIONAL: [RegExp, TLDefaultColorStyle][] = [
+	[/\b(ussr|soviets?|soviet union|russia|communists?)\b/i, 'red'],
+	[/\b(us|usa|u\.s\.|united states|americans?|nato|union)\b/i, 'blue'],
+]
+
+/**
+ * One ink per group, in the order the groups first appear, except that a
+ * side with a conventional ink keeps it when no other group has taken it.
+ */
+export function groupInks(groups: string[], palette: TLDefaultColorStyle[] = GROUP_COLORS) {
+	const inks = new Map<string, TLDefaultColorStyle>()
+	const used = new Set<TLDefaultColorStyle>()
+	for (const g of groups) {
+		const conv = CONVENTIONAL.find(([re]) => re.test(g))?.[1]
+		if (conv && palette.includes(conv) && !used.has(conv)) {
+			inks.set(g, conv)
+			used.add(conv)
+		}
+	}
+	for (const g of groups) {
+		if (inks.has(g)) continue
+		const ink = palette.find((c) => !used.has(c)) ?? palette[inks.size % palette.length]
+		inks.set(g, ink)
+		used.add(ink)
+	}
+	return inks
+}
+
 /** tldraw's text sizes in px, for the sizes a timeline uses. */
 const FONT = { s: 18, m: 24 } as const
 const DESC_MAX_W = 560
@@ -28,9 +57,27 @@ const SPINE_GAP = 26
 const LEGEND_GAP = 30
 const NOTE_GAP = 4
 
+/** A date: a year, with a month and day before it when given, such as "Apr 1961" or "12 April 1961". */
+const DATE = '(?:c\\.\\s*)?(?:(?:\\d{1,2}\\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+(?:\\d{1,2},?\\s+)?)?\\d{3,4}(?:\\s*(?:bce?|ce|ad))?'
 /** A date at the start of a label, such as "1957: Sputnik 1" or "12 April 1961 · Gagarin". */
-const LEADING_DATE =
-	/^\s*((c\.\s*)?((\d{1,2}\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2},?\s+)?)?\d{3,4}(\s*(bce?|ce|ad))?)\s*[:·—–-]\s*/i
+const LEADING_DATE = new RegExp(`^\\s*(${DATE})\\s*[:·—–|-]\\s*`, 'i')
+/** A first line that is only a date, and maybe a side: "1957 · USSR". */
+const DATE_LINE = new RegExp(`^\\s*(${DATE})\\s*(?:[:·—–|-]\\s*(.{1,30}?))?\\s*$`, 'i')
+
+/** Whether a flow is really a timeline: a single chain of four or more dated steps with unlabeled arrows. */
+export function isDatedChain(labels: string[], edges: { from: string; to: string; label: string }[], ids: string[]) {
+	if (ids.length < 4 || (edges.length !== ids.length - 1 && edges.length !== 0)) return false
+	if (edges.some((e) => e.label.trim())) return false
+	const into = new Set<string>()
+	const out = new Set<string>()
+	for (const e of edges) {
+		if (into.has(e.to) || out.has(e.from)) return false
+		into.add(e.to)
+		out.add(e.from)
+	}
+	const dated = labels.filter((l) => LEADING_DATE.test(l) || DATE_LINE.test(l.split('\n')[0]))
+	return dated.length >= Math.ceil(labels.length * 0.8)
+}
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 
@@ -49,8 +96,17 @@ function dateKey(date: string) {
 export function splitEvents(events: TimelineEvent[]) {
 	const parsed = events.map((e) => {
 		if (e.date && e.date.trim()) return { ...e, date: e.date.trim(), text: e.label.replace(LEADING_DATE, '').trim() || e.label }
+		// "1957 · USSR" on a line of its own, then what happened.
+		const lines = e.label.split('\n')
+		const first = lines.length > 1 ? lines[0].match(DATE_LINE) : null
+		if (first) return { ...e, date: first[1].trim(), group: e.group ?? first[2]?.trim(), text: lines.slice(1).join(' ').trim() }
 		const m = e.label.match(LEADING_DATE)
-		return m ? { ...e, date: m[1].trim(), text: e.label.slice(m[0].length).trim() } : { ...e, date: '', text: e.label }
+		if (!m) return { ...e, date: '', text: e.label }
+		// "1957 · USSR · Sputnik 1": a short side between the date and the event.
+		const rest = e.label.slice(m[0].length)
+		const side = rest.match(/^([^·|\n]{1,30}?)\s*[·|]\s+(.+)$/s)
+		if (side && !e.group && side[1].trim().split(/\s+/).length <= 3) return { ...e, date: m[1].trim(), group: side[1].trim(), text: side[2].trim() }
+		return { ...e, date: m[1].trim(), text: rest.trim() }
 	})
 	// Time runs one way: events are sorted by date when every date has a year,
 	// so an event added later lands in its place, and ties keep their order.
@@ -97,7 +153,8 @@ export function drawTimeline(
 	const rows = splitEvents(events)
 	const groups: string[] = []
 	for (const r of rows) if (r.group && !groups.includes(r.group.trim())) groups.push(r.group.trim())
-	const inkOf = (group?: string) => (group && groups.length ? GROUP_COLORS[groups.indexOf(group.trim()) % GROUP_COLORS.length] : 'black')
+	const inks = groupInks(groups)
+	const inkOf = (group?: string) => (group && groups.length ? (inks.get(group.trim()) ?? 'black') : 'black')
 
 	const dateW = Math.max(0, ...rows.map((r) => (r.date ? measure(r.date, FONT.m, 1000).w : 0)))
 	const spineX = dateW + SPINE_GAP

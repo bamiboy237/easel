@@ -100,6 +100,8 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 	}
 	const leadIn = layoutLeadIn(nodes, edges)
 	if (leadIn) options.push(leadIn)
+	const spine = layoutSpine(nodes, edges)
+	if (spine) options.push(spine)
 	const best = options.reduce((a, b) => (b.fit > a.fit + 0.05 ? b : a))
 	nodes.forEach((n, i) => Object.assign(n, best.at[i]))
 	return best.bends
@@ -177,6 +179,168 @@ function layoutLeadIn(nodes: LayoutNode[], edges: LayoutEdge[]) {
 	const w = Math.max(...placed.map((n) => n.x + n.w)) - minX
 	const h = Math.max(...placed.map((n) => n.y + n.h)) - minY
 	return { bends, squeezed: false, fit: Math.min(1, FIT_W / w, FIT_H / h), at: placed.map((n) => ({ x: n.x - minX, y: n.y - minY })) }
+}
+
+/**
+ * A process whose main line runs a long way while its choices drop off to
+ * quick ends ("No: bill stalls"), as most decision flows do, drawn top to
+ * bottom is a column far taller than a screen: every early exit costs a
+ * rank. Its main line wraps into rows that read left to right, then right to
+ * left, as a process poster does, and each early exit hangs just under the
+ * step it leaves. Rows break where no exit hangs, so each turn is a short
+ * step straight down. The part after the main line's first real fork hangs
+ * below the last row, laid out top to bottom. Returns null when the flow has
+ * no such main line.
+ */
+function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
+	const into = new Map<string, number>(nodes.map((n) => [n.id, 0]))
+	const outOf = new Map<string, number[]>(nodes.map((n) => [n.id, []]))
+	edges.forEach((e, i) => {
+		into.set(e.to, into.get(e.to)! + 1)
+		outOf.get(e.from)!.push(i)
+	})
+	const sources = nodes.filter((n) => into.get(n.id) === 0)
+	if (sources.length !== 1) return null
+	const byId = new Map(nodes.map((n) => [n.id, n]))
+	const isExit = (id: string) => outOf.get(id)!.length === 0 && into.get(id) === 1
+	// The main line: each step goes on to one step, and any other way out is a quick end.
+	const chain: LayoutNode[] = [sources[0]]
+	const exitsOf = new Map<string, number[]>()
+	for (;;) {
+		const last = chain[chain.length - 1]
+		const out = outOf.get(last.id)!
+		const ends = out.filter((i) => isExit(edges[i].to))
+		const on = out.filter((i) => !isExit(edges[i].to))
+		if (on.length !== 1 || ends.length > 2) break
+		const next = byId.get(edges[on[0]].to)!
+		if (into.get(next.id) !== 1 || chain.includes(next)) break
+		exitsOf.set(last.id, ends)
+		chain.push(next)
+	}
+	const exitCount = [...exitsOf.values()].reduce((s, a) => s + a.length, 0)
+	if (chain.length < 5 || exitCount === 0) return null
+	// The head, the main line's last step, goes with the part below it.
+	const head = chain[chain.length - 1]
+	const inChain = new Set(chain.map((n) => n.id))
+	const exitIds = new Set([...exitsOf.values()].flat().map((i) => edges[i].to))
+	const cellH = Math.max(...chain.map((n) => n.h))
+	const exitH = Math.max(0, ...[...exitIds].map((id) => byId.get(id)!.h))
+	const exitRow = (id: string) => (exitsOf.get(id) ?? []).map((i) => byId.get(edges[i].to)!)
+	const cellW = Math.max(...chain.map((n) => Math.max(n.w, exitRow(n.id).reduce((s, x) => s + x.w, 0) + (exitRow(n.id).length - 1) * 24)))
+	const mainEdges = chain.slice(0, -1).map((n) => edges[outOf.get(n.id)!.find((i) => !isExit(edges[i].to))!])
+	const gapX = Math.max(72, ...mainEdges.map((e) => (e.labelW > 0 ? e.labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 0)))
+	const exitEdges = [...exitsOf.values()].flat().map((i) => edges[i])
+	const exitGap = Math.max(56, ...exitEdges.map((e) => (e.labelH > 0 ? e.labelH + LABEL_ARROW_ROOM : 0)))
+	const turnGap = Math.max(64, ...mainEdges.map((e) => (e.labelH > 0 ? e.labelH + LABEL_ARROW_ROOM : 0)))
+	let chosen: { fit: number; at: Map<string, Point>; bends: Bends } | null = null
+	for (const cols of [3, 4, 5]) {
+		// Rows of up to cols steps, each ending on a step with no exit when it can.
+		const rows: LayoutNode[][] = []
+		let k = 0
+		while (k < chain.length) {
+			let len = Math.min(cols, chain.length - k)
+			while (len > 2 && k + len < chain.length && (exitsOf.get(chain[k + len - 1].id)?.length ?? 0) > 0) len--
+			rows.push(chain.slice(k, k + len))
+			k += len
+		}
+		const at = new Map<string, Point>()
+		// Each step's column; each column as wide as its widest step and exits.
+		const colOf = new Map<string, number>()
+		{
+			let col = 0
+			let dir = 1
+			rows.forEach((row, r) => {
+				if (r > 0) dir = -dir
+				row.forEach((n, j) => {
+					if (j > 0) col += dir
+					colOf.set(n.id, col)
+				})
+			})
+		}
+		const cols0 = Math.min(...colOf.values())
+		const widthOf = new Map<number, number>()
+		for (const n of chain) {
+			const c = colOf.get(n.id)!
+			const ex = exitRow(n.id)
+			const need = Math.max(n.w, ex.reduce((s, x) => s + x.w, 0) + (ex.length - 1) * 24)
+			widthOf.set(c, Math.max(widthOf.get(c) ?? 0, need))
+		}
+		const centerOf = new Map<number, number>()
+		{
+			let x = 0
+			for (let c = cols0; widthOf.has(c); c++) {
+				centerOf.set(c, x + widthOf.get(c)! / 2)
+				x += widthOf.get(c)! + gapX
+			}
+		}
+		let y = 0
+		for (const row of rows) {
+			const hasExits = row.some((n) => (exitsOf.get(n.id)?.length ?? 0) > 0)
+			row.forEach((n) => {
+				const cx = centerOf.get(colOf.get(n.id)!)!
+				at.set(n.id, { x: cx - n.w / 2, y: y + (cellH - n.h) / 2 })
+				const ex = exitRow(n.id)
+				const total = ex.reduce((s, x) => s + x.w, 0) + (ex.length - 1) * 24
+				let x = cx - total / 2
+				for (const e of ex) {
+					at.set(e.id, { x, y: y + cellH + exitGap })
+					x += e.w + 24
+				}
+			})
+			y += cellH + (hasExits ? exitGap + exitH : 0) + turnGap
+		}
+		// The rest hangs below the head, clear of every row.
+		const rest = nodes.filter((n) => !inChain.has(n.id) && !exitIds.has(n.id))
+		const restNodes = [head, ...rest].map((n) => ({ ...n }))
+		const restSet = new Set(restNodes.map((n) => n.id))
+		const restEdges = edges.map((e, i) => ({ e, i })).filter(({ e }) => restSet.has(e.from) && restSet.has(e.to))
+		const restBends = restNodes.length > 1 ? layoutFlowOnce(restNodes, restEdges.map(({ e }) => e), RANK_GAP, new Map()) : []
+		const restHead = restNodes[0]
+		const headAt = at.get(head.id)!
+		const dx = headAt.x - restHead.x
+		let dy = headAt.y - restHead.y
+		const others = restNodes.slice(1)
+		if (others.length) {
+			const rowsBottom = Math.max(...[...at.entries()].filter(([id]) => id !== head.id).map(([id, p]) => p.y + byId.get(id)!.h))
+			const top = Math.min(...others.map((n) => n.y + dy))
+			if (top < rowsBottom + 48) dy += rowsBottom + 48 - top
+		}
+		for (const n of others) at.set(n.id, { x: n.x + dx, y: n.y + dy })
+		// Boxes on one rank of the part below keep a gap, as reordering can close it.
+		const ranks = new Map<number, LayoutNode[]>()
+		for (const n of others) {
+			const key = Math.round(at.get(n.id)!.y + n.h / 2)
+			const near = [...ranks.keys()].find((k) => Math.abs(k - key) < 24)
+			ranks.set(near ?? key, [...(ranks.get(near ?? key) ?? []), n])
+		}
+		for (const rank of ranks.values()) {
+			rank.sort((a, b) => at.get(a.id)!.x - at.get(b.id)!.x)
+			for (let i = 1; i < rank.length; i++) {
+				const prev = at.get(rank[i - 1].id)!
+				const cur = at.get(rank[i].id)!
+				const min = prev.x + rank[i - 1].w + 32
+				if (cur.x < min) at.set(rank[i].id, { x: min, y: cur.y })
+			}
+		}
+		const bends: Bends = edges.map(() => 0)
+		restEdges.forEach(({ i }, j) => (bends[i] = restBends[j] ?? 0))
+		const placed = nodes.map((n) => ({ ...n, ...at.get(n.id)! }))
+		// The rows and their exits must stay clear of each other and of the part below.
+		const inRest = (id: string) => restSet.has(id)
+		const touch = (a: LayoutNode, b: LayoutNode) => a.x < b.x + b.w + 12 && b.x < a.x + a.w + 12 && a.y < b.y + b.h + 12 && b.y < a.y + a.h + 12
+		if (placed.some((a, i) => placed.some((b, j) => j > i && !(inRest(a.id) && inRest(b.id)) && touch(a, b)))) continue
+		const minX = Math.min(...placed.map((n) => n.x))
+		const minY = Math.min(...placed.map((n) => n.y))
+		const w = Math.max(...placed.map((n) => n.x + n.w)) - minX
+		const h = Math.max(...placed.map((n) => n.y + n.h)) - minY
+		const fit = Math.min(1, FIT_W / w, FIT_H / h)
+		if (!chosen || fit > chosen.fit + 0.02) {
+			chosen = { fit, bends, at: new Map(placed.map((n) => [n.id, { x: n.x - minX, y: n.y - minY }])) }
+		}
+	}
+	const result = chosen as { fit: number; at: Map<string, Point>; bends: Bends } | null
+	if (!result) return null
+	return { bends: result.bends, squeezed: false, fit: result.fit, at: nodes.map((n) => result.at.get(n.id)!) }
 }
 
 /** The screen a diagram is read on, less a margin, and the least zoom at which its text still reads. */

@@ -1,16 +1,18 @@
-import { Box, TLArrowShape, TLDefaultColorStyle, TLGeoShape, TLShapeId, toRichText } from 'tldraw'
+import { Box, TLArrowShape, TLDefaultColorStyle, TLGeoShape, TLShapeId, TLTextShape, toRichText } from 'tldraw'
 import { DiagramAction } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
 import { layoutFlow, LayoutNode, layoutMap, TreeInfo, treeOf } from '../shapes/diagram/layout'
-import { drawTimeline } from '../shapes/diagram/timeline'
+import { drawTimeline, groupInks, isDatedChain } from '../shapes/diagram/timeline'
 
 /** Box sizes for a node: wide enough for a short label on one or two lines. */
 const NODE_MIN_W = 120
 const NODE_MAX_W = 220
 const NODE_H = 64
 const NODE_PAD = 36
+/** Room under a diagram for its legend. */
+const LEGEND_ROOM = 60
 /** The longest one-line question a decision diamond holds. */
 const DIAMOND_MAX_LINE = 210
 /** Arrow labels: tldraw's small arrow label size, and the padding around it. */
@@ -126,6 +128,7 @@ function isProcessTree(ids: string[], labels: Map<string, string>, edges: Diagra
 function outcomeInk(label: string, incoming: TLDefaultColorStyle | null): TLDefaultColorStyle | null {
 	if (/\b(not|fails?|failed|dies|died|rejected|denied|vetoed|killed|stops?|blocked|invalid|lost|error)\b/i.test(label)) return 'red'
 	if (/\b(becomes?|became|approved|accepted|passes|passed|succeeds?|success|done|complete[ds]?|enacted|wins?|valid|found)\b/i.test(label)) return 'green'
+	if (/\bveto(ed)?\b/i.test(label)) return 'red'
 	return incoming === 'green' || incoming === 'red' ? incoming : null
 }
 
@@ -246,7 +249,16 @@ export const DiagramActionUtil = registerActionUtil(
 			if (named.length === 0) return
 			// A timeline is laid out in columns of dates, a spine with dots, and events,
 			// once the action is whole: its rows sort by date, so a preview would jump.
-			if (action.layout === 'timeline') {
+			// A flow of dated steps joined by plain arrows is a timeline drawn the long way.
+			const asTimeline =
+				action.layout === 'timeline' ||
+				(action.layout === 'flow' &&
+					isDatedChain(
+						named.map((n) => n.label),
+						rawEdges.map((e) => ({ from: String(e.from), to: String(e.to), label: String(e.label ?? '') })),
+						named.map((n) => n.id)
+					))
+			if (asTimeline) {
 				if (preview) return
 				const raw = new Map(rawNodes.map((r) => [String(r.id ?? '').trim(), r]))
 				const events = named.map(({ id, label }) => {
@@ -284,6 +296,22 @@ export const DiagramActionUtil = registerActionUtil(
 				new Map(named.map((n) => [n.id, n.label])),
 				edges
 			)
+			// Groups: when the parts belong to kinds the reader should tell apart, such
+			// as oxygen-poor and oxygen-rich blood, each kind gets one wash, and a
+			// legend under the diagram names them. A mind map already colors its
+			// branches, and a flow's green and red stay for its ways out.
+			const rawById = new Map(rawNodes.map((r) => [String(r.id ?? '').trim(), r]))
+			const groupOfNode = new Map<string, string>()
+			for (const n of named) {
+				const g = rawById.get(n.id)?.group
+				if (typeof g === 'string' && g.trim()) groupOfNode.set(n.id, g.trim())
+			}
+			const groupNames = [...new Set(named.map((n) => groupOfNode.get(n.id)).filter((g): g is string => !!g))]
+			const useGroups = !tree && groupNames.length >= 2 && groupNames.length <= 5
+			const withChoices = edges.some((e) => branchInk(action.layout ?? 'flow', e.label))
+			const groupInk = useGroups
+				? groupInks(groupNames, withChoices ? ['blue', 'violet', 'orange', 'light-blue', 'yellow'] : ['blue', 'red', 'green', 'violet', 'orange'])
+				: new Map<string, TLDefaultColorStyle>()
 			const nodes: (LayoutNode & { label: string })[] = named.map(({ id, label }) => {
 				const fontSize = LABEL_FONT_SIZE[nodeStyle(tree, id, hub).size]
 				const maxW = NODE_MAX_W + (fontSize - 18) * 8
@@ -347,7 +375,7 @@ export const DiagramActionUtil = registerActionUtil(
 			if (isNew) {
 				const size = {
 					w: Math.max(...nodes.map((n) => n.x + n.w)),
-					h: Math.max(...nodes.map((n) => n.y + n.h)),
+					h: Math.max(...nodes.map((n) => n.y + n.h)) + (useGroups ? LEGEND_ROOM : 0),
 				}
 				const obstacles = editor
 					.getCurrentPageShapes()
@@ -374,7 +402,8 @@ export const DiagramActionUtil = registerActionUtil(
 				const existing = editor.getShape<TLGeoShape>(id)
 				const geo = geoOf.get(node.id) ?? 'rectangle'
 				// Ends of a flow are tinted lightly: the smallest difference that still reads (Tufte).
-				const base = nodeStyle(tree, node.id, hub)
+				const ink = groupInk.get(groupOfNode.get(node.id) ?? '')
+				const base = ink ? { ...nodeStyle(tree, node.id, hub), color: ink, fill: 'solid' as const } : nodeStyle(tree, node.id, hub)
 				const incoming = edges.find((e) => e.to === node.id)
 				const endInk =
 					geo === 'oval' && incoming && !edges.some((e) => e.from === node.id)
@@ -420,6 +449,27 @@ export const DiagramActionUtil = registerActionUtil(
 					meta: { ...existing.meta, ...meta, laidOutAt: movedByUser ? last : at, laidOutStyle: { ...laidOutStyle, ...appliedBefore } },
 					props: { ...props, ...keptStyle },
 				})
+			}
+
+			// The legend: one swatch and name per group, in a strip under the diagram.
+			if (useGroups && !preview) {
+				const bottom = Math.max(...nodes.map((n) => origin.y + n.y + n.h)) + 36
+				let x = Math.min(...nodes.map((n) => origin.x + n.x))
+				for (const g of groupNames) {
+					const swatchId = `${prefix}legend-${slug(g)}-${hash(g)}` as TLShapeId
+					const textId = `${prefix}legendt-${slug(g)}-${hash(g)}` as TLShapeId
+					keep.add(swatchId)
+					keep.add(textId)
+					const swatch = { geo: 'rectangle' as const, w: 28, h: 20, color: groupInk.get(g)!, fill: 'solid' as const, size: 's' as const }
+					if (editor.getShape(swatchId)) editor.updateShape<TLGeoShape>({ id: swatchId, type: 'geo', x, y: bottom, props: swatch })
+					else editor.createShape<TLGeoShape>({ id: swatchId, type: 'geo', x, y: bottom, meta: { diagram: diagramId }, props: swatch })
+					const size = measure(g, 18, 1000)
+					const text = { richText: toRichText(g), size: 's' as const, color: 'black' as const, font: 'serif' as const, autoSize: true }
+					const ty = bottom + 10 - size.h / 2
+					if (editor.getShape(textId)) editor.updateShape<TLTextShape>({ id: textId, type: 'text', x: x + 38, y: ty, props: text })
+					else editor.createShape<TLTextShape>({ id: textId, type: 'text', x: x + 38, y: ty, meta: { diagram: diagramId }, props: text })
+					x += 38 + size.w + 36
+				}
 			}
 
 			// Arrows, bound to the boxes at both ends, so they follow when a box moves.
