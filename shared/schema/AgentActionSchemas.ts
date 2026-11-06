@@ -453,11 +453,12 @@ export const GraphAction = z
 		xMax: z.number(),
 		yMin: z.number(),
 		yMax: z.number(),
+		points: z.array(z.object({ x: z.number(), y: z.number(), label: z.string() })).optional(),
 	})
 	.meta({
 		title: 'Graph',
 		description:
-			'The AI draws a live graph of functions of x, which the user can explore with sliders. Use it whenever a relationship between quantities should be seen, instead of drawing a curve with the pen. Functions: y as an expression of x and the parameters, such as "a*sin(b*x)" or "x^2 - c"; allowed are + - * / ^, parentheses, pi, e, and sin cos tan exp ln log sqrt abs. Labels: a short name for each function, in the same order, written at the end of its curve in its color, such as "demand", "height h", or "y = eˣ"; "" for none. With two or more curves, name every one. xLabel and yLabel: what each axis measures, with its unit, such as "t (s)" and "h (m)", or "x" and "y" for pure math. Pick ranges that show the interesting part, such as one or two periods of a wave, with the curves filling most of the plot. Parameters: each named number in the functions, with its starting value, its range, and its slider step; the user drags them, and the board shows their current values. To change an existing graph, use its shapeId. Width and height: the plot area in pixels, 520 by 340 or more for the main graph of a request; the sliders are added below it.',
+			'The AI draws a live graph of functions of x, which the user can explore with sliders. Use it whenever a relationship between quantities should be seen, instead of drawing a curve with the pen. Functions: y as an expression of x and the parameters, such as "a*sin(b*x)" or "x^2 - c"; allowed are + - * / ^, parentheses, pi, e, and sin cos tan exp ln log sqrt abs. Labels: a short name for each function, in the same order, written at the end of its curve in its color, such as "demand", "height h", or "y = eˣ"; "" for none. With two or more curves, name every one. xLabel and yLabel: what each axis measures, with its unit, such as "t (s)" and "h (m)", or "x" and "y" for pure math. Pick ranges that show the interesting part, such as one or two periods of a wave, with the curves filling most of the plot. Parameters: each named number in the functions, with its starting value, its range, and its slider step; the user drags them, and the board shows their current values. To change an existing graph, use its shapeId. Width and height: the plot area in pixels, 520 by 340 or more for the main graph of a request; the sliders are added below it. points: the key points a teacher would mark, such as the top of a throw, where a velocity crosses zero, an equilibrium, or where two curves meet, each with its exact x and y and a short label such as "top: 2.04 s, 20.4 m"; each is drawn as a dot in its curve\'s ink with dashed guides to both axes. When two graphs show the same moment, mark it on both.',
 	})
 
 export type GraphAction = z.infer<typeof GraphAction>
@@ -641,14 +642,22 @@ export const DiagramAction = z
 		diagramId: z.string(),
 		x: z.number(),
 		y: z.number(),
-		layout: z.enum(['flow', 'map']),
-		nodes: z.array(z.object({ id: z.string(), label: z.string() })),
+		layout: z.enum(['flow', 'map', 'timeline']),
+		nodes: z.array(
+			z.object({
+				id: z.string(),
+				label: z.string(),
+				date: z.string().optional(),
+				group: z.string().optional(),
+				note: z.string().optional(),
+			})
+		),
 		edges: z.array(z.object({ from: z.string(), to: z.string(), label: z.string() })),
 	})
 	.meta({
 		title: 'Diagram',
 		description:
-			'The AI draws a diagram from nodes and edges, and the app lays it out cleanly as ordinary boxes and bound arrows the user can move and edit. Use it for any flow, process, hierarchy, or concept map instead of placing boxes and arrows one by one. Layout "flow": top to bottom in steps, for processes and causes. Layout "map": spread out by links, for concept maps. Node labels: a few words. Edge labels: one to three words, a linking verb such as "causes", "feeds", or "turns into", or "" for none. Keep a diagram to about 12 boxes; put finer detail in a note beside it. In a flow with several outcomes, give each way out its own small end box next to the step it leaves, such as "Vetoed: bill dies", rather than routing long arrows back to one shared end. x and y: the top left corner. To redraw a diagram, send the same diagramId; nodes the user moved stay where they put them.',
+			'The AI draws a diagram from nodes and edges, and the app lays it out cleanly as ordinary boxes and bound arrows the user can move and edit. Use it for any flow, process, hierarchy, concept map, or timeline instead of placing boxes, arrows, or rows of text one by one. Layout "flow": top to bottom in steps, for processes and causes. Layout "map": spread out by links, for concept maps and mind maps. Layout "timeline": dated events in time order, drawn as a column of dates, a spine with one dot per event, and each event beside its dot; use it for every timeline or chronology, with edges []. Node labels: a few words. Edge labels: one to three words, a linking verb such as "causes", "feeds", or "turns into", or "" for none. Keep a diagram to about 12 boxes; put finer detail in a note beside it. In a flow, word each decision as a short question ending in "?", such as "Same text in both chambers?" or "Two-thirds override?", and label its ways out "yes" and "no"; the app draws decisions as diamonds and the start and ends as pills, and colors the ways out and the outcomes green and red. Give each decision every real outcome, including the easily forgotten ones, and give each way out its own small end box next to the step it leaves, such as "Vetoed: bill dies", rather than routing long arrows back to one shared end. In a timeline, give each node a date (such as "1957", or "Apr 1961" when two events share a year), a label saying what happened, and, when the events belong to sides or kinds such as two countries, a group with the same words every time: each group gets one color for its dates and dots, and a legend. Give the key event a note: one short line of detail under it. x and y: the top left corner. To redraw a diagram, send the same diagramId; nodes the user moved stay where they put them.',
 	})
 
 export type DiagramAction = z.infer<typeof DiagramAction>
