@@ -351,10 +351,10 @@ export const DiagramActionUtil = registerActionUtil(
 					if (split && split.w <= DIAMOND_MAX_LINE) {
 						lines.set(id, `${split.a}\n${split.b}`)
 						w = Math.round(Math.max(170, split.w * 1.9 + 40))
-						h = Math.round(Math.max(120, line.h * 2 * 2.3, w * 0.45))
+						h = Math.round(Math.max(104, line.h * 2 * 2.1, w * 0.4))
 					} else if (line.w <= DIAMOND_MAX_LINE) {
 						w = Math.round(Math.max(170, line.w * 1.9 + 40))
-						h = Math.round(Math.max(110, line.h * 3, w * 0.42))
+						h = Math.round(Math.max(96, line.h * 3, w * 0.38))
 					} else {
 						geoOf.set(id, 'rectangle')
 					}
@@ -432,6 +432,8 @@ export const DiagramActionUtil = registerActionUtil(
 			// The groups whose wash still shows on some box: an end recolored as a
 			// success or a failure no longer shows its group's.
 			const shownGroups = new Set<string>()
+			// The ink of each end that reads as a success or a failure.
+			const endInks = new Map<string, TLDefaultColorStyle>()
 			for (const node of nodes) {
 				const id = nodeShapeId(diagramId, node.id)
 				keep.add(id)
@@ -450,6 +452,7 @@ export const DiagramActionUtil = registerActionUtil(
 					geo === 'oval' && incoming.length && !edges.some((e) => e.from === node.id)
 						? outcomeInk(node.label, incoming.length === 1 ? branchInk(action.layout ?? 'flow', incoming[0].label) : null)
 						: null
+				if (endInk) endInks.set(node.id, endInk)
 				// A step a redraw adds, such as a step the user asked for, is tinted until
 				// the next redraw, so the change is easy to find, as a teacher marks what
 				// is new on a board. Group colors and the ends' colors keep their meaning.
@@ -528,9 +531,11 @@ export const DiagramActionUtil = registerActionUtil(
 				const existing = editor.getShape<TLArrowShape>(id)
 				const bend = bendOf(edge)
 				// A mind map's branches take the ink of the box they lead to, and are plain
-				// lines: the tree already says which way it reads. A flow's yes and no
-				// branches take green and red.
-				const ink = branchInk(action.layout ?? 'flow', edge.label)
+				// lines: the tree already says which way it reads. In a flow, an arrow into
+				// an end takes the end's green or red, so color always means the outcome:
+				// a "yes" that leads to a pocket veto is red. Arrows between steps stay in
+				// ink, their yes and no written on them.
+				const ink = (action.layout ?? 'flow') === 'flow' ? (endInks.get(edge.to) ?? null) : null
 				const branchStyle = tree
 					? {
 							color: nodeStyle(tree, (tree.depth.get(edge.to) ?? 0) > (tree.depth.get(edge.from) ?? 0) ? edge.to : edge.from).color,
