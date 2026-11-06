@@ -1,4 +1,4 @@
-import { Coordinates, Mafs, Plot } from 'mafs'
+import { Coordinates, Line, Mafs, Plot, Point } from 'mafs'
 import 'mafs/core.css'
 import { useMemo } from 'react'
 import { Geometry2d, HTMLContainer, Rectangle2d, RecordProps, ShapeUtil, T, TLShape } from 'tldraw'
@@ -14,6 +14,13 @@ export interface GraphFunction {
 	label?: string
 }
 
+/** A key point the graph marks: a dot, dashed guides to both axes, and a short label. */
+export interface GraphPoint {
+	x: number
+	y: number
+	label?: string
+}
+
 export interface GraphShapeProps {
 	w: number
 	h: number
@@ -26,6 +33,8 @@ export interface GraphShapeProps {
 	xMax: number
 	yMin: number
 	yMax: number
+	/** Key points to mark, such as a maximum or where two curves meet. */
+	points?: GraphPoint[]
 }
 
 declare module 'tldraw' {
@@ -52,8 +61,9 @@ export function parametersHeight(parameters: ShapeParameter[]): number {
 export function describeGraph(props: GraphShapeProps): string {
 	const fns = props.functions.map((f) => `y = ${f.expression}${f.label ? ` ("${f.label}")` : ''}`).join('; ')
 	const params = describeParameters(props.parameters)
+	const marks = (props.points ?? []).map((p) => `(${p.x}, ${p.y})${p.label ? ` "${p.label}"` : ''}`).join('; ')
 	const axes = props.xLabel || props.yLabel ? ` Axes: x is ${props.xLabel || 'unlabeled'}, y is ${props.yLabel || 'unlabeled'}.` : ''
-	return `Graph of ${fns || 'nothing yet'}, x from ${props.xMin} to ${props.xMax}, y from ${props.yMin} to ${props.yMax}.${axes}${params ? ` Parameters: ${params}.` : ''}`
+	return `Graph of ${fns || 'nothing yet'}, x from ${props.xMin} to ${props.xMax}, y from ${props.yMin} to ${props.yMax}.${axes}${params ? ` Parameters: ${params}.` : ''}${marks ? ` Marked points: ${marks}.` : ''}`
 }
 
 /**
@@ -113,6 +123,7 @@ export class GraphShapeUtil extends ShapeUtil<GraphShape> {
 		xMax: T.number,
 		yMin: T.number,
 		yMax: T.number,
+		points: T.arrayOf(T.object({ x: T.number, y: T.number, label: T.string.optional() })).optional(),
 	}
 
 	override getDefaultProps(): GraphShapeProps {
@@ -150,8 +161,10 @@ export class GraphShapeUtil extends ShapeUtil<GraphShape> {
 }
 
 function Graph({ shape }: { shape: GraphShape }) {
-	const { w, h, functions, parameters, xMin, xMax, yMin, yMax } = shape.props
+	const { w, h, functions, parameters, xMin, xMax, yMax } = shape.props
 	const plotHeight = Math.max(40, h - parametersHeight(parameters))
+	const yMin = viewYMin(shape.props.yMin, yMax, plotHeight)
+	const points = (shape.props.points ?? []).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
 	const compiled = useMemo(
 		() =>
 			functions.map((f) => {
@@ -190,6 +203,18 @@ function Graph({ shape }: { shape: GraphShape }) {
 								<Plot.OfX key={i} y={(x) => c.fn!({ ...scope, x })} color={PLOT_INKS[i % PLOT_INKS.length]} weight={2.5} />
 							) : null
 						)}
+						{points.map((p, i) => {
+							const color = pointInk(p, compiled, scope)
+							const toX = xMin <= 0 && xMax >= 0 ? 0 : xMin
+							const toY = yMin <= 0 && yMax >= 0 ? 0 : yMin
+							return (
+								<g key={`p${i}`}>
+									<Line.Segment point1={[p.x, p.y]} point2={[p.x, toY]} color={color} opacity={0.55} weight={1.5} style="dashed" />
+									<Line.Segment point1={[p.x, p.y]} point2={[toX, p.y]} color={color} opacity={0.55} weight={1.5} style="dashed" />
+									<Point x={p.x} y={p.y} color={color} />
+								</g>
+							)
+						})}
 						{/* The axis numbers go over the curves, with a halo, so a curve never crosses them out. */}
 						<g className="graph-axis-labels">
 							<Coordinates.Cartesian
@@ -207,6 +232,7 @@ function Graph({ shape }: { shape: GraphShape }) {
 						})),
 						xLabel: shape.props.xLabel?.trim() ?? '',
 						yLabel: shape.props.yLabel?.trim() ?? '',
+						marks: points.map((p) => ({ x: p.x, y: p.y, label: p.label?.trim() ?? '', color: pointInk(p, compiled, scope) })),
 						view: { xMin, xMax, yMin, yMax },
 						w,
 						h: plotHeight,
@@ -227,12 +253,40 @@ function Graph({ shape }: { shape: GraphShape }) {
 	)
 }
 
+/**
+ * The bottom of the view. When the x axis lies on or near the plot's bottom
+ * edge, as it does for a height that starts at zero, its tick numbers would
+ * fall below the plot and be cut; the view then reaches a little below zero,
+ * so the numbers have their own margin under the axis.
+ */
+export function viewYMin(yMin: number, yMax: number, plotHeight: number) {
+	const room = 26
+	if (!(yMin <= 0 && yMax > 0) || plotHeight <= room * 2) return yMin
+	const above = ((0 - yMin) / (yMax - yMin)) * plotHeight
+	if (above >= room) return yMin
+	return yMax - (yMax * plotHeight) / (plotHeight - room)
+}
+
+/** A marked point takes the ink of the curve it lies on, so its label reads with that curve. */
+function pointInk(p: GraphPoint, compiled: { fn: CompiledExpression | null }[], scope: Record<string, number>) {
+	let best = { i: -1, d: Infinity }
+	compiled.forEach((c, i) => {
+		if (!c.fn) return
+		const y = c.fn({ ...scope, x: p.x })
+		const d = Math.abs(y - p.y)
+		if (Number.isFinite(d) && d < best.d) best = { i, d }
+	})
+	const tolerance = Math.max(1e-6, Math.abs(p.y) * 0.05 + 0.05)
+	return best.i >= 0 && best.d <= tolerance ? PLOT_INKS[best.i % PLOT_INKS.length] : PLOT_INKS[0]
+}
+
 /** Type sizes of a graph's own labels, in px. */
 const AXIS_TITLE_SIZE = 15
 const CURVE_LABEL_SIZE = 15
+const POINT_LABEL_SIZE = 15
 
 export interface GraphLabel {
-	kind: 'axis' | 'curve'
+	kind: 'axis' | 'curve' | 'point'
 	text: string
 	color: string
 	/** Top left, in the plot's pixels. */
@@ -266,11 +320,13 @@ export function graphLabels(input: {
 	fns: { fn: ((x: number) => number) | null; label: string; color: string }[]
 	xLabel: string
 	yLabel: string
+	marks?: { x: number; y: number; label: string; color: string }[]
 	view: { xMin: number; xMax: number; yMin: number; yMax: number }
 	w: number
 	h: number
 }): GraphLabel[] {
 	const { fns, xLabel, yLabel, view, w, h } = input
+	const marks = input.marks ?? []
 	const px = (x: number) => ((x - view.xMin) / (view.xMax - view.xMin)) * w
 	const py = (y: number) => ((view.yMax - y) / (view.yMax - view.yMin)) * h
 	const out: GraphLabel[] = []
@@ -295,6 +351,7 @@ export function graphLabels(input: {
 		return points
 	})
 	const allPoints = curves.flat()
+	for (const m of marks) taken.push({ minX: px(m.x) - 7, maxX: px(m.x) + 7, minY: py(m.y) - 7, maxY: py(m.y) + 7 })
 	const clear = (r: Rect) =>
 		r.minX >= 2 &&
 		r.maxX <= w - 2 &&
@@ -346,6 +403,24 @@ export function graphLabels(input: {
 		if (!r) continue
 		taken.push(r)
 		out.push({ kind: 'axis', text: title.text, color: ink, x: r.minX, y: r.minY })
+	}
+	// Each marked point is named beside its dot, on the side away from the curve.
+	for (const m of marks) {
+		if (!m.label) continue
+		const mx = px(m.x)
+		const my = py(m.y)
+		const bw = labelBox(m.label, POINT_LABEL_SIZE, 0, 0).maxX
+		const bh = POINT_LABEL_SIZE * 1.3
+		const r = place(m.label, POINT_LABEL_SIZE, [
+			[mx + 10, my - bh - 8],
+			[mx - bw - 10, my - bh - 8],
+			[mx + 12, my + 8],
+			[mx - bw - 12, my + 8],
+			[mx - bw / 2, my - bh - 14],
+		])
+		if (!r) continue
+		taken.push(r)
+		out.push({ kind: 'point', text: m.label, color: m.color, x: r.minX, y: r.minY })
 	}
 	fns.forEach(({ label, color }, i) => {
 		const points = curves[i]

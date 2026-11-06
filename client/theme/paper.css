@@ -1651,6 +1651,11 @@
 	font-weight: 500;
 }
 
+.graph-label-point {
+	font-size: 15px;
+	font-weight: 500;
+}
+
 .graph-error {
 	position: absolute;
 	left: 10px;

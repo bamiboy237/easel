@@ -1,5 +1,6 @@
 import { IndexKey, TLShape, TLShapeId, toRichText } from 'tldraw'
 import { settleBlock } from '../agent/settleBlock'
+import { attachStepNotes } from '../agent/stepNotes'
 import {
 	convertPartialFocusedShapeToTldrawShape,
 	FOCUSED_TO_GEO_TYPES,
@@ -79,8 +80,17 @@ export const CreateActionUtil = registerActionUtil(
 
 			editor.createShape(result.shape)
 			// Text the agent writes keeps off the text and blocks it wrote earlier in
-			// this request, as equations and scenes do (see settleBlock).
-			if (result.shape.type === 'text' && result.shape.id) settleBlock(this.agent, result.shape.id)
+			// this request, as equations and scenes do (see settleBlock). Where it was
+			// asked to go is kept, so a note beside a derivation can find its step.
+			if (result.shape.type === 'text' && result.shape.id && action.complete) {
+				const id = result.shape.id
+				const top = editor.getShapePageBounds(id)?.minY
+				const made = editor.getShape(id)
+				if (made && top !== undefined) editor.updateShape({ id, type: 'text', meta: { ...made.meta, noteAskedY: top } })
+				settleBlock(this.agent, id)
+				const settled = editor.getShape(id)
+				if (settled) attachStepNotes(this.agent, settled.parentId, id)
+			} else if (result.shape.type === 'text' && result.shape.id) settleBlock(this.agent, result.shape.id)
 
 			// Handle arrow bindings if they exist
 			if (result.bindings) {

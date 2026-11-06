@@ -1,5 +1,6 @@
 import { Editor, TLShape, TLShapeId } from 'tldraw'
 import { alignStep } from '../agent/alignSteps'
+import { attachStepNotes } from '../agent/stepNotes'
 import { fitInFrame } from '../agent/fitInFrame'
 import { settleBlock } from '../agent/settleBlock'
 import { registerShapeDescriber } from '../../shared/format/convertTldrawShapeToFocusedShape'
@@ -99,9 +100,13 @@ export const EquationActionUtil = registerActionUtil(
 				return
 			}
 			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
-			editor.createShape<EquationShape>({ id, type: EQUATION_TYPE, x: at.x, y: at.y, props })
+			// Where the model asked for the step, before it settles: notes beside the
+			// derivation were placed level with that (see attachStepNotes).
+			editor.createShape<EquationShape>({ id, type: EQUATION_TYPE, x: at.x, y: at.y, props, meta: { askedY: at.y } })
 			settleBlock(this.agent, id)
 			alignStep(this.agent, id)
+			const step = editor.getShape(id)
+			if (step) attachStepNotes(this.agent, step.parentId, id)
 		}
 	}
 )
@@ -144,7 +149,26 @@ export const GraphActionUtil = registerActionUtil(
 			const [yMin, yMax] = range(action.yMin, action.yMax, [-4, 4])
 			const plotW = Math.min(800, Math.max(200, action.width || 360))
 			const plotH = Math.min(600, Math.max(120, action.height || 240))
-			const props = { functions, ...axisTitles, parameters, xMin, xMax, yMin, yMax, w: plotW, h: plotH + parametersHeight(parameters) }
+			// Marked points: only whole ones, and only when the action names them, so a
+			// redraw that leaves them out keeps the ones already there.
+			const points = Array.isArray(action.points)
+				? action.points
+						.filter((p) => p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)))
+						.slice(0, 6)
+						.map((p) => ({ x: Number(p.x), y: Number(p.y), label: String(p.label ?? '').trim() }))
+				: autoPoints(functions, parameters, { xMin, xMax, yMin, yMax })
+			const props = {
+				functions,
+				...axisTitles,
+				parameters,
+				xMin,
+				xMax,
+				yMin,
+				yMax,
+				w: plotW,
+				h: plotH + parametersHeight(parameters),
+				...(points ? { points } : {}),
+			}
 			const { id, existing } = resolveTarget<GraphShape>(helpers, action.shapeId, GRAPH_TYPE)
 			if (existing) {
 				editor.updateShape<GraphShape>({ id, type: GRAPH_TYPE, props })
@@ -156,6 +180,82 @@ export const GraphActionUtil = registerActionUtil(
 		}
 	}
 )
+
+/** A number for a point's label: three significant digits, without trailing zeros. */
+function short(v: number) {
+	if (Math.abs(v) < 1e-9) return '0'
+	return String(Number(v.toPrecision(3)))
+}
+
+/**
+ * The points a teacher would mark on a graph the model sent without any: where
+ * a curve turns, where a single curve crosses the x axis, and where two curves
+ * meet, each labeled with its coordinates. Only for a graph without sliders,
+ * whose points stay put, and only when there are three or fewer, so a wave's
+ * many peaks are left alone.
+ */
+function autoPoints(
+	functions: { expression: string }[],
+	parameters: ShapeParameter[],
+	view: { xMin: number; xMax: number; yMin: number; yMax: number }
+) {
+	if (parameters.length > 0 || functions.length === 0 || functions.length > 3) return undefined
+	const fns = functions.map((f) => compileExpression(f.expression))
+	const N = 400
+	const xs = Array.from({ length: N + 1 }, (_, i) => view.xMin + ((view.xMax - view.xMin) * i) / N)
+	const edge = (view.xMax - view.xMin) * 0.03
+	const inside = (x: number, y: number) =>
+		x > view.xMin + edge && x < view.xMax - edge && y >= view.yMin && y <= view.yMax && Number.isFinite(y)
+	const found: { x: number; y: number }[] = []
+	const root = (g: (x: number) => number, a: number, b: number) => {
+		for (let k = 0; k < 50; k++) {
+			const m = (a + b) / 2
+			if (Math.sign(g(m)) === Math.sign(g(a))) a = m
+			else b = m
+		}
+		return (a + b) / 2
+	}
+	const values = fns.map((f) => xs.map((x) => f({ x })))
+	fns.forEach((f, i) => {
+		const ys = values[i]
+		for (let k = 1; k < N; k++) {
+			const d1 = ys[k] - ys[k - 1]
+			const d2 = ys[k + 1] - ys[k]
+			if (Number.isFinite(d1) && Number.isFinite(d2) && d1 * d2 < 0) {
+				const slope = (x: number) => f({ x: x + 1e-6 }) - f({ x: x - 1e-6 })
+				const x = root(slope, xs[k - 1], xs[k + 1])
+				found.push({ x, y: f({ x }) })
+			}
+		}
+		if (fns.length === 1) {
+			for (let k = 0; k < N; k++) {
+				if (ys[k] === 0) found.push({ x: xs[k], y: 0 })
+				else if (Number.isFinite(ys[k]) && Number.isFinite(ys[k + 1]) && ys[k] * ys[k + 1] < 0) {
+					const x = root((t) => f({ x: t }), xs[k], xs[k + 1])
+					found.push({ x, y: 0 })
+				}
+			}
+		}
+	})
+	for (let i = 0; i < fns.length; i++) {
+		for (let j = i + 1; j < fns.length; j++) {
+			const g = (x: number) => fns[i]({ x }) - fns[j]({ x })
+			for (let k = 0; k < N; k++) {
+				const a = g(xs[k])
+				const b = g(xs[k + 1])
+				if (a === 0) found.push({ x: xs[k], y: fns[i]({ x: xs[k] }) })
+				else if (Number.isFinite(a) && Number.isFinite(b) && a * b < 0) {
+					const x = root(g, xs[k], xs[k + 1])
+					found.push({ x, y: fns[i]({ x }) })
+				}
+			}
+		}
+	}
+	const points = found.filter((p) => inside(p.x, p.y))
+	const unique = points.filter((p, i) => !points.slice(0, i).some((q) => Math.abs(q.x - p.x) < edge && Math.abs(q.y - p.y) < (view.yMax - view.yMin) * 0.03))
+	if (unique.length === 0 || unique.length > 3) return undefined
+	return unique.map((p) => ({ x: Number(p.x.toFixed(4)), y: Number(p.y.toFixed(4)), label: `(${short(p.x)}, ${short(p.y)})` }))
+}
 
 export const SimulationActionUtil = registerActionUtil(
 	class SimulationActionUtil extends AgentActionUtil<SimulationAction> {

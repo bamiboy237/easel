@@ -1,15 +1,20 @@
-import { Box, TLArrowShape, TLDefaultColorStyle, TLGeoShape, TLShapeId, toRichText } from 'tldraw'
+import { Box, TLArrowShape, TLDefaultColorStyle, TLGeoShape, TLShapeId, TLTextShape, toRichText } from 'tldraw'
 import { DiagramAction } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
 import { layoutFlow, LayoutNode, layoutMap, TreeInfo, treeOf } from '../shapes/diagram/layout'
+import { drawTimeline, groupInks, isDatedChain } from '../shapes/diagram/timeline'
 
 /** Box sizes for a node: wide enough for a short label on one or two lines. */
 const NODE_MIN_W = 120
 const NODE_MAX_W = 220
 const NODE_H = 64
 const NODE_PAD = 36
+/** Room under a diagram for its legend. */
+const LEGEND_ROOM = 60
+/** The longest one-line question a decision diamond holds. */
+const DIAMOND_MAX_LINE = 210
 /** Arrow labels: tldraw's small arrow label size, and the padding around it. */
 const EDGE_LABEL_FONT_SIZE = 18
 const EDGE_LABEL_PAD = 9
@@ -25,31 +30,34 @@ interface DiagramEdge {
 }
 
 /** tldraw's geo label sizes, in px, for the sizes a diagram uses. */
-const LABEL_FONT_SIZE = { s: 18, m: 22 } as const
+const LABEL_FONT_SIZE = { s: 18, m: 22, l: 26 } as const
 
 /**
  * One ink per branch of a mind map, in an order where neighbors differ in hue.
  * The paper theme mutes every ink, so these sit quietly on the board.
  */
-const BRANCH_COLORS = ['blue', 'orange', 'green', 'violet', 'light-blue', 'yellow', 'red', 'light-green'] as const
+const BRANCH_COLORS = ['blue', 'orange', 'green', 'violet', 'red', 'yellow', 'light-blue', 'light-green'] as const
 
 interface NodeStyle {
-	size: 's' | 'm'
+	size: 's' | 'm' | 'l'
 	color: TLDefaultColorStyle
 	fill: 'none' | 'solid'
 }
 
 /**
- * How a box looks. In a mind map the root is larger and tinted, a branch's
- * first box is tinted in the branch's ink, and the boxes past it are outlined
- * in that ink: hierarchy shows in size, then in weight, then in color.
+ * How a box looks. In a mind map the root is the largest and tinted, a
+ * branch's first box is a size down and tinted in the branch's ink, and the
+ * boxes past it are smaller still and outlined in that ink: hierarchy shows in
+ * size, then in weight, then in color, so the eye starts at the center and
+ * reads out one tier at a time.
  */
 function nodeStyle(tree: TreeInfo | null, id: string, hub: string | null = null): NodeStyle {
-	if (id === hub) return { size: 'm', color: 'black', fill: 'solid' }
+	if (id === hub) return { size: 'l', color: 'black', fill: 'solid' }
 	if (!tree) return { size: 's', color: 'black', fill: 'none' }
-	if (id === tree.root) return { size: 'm', color: 'black', fill: 'solid' }
+	if (id === tree.root) return { size: 'l', color: 'black', fill: 'solid' }
 	const color = BRANCH_COLORS[(tree.branch.get(id) ?? 0) % BRANCH_COLORS.length]
-	return { size: 's', color, fill: tree.depth.get(id) === 1 ? 'solid' : 'none' }
+	const first = tree.depth.get(id) === 1
+	return { size: first ? 'm' : 's', color, fill: first ? 'solid' : 'none' }
 }
 
 /** The look of a diagram box from before the layout recorded its own, for older boards. */
@@ -76,12 +84,52 @@ function flowSymbols(layout: string, ids: string[], labels: Map<string, string>,
 	}
 	const isTree = edges.length === ids.length - 1 && ids.every((id) => into.get(id)! <= 1)
 	const isChain = isTree && ids.every((id) => out.get(id)! <= 1)
-	if (isTree && !isChain) return geo
+	if (isTree && !isChain && !isProcessTree(ids, labels, edges, out)) return geo
+	// A step whose ways out are a yes and a no, or a pass and a fail, is a choice
+	// even when it is not worded as a question.
+	const choice = new Set(
+		ids.filter((id) => {
+			const inks = new Set(edges.filter((e) => e.from === id).map((e) => branchInk('flow', e.label)))
+			return inks.has('green') && inks.has('red')
+		})
+	)
 	for (const id of ids) {
 		if (into.get(id) === 0 || out.get(id) === 0) geo.set(id, 'oval')
-		else if (/\?\s*$/.test(labels.get(id) ?? '') && out.get(id)! >= 2) geo.set(id, 'diamond')
+		else if (out.get(id)! >= 2 && (/\?\s*$/.test(labels.get(id) ?? '') || choice.has(id))) geo.set(id, 'diamond')
 	}
 	return geo
+}
+
+/**
+ * Whether a flow that is a tree is a process rather than a set of things (a
+ * binary tree, a system's parts): it runs through three or more steps in a
+ * line before it first branches, it asks a question, or its branches are
+ * labeled as the ways out of a choice (yes and no, passes and fails).
+ */
+function isProcessTree(ids: string[], labels: Map<string, string>, edges: DiagramEdge[], out: Map<string, number>) {
+	if (ids.some((id) => /\?\s*$/.test(labels.get(id) ?? '') && out.get(id)! >= 2)) return true
+	if (edges.some((e) => branchInk('flow', e.label))) return true
+	const pointedTo = new Set(edges.map((e) => e.to))
+	let at = ids.find((id) => !pointedTo.has(id))
+	let run = 0
+	while (at && out.get(at) === 1) {
+		run++
+		at = edges.find((e) => e.from === at)?.to
+	}
+	return run >= 3
+}
+
+/**
+ * The ink of a flow's end: an outcome that stops the process (fails, dies,
+ * rejected) is red, and one that reaches the goal (becomes law, approved,
+ * done) is green, as is an end reached by a green branch; other ends stay in
+ * plain ink. A reader sees at a glance which ways out succeed.
+ */
+function outcomeInk(label: string, incoming: TLDefaultColorStyle | null): TLDefaultColorStyle | null {
+	if (/\b(not|fails?|failed|dies|died|rejected|denied|vetoed|killed|stops?|blocked|invalid|lost|error)\b/i.test(label)) return 'red'
+	if (/\b(becomes?|became|approved|accepted|passes|passed|succeeds?|success|done|complete[ds]?|enacted|wins?|valid|found)\b/i.test(label)) return 'green'
+	if (/\bveto(ed)?\b/i.test(label)) return 'red'
+	return incoming === 'green' || incoming === 'red' ? incoming : null
 }
 
 /**
@@ -199,6 +247,30 @@ export const DiagramActionUtil = registerActionUtil(
 				named.push({ id, label: String(raw.label ?? id).trim() })
 			}
 			if (named.length === 0) return
+			// A timeline is laid out in columns of dates, a spine with dots, and events,
+			// once the action is whole: its rows sort by date, so a preview would jump.
+			// A flow of dated steps joined by plain arrows is a timeline drawn the long way.
+			const asTimeline =
+				action.layout === 'timeline' ||
+				(action.layout === 'flow' &&
+					isDatedChain(
+						named.map((n) => n.label),
+						rawEdges.map((e) => ({ from: String(e.from), to: String(e.to), label: String(e.label ?? '') })),
+						named.map((n) => n.id)
+					))
+			if (asTimeline) {
+				if (preview) return
+				const raw = new Map(rawNodes.map((r) => [String(r.id ?? '').trim(), r]))
+				const events = named.map(({ id, label }) => {
+					const r = raw.get(id)
+					const opt = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+					return { id, label, date: opt(r?.date), group: opt(r?.group), note: opt(r?.note) }
+				})
+				const prefix = diagramPrefix(diagramId)
+				const idOf = (key: string) => `${prefix}tl-${slug(key)}-${hash(key)}` as TLShapeId
+				drawTimeline(editor, diagramId, prefix, idOf, helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 }), events, measure)
+				return
+			}
 			const edges: DiagramEdge[] = rawEdges
 				.map((e) => ({ from: String(e.from), to: String(e.to), label: String(e.label ?? '').trim() }))
 				.filter((e) => seen.has(e.from) && seen.has(e.to) && e.from !== e.to)
@@ -224,6 +296,22 @@ export const DiagramActionUtil = registerActionUtil(
 				new Map(named.map((n) => [n.id, n.label])),
 				edges
 			)
+			// Groups: when the parts belong to kinds the reader should tell apart, such
+			// as oxygen-poor and oxygen-rich blood, each kind gets one wash, and a
+			// legend under the diagram names them. A mind map already colors its
+			// branches, and a flow's green and red stay for its ways out.
+			const rawById = new Map(rawNodes.map((r) => [String(r.id ?? '').trim(), r]))
+			const groupOfNode = new Map<string, string>()
+			for (const n of named) {
+				const g = rawById.get(n.id)?.group
+				if (typeof g === 'string' && g.trim()) groupOfNode.set(n.id, g.trim())
+			}
+			const groupNames = [...new Set(named.map((n) => groupOfNode.get(n.id)).filter((g): g is string => !!g))]
+			const useGroups = !tree && groupNames.length >= 2 && groupNames.length <= 5
+			const withChoices = edges.some((e) => branchInk(action.layout ?? 'flow', e.label))
+			const groupInk = useGroups
+				? groupInks(groupNames, withChoices ? ['blue', 'violet', 'orange', 'light-blue', 'yellow'] : ['blue', 'red', 'green', 'violet', 'orange'])
+				: new Map<string, TLDefaultColorStyle>()
 			const nodes: (LayoutNode & { label: string })[] = named.map(({ id, label }) => {
 				const fontSize = LABEL_FONT_SIZE[nodeStyle(tree, id, hub).size]
 				const maxW = NODE_MAX_W + (fontSize - 18) * 8
@@ -233,8 +321,17 @@ export const DiagramActionUtil = registerActionUtil(
 				// A pill's round ends and a diamond's corners take room from the label.
 				if (geoOf.get(id) === 'oval') w += 28
 				if (geoOf.get(id) === 'diamond') {
-					w = Math.round(w * 1.5)
-					h = Math.round(Math.max(h * 1.6, 96))
+					// tldraw wraps a diamond's label to nearly the shape's full width, but
+					// the diamond is only that wide at its middle. A short question on one
+					// line sits inside when the diamond is about twice as wide; a long one
+					// stays a box, which holds it, and keeps its colored ways out.
+					const line = measure(label, fontSize, 1000)
+					if (line.w <= DIAMOND_MAX_LINE) {
+						w = Math.round(Math.max(170, line.w * 1.9 + 40))
+						h = Math.round(Math.max(110, line.h * 3, w * 0.42))
+					} else {
+						geoOf.set(id, 'rectangle')
+					}
 				}
 				return { id, label, w, h, x: 0, y: 0 }
 			})
@@ -278,7 +375,7 @@ export const DiagramActionUtil = registerActionUtil(
 			if (isNew) {
 				const size = {
 					w: Math.max(...nodes.map((n) => n.x + n.w)),
-					h: Math.max(...nodes.map((n) => n.y + n.h)),
+					h: Math.max(...nodes.map((n) => n.y + n.h)) + (useGroups ? LEGEND_ROOM : 0),
 				}
 				const obstacles = editor
 					.getCurrentPageShapes()
@@ -305,7 +402,14 @@ export const DiagramActionUtil = registerActionUtil(
 				const existing = editor.getShape<TLGeoShape>(id)
 				const geo = geoOf.get(node.id) ?? 'rectangle'
 				// Ends of a flow are tinted lightly: the smallest difference that still reads (Tufte).
-				const style = geo === 'oval' ? { ...nodeStyle(tree, node.id, hub), fill: 'solid' as const } : nodeStyle(tree, node.id, hub)
+				const ink = groupInk.get(groupOfNode.get(node.id) ?? '')
+				const base = ink ? { ...nodeStyle(tree, node.id, hub), color: ink, fill: 'solid' as const } : nodeStyle(tree, node.id, hub)
+				const incoming = edges.find((e) => e.to === node.id)
+				const endInk =
+					geo === 'oval' && incoming && !edges.some((e) => e.from === node.id)
+						? outcomeInk(node.label, branchInk(action.layout ?? 'flow', incoming.label))
+						: null
+				const style = geo === 'oval' ? { ...base, fill: 'solid' as const, ...(endInk ? { color: endInk } : {}) } : base
 				const props = { w: node.w, h: node.h, geo, richText: toRichText(node.label), ...style }
 				// The look the layout chose, kept so a redraw can tell it from the user's own.
 				const laidOutStyle = { geo, color: style.color, fill: style.fill, size: style.size }
@@ -345,6 +449,27 @@ export const DiagramActionUtil = registerActionUtil(
 					meta: { ...existing.meta, ...meta, laidOutAt: movedByUser ? last : at, laidOutStyle: { ...laidOutStyle, ...appliedBefore } },
 					props: { ...props, ...keptStyle },
 				})
+			}
+
+			// The legend: one swatch and name per group, in a strip under the diagram.
+			if (useGroups && !preview) {
+				const bottom = Math.max(...nodes.map((n) => origin.y + n.y + n.h)) + 36
+				let x = Math.min(...nodes.map((n) => origin.x + n.x))
+				for (const g of groupNames) {
+					const swatchId = `${prefix}legend-${slug(g)}-${hash(g)}` as TLShapeId
+					const textId = `${prefix}legendt-${slug(g)}-${hash(g)}` as TLShapeId
+					keep.add(swatchId)
+					keep.add(textId)
+					const swatch = { geo: 'rectangle' as const, w: 28, h: 20, color: groupInk.get(g)!, fill: 'solid' as const, size: 's' as const }
+					if (editor.getShape(swatchId)) editor.updateShape<TLGeoShape>({ id: swatchId, type: 'geo', x, y: bottom, props: swatch })
+					else editor.createShape<TLGeoShape>({ id: swatchId, type: 'geo', x, y: bottom, meta: { diagram: diagramId }, props: swatch })
+					const size = measure(g, 18, 1000)
+					const text = { richText: toRichText(g), size: 's' as const, color: 'black' as const, font: 'serif' as const, autoSize: true }
+					const ty = bottom + 10 - size.h / 2
+					if (editor.getShape(textId)) editor.updateShape<TLTextShape>({ id: textId, type: 'text', x: x + 38, y: ty, props: text })
+					else editor.createShape<TLTextShape>({ id: textId, type: 'text', x: x + 38, y: ty, meta: { diagram: diagramId }, props: text })
+					x += 38 + size.w + 36
+				}
 			}
 
 			// Arrows, bound to the boxes at both ends, so they follow when a box moves.
