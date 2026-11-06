@@ -58,7 +58,9 @@ const LEGEND_GAP = 30
 const NOTE_GAP = 4
 
 /** A date: a year, with a month and day before it when given, such as "Apr 1961" or "12 April 1961". */
-const DATE = '(?:c\\.\\s*)?(?:(?:\\d{1,2}\\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+(?:\\d{1,2},?\\s+)?)?\\d{3,4}(?:\\s*(?:bce?|ce|ad))?'
+const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?'
+/** A date or a span, such as "Apr 1961", "12 April 1961", "May–Jun 1940", or "Dec 1944–Jan 1945". */
+const DATE = `(?:c\\.\\s*)?(?:${MONTH}\\s*[–-]\\s*)?(?:(?:\\d{1,2}\\s+)?${MONTH}\\s+(?:\\d{1,2},?\\s+)?)?\\d{3,4}(?:\\s*[–-]\\s*(?:${MONTH}\\s+)?\\d{2,4})?(?:\\s*(?:bce?|ce|ad))?`
 /** A date at the start of a label, such as "1957: Sputnik 1" or "12 April 1961 · Gagarin". */
 const LEADING_DATE = new RegExp(`^\\s*(${DATE})\\s*[:·—–|-]\\s*`, 'i')
 /** A first line that is only a date, and maybe a side: "1957 · USSR". */
@@ -87,7 +89,10 @@ function dateKey(date: string) {
 	if (!year) return null
 	let y = Number(year[0])
 	if (/\bbce?\b/i.test(date)) y = -y
-	const month = MONTHS.findIndex((m) => new RegExp(`\\b${m}`, 'i').test(date))
+	// The first month named, by its place in the text: "Dec 1944–Jan 1945" starts in December.
+	const at = MONTHS.map((m) => date.search(new RegExp(`\\b${m}`, 'i')))
+	const first = Math.min(...at.filter((i) => i >= 0))
+	const month = Number.isFinite(first) ? at.indexOf(first) : -1
 	const day = date.replace(year[0], '').match(/\b(\d{1,2})\b/)
 	return y * 10000 + (month >= 0 ? (month + 1) * 100 : 0) + (day ? Number(day[1]) : 0)
 }
