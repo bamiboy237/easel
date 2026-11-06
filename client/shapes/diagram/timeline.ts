@@ -1,4 +1,4 @@
-import { Box, Editor, IndexKey, TLDefaultColorStyle, TLGeoShape, TLLineShape, TLShapeId, TLTextShape, toRichText } from 'tldraw'
+import { Box, Editor, IndexKey, TLDefaultColorStyle, TLGeoShape, TLLineShape, TLRichText, TLShapeId, TLTextShape, toRichText } from 'tldraw'
 
 /**
  * Timeline layout. A printed timeline reads in three columns: the dates, a
@@ -127,6 +127,14 @@ export function splitEvents(events: TimelineEvent[]) {
 
 type Measure = (text: string, fontSize: number, maxWidth: number) => { w: number; h: number }
 
+/** Space between the last event and the note on spacing under it. */
+const CAPTION_GAP = 22
+
+/** Rich text in bold. */
+function boldText(text: string): TLRichText {
+	return { type: 'doc', content: [{ type: 'paragraph', content: text ? [{ type: 'text', text, marks: [{ type: 'bold' }] }] : [] }] }
+}
+
 interface Part {
 	id: TLShapeId
 	kind: 'text' | 'dot' | 'spine'
@@ -139,6 +147,7 @@ interface Part {
 	color: TLDefaultColorStyle
 	align?: 'start' | 'end'
 	wrap?: boolean
+	bold?: boolean
 }
 
 /**
@@ -188,10 +197,14 @@ export function drawTimeline(
 			const d = measure(r.date, FONT.m, 1000)
 			parts.push({ id: idOf(`date-${r.id}`), kind: 'text', x: dateW - d.w, y, w: d.w, h: d.h, text: r.date, size: 'm', color: ink, align: 'end' })
 		}
-		const dotY = y + line / 2 - DOT / 2
-		parts.push({ id: idOf(`dot-${r.id}`), kind: 'dot', x: spineX - DOT / 2, y: dotY, w: DOT, h: DOT, color: ink })
-		dots.push({ y: dotY + DOT / 2 })
-		parts.push({ id: idOf(`text-${r.id}`), kind: 'text', x: descX, y, w: Math.min(DESC_MAX_W, desc.w + 4), h: desc.h, text: r.text, size: 'm', color: 'black', wrap: true })
+		// The key events, the ones given a note, stand out: a larger dot and a
+		// heavier one-line label, so the turning points read before the rest.
+		const key = !!r.note?.trim() && desc.h < line * 1.5
+		const dot = key ? DOT + 6 : DOT
+		const dotY = y + line / 2 - dot / 2
+		parts.push({ id: idOf(`dot-${r.id}`), kind: 'dot', x: spineX - dot / 2, y: dotY, w: dot, h: dot, color: ink })
+		dots.push({ y: dotY + dot / 2 })
+		parts.push({ id: idOf(`text-${r.id}`), kind: 'text', x: descX, y, w: Math.min(DESC_MAX_W, desc.w * (key ? 1.12 : 1) + 4), h: desc.h, text: r.text, size: 'm', color: 'black', wrap: true, bold: key })
 		let h = desc.h
 		if (r.note && r.note.trim()) {
 			const n = measure(r.note.trim(), FONT.s, DESC_MAX_W)
@@ -199,6 +212,12 @@ export function drawTimeline(
 			h += NOTE_GAP + n.h
 		}
 		y += h + ROW_GAP
+	}
+	// Rows are evenly spaced whatever the gaps between dates, so the timeline says so.
+	if (rows.length >= 4) {
+		const caption = 'Events in order; spacing is not to scale.'
+		const size = measure(caption, FONT.s, 1000)
+		parts.push({ id: idOf('caption'), kind: 'text', x: descX, y: y - ROW_GAP + CAPTION_GAP, w: size.w, h: size.h, text: caption, size: 's', color: 'grey' })
 	}
 	if (dots.length >= 2) {
 		const top = dots[0].y - 14
@@ -235,7 +254,7 @@ export function drawTimeline(
 		const meta = { diagram: diagramId, timeline: true, laidOutAt: moved ? last : at }
 		if (p.kind === 'text') {
 			const props = {
-				richText: toRichText(p.text ?? ''),
+				richText: p.bold ? boldText(p.text ?? '') : toRichText(p.text ?? ''),
 				size: p.size ?? 'm',
 				color: p.color,
 				font: 'serif' as const,
