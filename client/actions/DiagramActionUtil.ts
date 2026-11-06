@@ -133,16 +133,22 @@ function outcomeInk(label: string, incoming: TLDefaultColorStyle | null): TLDefa
 }
 
 /**
- * The main concept of a concept map that is not a tree: the one concept that
- * only points out, to three or more others. A concept map reads from its most
- * general concept (Novak), so that one gets the root's look. Null when no
- * single concept is that.
+ * The main concept of a concept map that is not a tree: the one outcome that
+ * three or more concepts lead to, or else the one concept that only points
+ * out, to three or more others. A concept map reads from its most general
+ * concept (Novak), and a map of causes toward its outcome, so that one gets the
+ * root's look. Null when no single concept is that.
  */
 function hubOf(layout: string, tree: TreeInfo | null, ids: string[], edges: DiagramEdge[]) {
 	if (layout !== 'map' || tree) return null
-	const into = new Set(edges.map((e) => e.to))
+	const into = new Map<string, number>()
+	for (const e of edges) into.set(e.to, (into.get(e.to) ?? 0) + 1)
 	const out = new Map<string, number>()
 	for (const e of edges) out.set(e.from, (out.get(e.from) ?? 0) + 1)
+	// A map of causes reads toward its outcome: the one concept that three or
+	// more others lead to and that leads nowhere, such as "Revolution of 1789".
+	const outcomes = ids.filter((id) => !out.has(id) && (into.get(id) ?? 0) >= 3)
+	if (outcomes.length === 1) return outcomes[0]
 	const sources = ids.filter((id) => !into.has(id) && (out.get(id) ?? 0) >= 3)
 	return sources.length === 1 ? sources[0] : null
 }
