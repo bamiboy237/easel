@@ -65,6 +65,27 @@ export function measureEquation(latex: string, size: number): { w: number; h: nu
 }
 
 /**
+ * How far from the shape's left edge the equation's first relation (=, ≈, <,
+ * and so on) sits, at the top level of the expression, not inside a fraction or
+ * an exponent. Null when it has none. Steps of a derivation line up on this,
+ * as a textbook aligns its equals signs.
+ */
+export function measureRelationX(latex: string, size: number): number | null {
+	if (typeof document === 'undefined') return null
+	const rendered = renderEquation(latex)
+	if (!rendered.html) return null
+	const probe = document.createElement('div')
+	probe.className = 'equation-body'
+	probe.style.cssText = `position:absolute;visibility:hidden;left:-10000px;top:0;font-size:${size}px;white-space:nowrap;`
+	probe.innerHTML = rendered.html
+	document.body.appendChild(probe)
+	const relation = probe.querySelector('.katex-html > .base > .mrel')
+	const x = relation ? relation.getBoundingClientRect().left - probe.getBoundingClientRect().left + PAD : null
+	probe.remove()
+	return x
+}
+
+/**
  * An equation on the board, typeset with KaTeX in the board's ink. Double
  * click to edit its LaTeX in place; the source shows while editing. LaTeX
  * that does not parse shows as source in red pencil, never as a blank shape.

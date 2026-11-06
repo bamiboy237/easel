@@ -32,8 +32,14 @@ export const MapActionUtil = registerActionUtil(
 			if (!action.complete || action.frames.length === 0) return
 			const { editor } = this
 
-			const w = clamp(action.frameWidth, 480, 1600)
-			const h = clamp(action.frameHeight, 400, 2000)
+			// The row is read at a glance when the whole map is in view, so frames stay
+			// narrow enough for their text to read at that zoom: three 640-wide frames
+			// fit a laptop screen at about 0.7, where 22 px body text still shows at
+			// about 15 px. Wide frames invite small text and long lines, and a row of
+			// them can only be read one frame at a time.
+			const n = action.frames.length
+			const w = clamp(action.frameWidth, 480, n >= 3 ? 640 : n === 2 ? 860 : 1600)
+			const h = clamp(action.frameHeight, 400, n >= 2 ? 900 : 2000)
 			const origin = getMapOrigin(editor.getViewportPageBounds(), editor.getCurrentPageBounds())
 
 			const frames: MapFrame[] = action.frames.map((frame, i) => {

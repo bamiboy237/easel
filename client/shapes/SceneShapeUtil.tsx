@@ -635,7 +635,7 @@ function layoutLabels(
 					const radius = handle ? 13 : 5
 					obstacles.discs.push({ center: p, radius })
 					const text = o.label ? fillText(o.label, values.scope) : ''
-					if (text) requests.push({ id, kind: handle ? 'handle' : 'point', text, size: 15, anchor: p, radius, color })
+					if (text) requests.push({ id, kind: handle ? 'handle' : 'point', text, size: 17, anchor: p, radius, color })
 					break
 				}
 				case 'segment':
@@ -645,7 +645,7 @@ function layoutLabels(
 					if (!finite(a) || !finite(b)) break
 					obstacles.strokes.push(...sampleStroke([a, b], u))
 					if (o.type === 'segment' && o.label) {
-						requests.push({ id, kind: 'segment', text: fillText(o.label, values.scope), size: 14, anchor: b, from: a, color })
+						requests.push({ id, kind: 'segment', text: fillText(o.label, values.scope), size: 16, anchor: b, from: a, color })
 					}
 					break
 				}
@@ -655,7 +655,7 @@ function layoutLabels(
 					if (!finite(tail) || !finite(tip) || Math.hypot(tip[0] - tail[0], tip[1] - tail[1]) / u < 2) break
 					obstacles.strokes.push(...sampleStroke([tail, tip], u))
 					obstacles.discs.push({ center: tip, radius: 8 })
-					if (o.label) requests.push({ id, kind: 'vector', text: fillText(o.label, values.scope), size: 14, anchor: tip, from: tail, color })
+					if (o.label) requests.push({ id, kind: 'vector', text: fillText(o.label, values.scope), size: 16, anchor: tip, from: tail, color })
 					break
 				}
 				case 'circle': {
@@ -703,7 +703,7 @@ function layoutLabels(
 				}
 				case 'label': {
 					const p = resolveRef(o.at, values)
-					if (finite(p)) requests.push({ id, kind: 'label', text: fillText(o.text, values.scope), size: 15, anchor: p, color })
+					if (finite(p)) requests.push({ id, kind: 'label', text: fillText(o.text, values.scope), size: 17, anchor: p, color })
 					break
 				}
 			}
