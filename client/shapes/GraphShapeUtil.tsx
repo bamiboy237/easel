@@ -12,6 +12,8 @@ export interface GraphFunction {
 	expression: string
 	/** A short name written at the curve's end, such as "demand" or "y = eˣ". */
 	label?: string
+	/** Which of PLOT_INKS the curve takes; by default the next ink in order. */
+	ink?: number
 }
 
 /** A key point the graph marks: a dot, dashed guides to both axes, and a short label. */
@@ -48,6 +50,12 @@ export type GraphShape = TLShape<typeof GRAPH_TYPE>
 /** Each plotted function takes the next ink: charcoal, red pencil, blue, forest. */
 export const PLOT_INKS = ['#302F2A', '#AE3B2C', '#2F5D8C', '#344C41']
 
+/** The ink of a graph's curve. */
+export function curveInk(functions: GraphFunction[], i: number) {
+	const ink = functions[i]?.ink
+	return PLOT_INKS[(Number.isInteger(ink) ? ink! : i) % PLOT_INKS.length]
+}
+
 /** Each slider row, and the space around the rows. */
 export const PARAMETER_ROW = 28
 export const PARAMETER_PAD = 10
@@ -59,7 +67,9 @@ export function parametersHeight(parameters: ShapeParameter[]): number {
 
 /** A line the agent reads about a graph: what it plots, over what range, with what values. */
 export function describeGraph(props: GraphShapeProps): string {
-	const fns = props.functions.map((f) => `y = ${f.expression}${f.label ? ` ("${f.label}")` : ''}`).join('; ')
+	// The ink by the board's color name, so the agent can color the matching equation the same.
+	const inkNames = ['black', 'red', 'blue', 'green']
+	const fns = props.functions.map((f, i) => `y = ${f.expression}${f.label ? ` ("${f.label}")` : ''}, drawn in ${inkNames[(f.ink ?? i) % inkNames.length]}`).join('; ')
 	const params = describeParameters(props.parameters)
 	const marks = (props.points ?? []).map((p) => `(${p.x}, ${p.y})${p.label ? ` "${p.label}"` : ''}`).join('; ')
 	const axes = props.xLabel || props.yLabel ? ` Axes: x is ${props.xLabel || 'unlabeled'}, y is ${props.yLabel || 'unlabeled'}.` : ''
@@ -115,7 +125,7 @@ export class GraphShapeUtil extends ShapeUtil<GraphShape> {
 	static override props: RecordProps<GraphShape> = {
 		w: T.number,
 		h: T.number,
-		functions: T.arrayOf(T.object({ expression: T.string, label: T.string.optional() })),
+		functions: T.arrayOf(T.object({ expression: T.string, label: T.string.optional(), ink: T.number.optional() })),
 		xLabel: T.string.optional(),
 		yLabel: T.string.optional(),
 		parameters: T.arrayOf(shapeParameterValidator),
@@ -200,11 +210,11 @@ function Graph({ shape }: { shape: GraphShape }) {
 						/>
 						{compiled.map((c, i) =>
 							c.fn ? (
-								<Plot.OfX key={i} y={(x) => c.fn!({ ...scope, x })} color={PLOT_INKS[i % PLOT_INKS.length]} weight={2.5} />
+								<Plot.OfX key={i} y={(x) => c.fn!({ ...scope, x })} color={curveInk(functions, i)} weight={2.5} />
 							) : null
 						)}
 						{points.map((p, i) => {
-							const color = pointInk(p, compiled, scope)
+							const color = pointInk(p, compiled, scope, functions)
 							const toX = xMin <= 0 && xMax >= 0 ? 0 : xMin
 							const toY = yMin <= 0 && yMax >= 0 ? 0 : yMin
 							return (
@@ -228,11 +238,11 @@ function Graph({ shape }: { shape: GraphShape }) {
 						fns: compiled.map((c, i) => ({
 							fn: c.fn ? (x: number) => c.fn!({ ...scope, x }) : null,
 							label: functions[i].label?.trim() ?? '',
-							color: PLOT_INKS[i % PLOT_INKS.length],
+							color: curveInk(functions, i),
 						})),
 						xLabel: shape.props.xLabel?.trim() ?? '',
 						yLabel: shape.props.yLabel?.trim() ?? '',
-						marks: points.map((p) => ({ x: p.x, y: p.y, label: p.label?.trim() ?? '', color: pointInk(p, compiled, scope) })),
+						marks: points.map((p) => ({ x: p.x, y: p.y, label: p.label?.trim() ?? '', color: pointInk(p, compiled, scope, functions) })),
 						view: { xMin, xMax, yMin, yMax },
 						w,
 						h: plotHeight,
@@ -268,7 +278,7 @@ export function viewYMin(yMin: number, yMax: number, plotHeight: number) {
 }
 
 /** A marked point takes the ink of the curve it lies on, so its label reads with that curve. */
-function pointInk(p: GraphPoint, compiled: { fn: CompiledExpression | null }[], scope: Record<string, number>) {
+function pointInk(p: GraphPoint, compiled: { fn: CompiledExpression | null }[], scope: Record<string, number>, functions: GraphFunction[]) {
 	let best = { i: -1, d: Infinity }
 	compiled.forEach((c, i) => {
 		if (!c.fn) return
@@ -277,7 +287,7 @@ function pointInk(p: GraphPoint, compiled: { fn: CompiledExpression | null }[], 
 		if (Number.isFinite(d) && d < best.d) best = { i, d }
 	})
 	const tolerance = Math.max(1e-6, Math.abs(p.y) * 0.05 + 0.05)
-	return best.i >= 0 && best.d <= tolerance ? PLOT_INKS[best.i % PLOT_INKS.length] : PLOT_INKS[0]
+	return best.i >= 0 && best.d <= tolerance ? curveInk(functions, best.i) : curveInk(functions, 0)
 }
 
 /** Type sizes of a graph's own labels, in px. */

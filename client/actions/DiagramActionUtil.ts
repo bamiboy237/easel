@@ -15,6 +15,8 @@ const NODE_PAD = 36
 const LEGEND_ROOM = 60
 /** The longest one-line question a decision diamond holds. */
 const DIAMOND_MAX_LINE = 210
+/** A question wider than this on one line breaks onto two inside its diamond. */
+const DIAMOND_SPLIT_LINE = 150
 /** Arrow labels: tldraw's small arrow label size, and the padding around it. */
 const EDGE_LABEL_FONT_SIZE = 18
 const EDGE_LABEL_PAD = 9
@@ -133,16 +135,22 @@ function outcomeInk(label: string, incoming: TLDefaultColorStyle | null): TLDefa
 }
 
 /**
- * The main concept of a concept map that is not a tree: the one concept that
- * only points out, to three or more others. A concept map reads from its most
- * general concept (Novak), so that one gets the root's look. Null when no
- * single concept is that.
+ * The main concept of a concept map that is not a tree: the one outcome that
+ * three or more concepts lead to, or else the one concept that only points
+ * out, to three or more others. A concept map reads from its most general
+ * concept (Novak), and a map of causes toward its outcome, so that one gets the
+ * root's look. Null when no single concept is that.
  */
 function hubOf(layout: string, tree: TreeInfo | null, ids: string[], edges: DiagramEdge[]) {
 	if (layout !== 'map' || tree) return null
-	const into = new Set(edges.map((e) => e.to))
+	const into = new Map<string, number>()
+	for (const e of edges) into.set(e.to, (into.get(e.to) ?? 0) + 1)
 	const out = new Map<string, number>()
 	for (const e of edges) out.set(e.from, (out.get(e.from) ?? 0) + 1)
+	// A map of causes reads toward its outcome: the one concept that three or
+	// more others lead to and that leads nowhere, such as "Revolution of 1789".
+	const outcomes = ids.filter((id) => !out.has(id) && (into.get(id) ?? 0) >= 3)
+	if (outcomes.length === 1) return outcomes[0]
 	const sources = ids.filter((id) => !into.has(id) && (out.get(id) ?? 0) >= 3)
 	return sources.length === 1 ? sources[0] : null
 }
@@ -312,6 +320,8 @@ export const DiagramActionUtil = registerActionUtil(
 			const groupInk = useGroups
 				? groupInks(groupNames, withChoices ? ['blue', 'violet', 'orange', 'light-blue', 'yellow'] : ['blue', 'red', 'green', 'violet', 'orange'])
 				: new Map<string, TLDefaultColorStyle>()
+			// A decision's question as it is drawn, on one line or two.
+			const lines = new Map<string, string>()
 			const nodes: (LayoutNode & { label: string })[] = named.map(({ id, label }) => {
 				const fontSize = LABEL_FONT_SIZE[nodeStyle(tree, id, hub).size]
 				const maxW = NODE_MAX_W + (fontSize - 18) * 8
@@ -326,7 +336,22 @@ export const DiagramActionUtil = registerActionUtil(
 					// line sits inside when the diamond is about twice as wide; a long one
 					// stays a box, which holds it, and keeps its colored ways out.
 					const line = measure(label, fontSize, 1000)
-					if (line.w <= DIAMOND_MAX_LINE) {
+					// A longer question breaks onto two balanced lines, which keeps the
+					// diamond about half as wide as one line would need.
+					const words = label.split(/\s+/)
+					const split =
+						line.w > DIAMOND_SPLIT_LINE && words.length > 1
+							? words
+									.map((_, i) => [words.slice(0, i + 1).join(' '), words.slice(i + 1).join(' ')])
+									.slice(0, -1)
+									.map(([a, b]) => ({ a, b, w: Math.max(measure(a, fontSize, 1000).w, measure(b, fontSize, 1000).w) }))
+									.reduce((p, q) => (q.w < p.w ? q : p))
+							: null
+					if (split && split.w <= DIAMOND_MAX_LINE) {
+						lines.set(id, `${split.a}\n${split.b}`)
+						w = Math.round(Math.max(170, split.w * 1.9 + 40))
+						h = Math.round(Math.max(120, line.h * 2 * 2.3, w * 0.45))
+					} else if (line.w <= DIAMOND_MAX_LINE) {
 						w = Math.round(Math.max(170, line.w * 1.9 + 40))
 						h = Math.round(Math.max(110, line.h * 3, w * 0.42))
 					} else {
@@ -404,13 +429,21 @@ export const DiagramActionUtil = registerActionUtil(
 				// Ends of a flow are tinted lightly: the smallest difference that still reads (Tufte).
 				const ink = groupInk.get(groupOfNode.get(node.id) ?? '')
 				const base = ink ? { ...nodeStyle(tree, node.id, hub), color: ink, fill: 'solid' as const } : nodeStyle(tree, node.id, hub)
-				const incoming = edges.find((e) => e.to === node.id)
+				// An end takes the ink of the way into it only when there is one way in:
+				// an end that both a "no" and a plain step reach, such as "Enjoy your tea",
+				// is not a failure.
+				const incoming = edges.filter((e) => e.to === node.id)
 				const endInk =
-					geo === 'oval' && incoming && !edges.some((e) => e.from === node.id)
-						? outcomeInk(node.label, branchInk(action.layout ?? 'flow', incoming.label))
+					geo === 'oval' && incoming.length && !edges.some((e) => e.from === node.id)
+						? outcomeInk(node.label, incoming.length === 1 ? branchInk(action.layout ?? 'flow', incoming[0].label) : null)
 						: null
-				const style = geo === 'oval' ? { ...base, fill: 'solid' as const, ...(endInk ? { color: endInk } : {}) } : base
-				const props = { w: node.w, h: node.h, geo, richText: toRichText(node.label), ...style }
+				// A step a redraw adds, such as a step the user asked for, is tinted until
+				// the next redraw, so the change is easy to find, as a teacher marks what
+				// is new on a board. Group colors and the ends' colors keep their meaning.
+				const added = !isNew && !existing && !preview && !ink && geo === 'rectangle'
+				const shown = added ? { ...base, color: 'orange' as const, fill: 'solid' as const } : base
+				const style = geo === 'oval' ? { ...shown, fill: 'solid' as const, ...(endInk ? { color: endInk } : {}) } : shown
+				const props = { w: node.w, h: node.h, geo, richText: toRichText(lines.get(node.id) ?? node.label), ...style }
 				// The look the layout chose, kept so a redraw can tell it from the user's own.
 				const laidOutStyle = { geo, color: style.color, fill: style.fill, size: style.size }
 				if (!existing) {

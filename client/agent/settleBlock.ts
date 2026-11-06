@@ -25,12 +25,33 @@ export function settleBlock(agent: TldrawAgent, id: TLShapeId) {
 		.filter((s) => s.id !== id && s.parentId === parentId && isBlock(s.type))
 		.map((s) => editor.getShapePageBounds(s))
 		.filter((b): b is Box => !!b)
-	if (earlier.length === 0) return
+	// A diagram the agent drew in this request is one block, as large as all its
+	// parts: its layout can come out wider than the model guessed, and a note
+	// written beside it must not land on it, even in the space between its boxes,
+	// where arrows run.
+	const parts = new Map<string, Box[]>()
+	for (const s of agent.lints.getCreatedShapes()) {
+		const diagram = s.meta?.diagram
+		if (s.id === id || s.parentId !== parentId || typeof diagram !== 'string') continue
+		const b = editor.getShapePageBounds(s)
+		if (b) parts.set(diagram, [...(parts.get(diagram) ?? []), b])
+	}
+	const diagrams = [...parts.values()].map((boxes) => Box.Common(boxes))
+	if (earlier.length === 0 && diagrams.length === 0) return
 	let bounds = editor.getShapePageBounds(id)
 	if (!bounds) return
 	const start = bounds.clone()
 	for (let i = 0; i < MAX_MOVES; i++) {
 		const current: Box = bounds
+		// Off a diagram: to its right or below it, whichever is the shorter move.
+		const onDiagram = diagrams.find((b) => overlap(b, current))
+		if (onDiagram) {
+			const moved = current.clone()
+			if (onDiagram.maxX + GAP - current.x <= onDiagram.maxY + GAP - current.y) moved.x = onDiagram.maxX + GAP
+			else moved.y = onDiagram.maxY + GAP
+			bounds = moved
+			continue
+		}
 		const hits = earlier.filter((b) => overlap(b, current) && !b.contains(current) && !current.contains(b))
 		if (hits.length === 0) break
 		const stacked = hits.some((b) => sharedWidth(b, current) >= 0.5 * Math.min(b.w, current.w))

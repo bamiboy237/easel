@@ -102,7 +102,12 @@ export function layoutFlow(nodes: LayoutNode[], edges: LayoutEdge[]): Bends {
 	if (leadIn) options.push(leadIn)
 	const spine = layoutSpine(nodes, edges)
 	if (spine) options.push(spine)
-	const best = options.reduce((a, b) => (b.fit > a.fit + 0.05 ? b : a))
+	const columns = layoutColumns(nodes, edges)
+	if (columns) options.push(columns)
+	// A drawing that fits but reads badly loses: crossing arrows, arrows that run
+	// back up the page, and arrows through boxes each cost it.
+	const value = (o: (typeof options)[number] & { continued?: Set<number> }) => Math.min(1, o.fit) - flowPenalty(nodes, edges, o.at, o.bends, o.continued)
+	const best = options.reduce((a, b) => (value(b) > value(a) + 0.05 ? b : a))
 	nodes.forEach((n, i) => Object.assign(n, best.at[i]))
 	return best.bends
 }
@@ -142,10 +147,9 @@ function layoutLeadIn(nodes: LayoutNode[], edges: LayoutEdge[]) {
 	const restEdges = edges.map((e, i) => ({ e, i })).filter(({ e }) => !inLead.has(e.from) && !inLead.has(e.to))
 	const restCenters = new Map<string, Point>()
 	const restNodes = rest.map((n) => ({ ...n }))
-	const restBends = layoutFlowOnce(
+	const restBends = layoutDown(
 		restNodes,
 		restEdges.map(({ e }) => e),
-		RANK_GAP,
 		restCenters
 	)
 	// The lead-in, with the head as its last step, in rows of up to four.
@@ -206,16 +210,63 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 	// The main line: each step goes on to one step, and any other way out is a quick end.
 	const chain: LayoutNode[] = [sources[0]]
 	const exitsOf = new Map<string, number[]>()
+	// A detour: a choice whose one way goes through a few steps and comes back to
+	// where its other way goes (chambers that disagree reconcile, then the bill
+	// goes on to the President). The detour joins the main line, and the direct
+	// way arcs over it. No row breaks inside a detour.
+	const skips: number[] = []
+	const noBreak = new Set<string>()
+	let joinAt: string | null = null
+	const nextOn = (id: string) => outOf.get(id)!.filter((i) => !isExit(edges[i].to))
+	const detour = (on: number[]) => {
+		for (const [a, b] of [
+			[0, 1],
+			[1, 0],
+		]) {
+			const target = edges[on[b]].to
+			let at = edges[on[a]].to
+			let steps = 0
+			while (at !== target && steps < 3) {
+				const next = nextOn(at)
+				if (next.length !== 1 || into.get(at) !== 1 || chain.some((n) => n.id === at)) break
+				at = edges[next[0]].to
+				steps++
+			}
+			if (at === target && steps >= 1 && into.get(target) === 2) return { side: on[a], skip: on[b], target }
+		}
+		return null
+	}
 	for (;;) {
 		const last = chain[chain.length - 1]
 		const out = outOf.get(last.id)!
 		const ends = out.filter((i) => isExit(edges[i].to))
 		const on = out.filter((i) => !isExit(edges[i].to))
-		if (on.length !== 1 || ends.length > 2) break
-		const next = byId.get(edges[on[0]].to)!
-		if (into.get(next.id) !== 1 || chain.includes(next)) break
+		if (ends.length > 2) break
+		let step = on.length === 1 ? on[0] : -1
+		if (on.length === 2 && !joinAt) {
+			const d = detour(on)
+			if (!d) break
+			skips.push(d.skip)
+			joinAt = d.target
+			step = d.side
+		}
+		if (step < 0) break
+		const next = byId.get(edges[step].to)!
+		const joins = next.id === joinAt
+		if ((into.get(next.id) !== 1 && !joins) || chain.includes(next)) break
+		if (joinAt) noBreak.add(last.id)
+		if (joins) joinAt = null
 		exitsOf.set(last.id, ends)
 		chain.push(next)
+	}
+	// A detour left open at the end does not join; the main line stops before it.
+	if (joinAt) {
+		while (chain.length > 1 && noBreak.has(chain[chain.length - 2].id)) {
+			const gone = chain.pop()!
+			exitsOf.delete(gone.id)
+		}
+		exitsOf.delete(chain[chain.length - 1].id)
+		skips.pop()
 	}
 	const exitCount = [...exitsOf.values()].reduce((s, a) => s + a.length, 0)
 	if (chain.length < 5 || exitCount === 0) return null
@@ -227,19 +278,36 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 	const exitH = Math.max(0, ...[...exitIds].map((id) => byId.get(id)!.h))
 	const exitRow = (id: string) => (exitsOf.get(id) ?? []).map((i) => byId.get(edges[i].to)!)
 	const cellW = Math.max(...chain.map((n) => Math.max(n.w, exitRow(n.id).reduce((s, x) => s + x.w, 0) + (exitRow(n.id).length - 1) * 24)))
-	const mainEdges = chain.slice(0, -1).map((n) => edges[outOf.get(n.id)!.find((i) => !isExit(edges[i].to))!])
+	const mainEdges = chain.slice(0, -1).map((n, k) => edges[outOf.get(n.id)!.find((i) => edges[i].to === chain[k + 1].id)!])
 	const gapX = Math.max(72, ...mainEdges.map((e) => (e.labelW > 0 ? e.labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 0)))
 	const exitEdges = [...exitsOf.values()].flat().map((i) => edges[i])
 	const exitGap = Math.max(56, ...exitEdges.map((e) => (e.labelH > 0 ? e.labelH + LABEL_ARROW_ROOM : 0)))
 	const turnGap = Math.max(64, ...mainEdges.map((e) => (e.labelH > 0 ? e.labelH + LABEL_ARROW_ROOM : 0)))
-	let chosen: { fit: number; at: Map<string, Point>; bends: Bends } | null = null
-	for (const cols of [3, 4, 5]) {
+	let chosen: { fit: number; value: number; at: Map<string, Point>; bends: Bends } | null = null
+	// The part after the main line, laid out once: top to bottom, or in columns.
+	const restLaid = (() => {
+		const rest = nodes.filter((n) => !inChain.has(n.id) && !exitIds.has(n.id))
+		const laid = [head, ...rest].map((n) => ({ ...n }))
+		const set = new Set(laid.map((n) => n.id))
+		const restEdges = edges.map((e, i) => ({ e, i })).filter(({ e }) => set.has(e.from) && set.has(e.to))
+		const restBends = laid.length > 1 ? layoutDown(laid, restEdges.map(({ e }) => e), new Map()) : []
+		return { nodes: laid, restEdges, restBends }
+	})()
+	// The part below either hangs centered under the head, or wholly to the far
+	// side of it, so its arrows do not cut through the quick ends of the steps
+	// before the head.
+	for (const [cols, away] of [3, 4, 5].flatMap((c) => [[c, false] as const, [c, true] as const])) {
 		// Rows of up to cols steps, each ending on a step with no exit when it can.
 		const rows: LayoutNode[][] = []
 		let k = 0
 		while (k < chain.length) {
 			let len = Math.min(cols, chain.length - k)
-			while (len > 2 && k + len < chain.length && (exitsOf.get(chain[k + len - 1].id)?.length ?? 0) > 0) len--
+			// A row that would end inside a detour takes the rest of the detour, up to
+			// two steps more, so the arc over it stays in one row.
+			let longer = len
+			while (longer < cols + 2 && k + longer < chain.length && noBreak.has(chain[k + longer - 1].id)) longer++
+			if (k + longer >= chain.length || !noBreak.has(chain[k + longer - 1].id)) len = longer
+			while (len > 2 && k + len < chain.length && ((exitsOf.get(chain[k + len - 1].id)?.length ?? 0) > 1 || noBreak.has(chain[k + len - 1].id))) len--
 			rows.push(chain.slice(k, k + len))
 			k += len
 		}
@@ -274,12 +342,23 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 			}
 		}
 		let y = 0
-		for (const row of rows) {
-			const hasExits = row.some((n) => (exitsOf.get(n.id)?.length ?? 0) > 0)
-			row.forEach((n) => {
+		rows.forEach((row, r) => {
+			// A step that ends a row turns down to the next row, so its one quick end
+			// goes out to the side, past the row's end, clear of the turn.
+			const turnsHere = (n: LayoutNode, j: number) => j === row.length - 1 && r < rows.length - 1 && exitRow(n.id).length === 1
+			const hasExits = row.some((n, j) => (exitsOf.get(n.id)?.length ?? 0) > 0 && !turnsHere(n, j))
+			const dir = r % 2 === 0 ? 1 : -1
+			row.forEach((n, j) => {
 				const cx = centerOf.get(colOf.get(n.id)!)!
 				at.set(n.id, { x: cx - n.w / 2, y: y + (cellH - n.h) / 2 })
 				const ex = exitRow(n.id)
+				if (turnsHere(n, j)) {
+					const e = ex[0]
+					const edge = edges[exitsOf.get(n.id)![0]]
+					const gap = Math.max(72, edge.labelW > 0 ? edge.labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 0)
+					at.set(e.id, { x: dir > 0 ? cx + n.w / 2 + gap : cx - n.w / 2 - gap - e.w, y: y + (cellH - e.h) / 2 })
+					return
+				}
 				const total = ex.reduce((s, x) => s + x.w, 0) + (ex.length - 1) * 24
 				let x = cx - total / 2
 				for (const e of ex) {
@@ -288,18 +367,22 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 				}
 			})
 			y += cellH + (hasExits ? exitGap + exitH : 0) + turnGap
-		}
+		})
 		// The rest hangs below the head, clear of every row.
-		const rest = nodes.filter((n) => !inChain.has(n.id) && !exitIds.has(n.id))
-		const restNodes = [head, ...rest].map((n) => ({ ...n }))
+		const restNodes = restLaid.nodes.map((n) => ({ ...n }))
 		const restSet = new Set(restNodes.map((n) => n.id))
-		const restEdges = edges.map((e, i) => ({ e, i })).filter(({ e }) => restSet.has(e.from) && restSet.has(e.to))
-		const restBends = restNodes.length > 1 ? layoutFlowOnce(restNodes, restEdges.map(({ e }) => e), RANK_GAP, new Map()) : []
+		const { restEdges, restBends } = restLaid
 		const restHead = restNodes[0]
 		const headAt = at.get(head.id)!
-		const dx = headAt.x - restHead.x
+		let dx = headAt.x - restHead.x
 		let dy = headAt.y - restHead.y
 		const others = restNodes.slice(1)
+		if (away && others.length) {
+			const lastRow = rows.length - 1
+			const forward = lastRow % 2 === 0 ? 1 : -1
+			if (forward > 0) dx += headAt.x - Math.min(...others.map((n) => n.x + dx))
+			else dx += headAt.x + head.w - Math.max(...others.map((n) => n.x + dx + n.w))
+		}
 		if (others.length) {
 			const rowsBottom = Math.max(...[...at.entries()].filter(([id]) => id !== head.id).map(([id, p]) => p.y + byId.get(id)!.h))
 			const top = Math.min(...others.map((n) => n.y + dy))
@@ -329,18 +412,216 @@ function layoutSpine(nodes: LayoutNode[], edges: LayoutEdge[]) {
 		const inRest = (id: string) => restSet.has(id)
 		const touch = (a: LayoutNode, b: LayoutNode) => a.x < b.x + b.w + 12 && b.x < a.x + a.w + 12 && a.y < b.y + b.h + 12 && b.y < a.y + a.h + 12
 		if (placed.some((a, i) => placed.some((b, j) => j > i && !(inRest(a.id) && inRest(b.id)) && touch(a, b)))) continue
+		// The direct way past a detour arcs clear of the detour's steps.
+		// It arcs over the row, away from the quick ends that hang below it.
+		for (const i of skips) {
+			const a = at.get(edges[i].from)!
+			const b = at.get(edges[i].to)!
+			const rightward = b.x > a.x
+			bends[i] = (rightward ? -1 : 1) * (cellH / 2 + 40)
+		}
 		const minX = Math.min(...placed.map((n) => n.x))
 		const minY = Math.min(...placed.map((n) => n.y))
 		const w = Math.max(...placed.map((n) => n.x + n.w)) - minX
 		const h = Math.max(...placed.map((n) => n.y + n.h)) - minY
 		const fit = Math.min(1, FIT_W / w, FIT_H / h)
-		if (!chosen || fit > chosen.fit + 0.02) {
-			chosen = { fit, bends, at: new Map(placed.map((n) => [n.id, { x: n.x - minX, y: n.y - minY }])) }
+		const value = fit - flowPenalty(nodes, edges, placed, bends)
+		if (!chosen || value > chosen.value + 0.02) {
+			chosen = { fit, value, bends, at: new Map(placed.map((n) => [n.id, { x: n.x - minX, y: n.y - minY }])) }
 		}
 	}
-	const result = chosen as { fit: number; at: Map<string, Point>; bends: Bends } | null
+	const result = chosen as { fit: number; value: number; at: Map<string, Point>; bends: Bends } | null
 	if (!result) return null
 	return { bends: result.bends, squeezed: false, fit: result.fit, at: nodes.map((n) => result.at.get(n.id)!) }
+}
+
+/**
+ * The part of a flow below its wrapped lead-in, top to bottom, or in columns
+ * (see layoutColumns) when that part alone is too tall for a screen.
+ */
+function layoutDown(nodes: LayoutNode[], edges: LayoutEdge[], center: Map<string, Point>): Bends {
+	const bends = layoutFlowOnce(nodes, edges, RANK_GAP, center)
+	const minY = Math.min(...nodes.map((n) => n.y))
+	const h = Math.max(...nodes.map((n) => n.y + n.h)) - minY
+	if (h <= FIT_H * 0.75 || nodes.length < 6) return bends
+	const minX = Math.min(...nodes.map((n) => n.x))
+	const w = Math.max(...nodes.map((n) => n.x + n.w)) - minX
+	const down = { fit: Math.min(1, FIT_W / w, FIT_H / h), at: nodes.map((n) => ({ x: n.x - minX, y: n.y - minY })), bends }
+	const columns = layoutColumns(nodes, edges)
+	const value = (o: { fit: number; at: Point[]; bends: Bends; continued?: Set<number> }) => Math.min(1, o.fit) - flowPenalty(nodes, edges, o.at, o.bends, o.continued)
+	if (!columns || value(columns) <= value(down) + 0.05) return bends
+	nodes.forEach((n, i) => {
+		Object.assign(n, columns.at[i])
+		center.set(n.id, { x: n.x + n.w / 2, y: n.y + n.h / 2 })
+	})
+	return columns.bends
+}
+
+/**
+ * Any flow too tall for a screen, branches that rejoin included (two choices
+ * that both lead to the President), wraps into two to four columns, as a
+ * process poster continues in its next column. The top to bottom drawing is
+ * cut between two of its layers, near where the parts come out the same
+ * height, where at most three arrows cross the cut and each goes on to the
+ * next part. Each quick end stays with the step it leaves. Each part is laid
+ * out again on its own and the parts stand side by side. A later part either
+ * drops so the step it starts on sits level with a step that leads into it,
+ * so the arrow across is short and runs sideways, or starts at the top, with
+ * the arrow across reading as "continued". Returns null when no cut helps.
+ */
+function layoutColumns(nodes: LayoutNode[], edges: LayoutEdge[]) {
+	if (nodes.length < 6) return null
+	const base = nodes.map((n) => ({ ...n }))
+	const baseCenters = new Map<string, Point>()
+	layoutFlowOnce(base, edges, RANK_GAP, baseCenters)
+	// Layers of the drawing, top to bottom.
+	const levels: number[] = []
+	for (const y of [...baseCenters.values()].map((c) => c.y).sort((a, b) => a - b)) {
+		if (!levels.length || y - levels[levels.length - 1] > 12) levels.push(y)
+	}
+	if (levels.length < 4) return null
+	const levelOf = (id: string) => levels.findIndex((y) => Math.abs(baseCenters.get(id)!.y - y) <= 12)
+	const into = new Map<string, number[]>(nodes.map((n) => [n.id, []]))
+	const outOf = new Map<string, number[]>(nodes.map((n) => [n.id, []]))
+	edges.forEach((e, i) => {
+		into.get(e.to)!.push(i)
+		outOf.get(e.from)!.push(i)
+	})
+	// A quick end goes with the step it leaves.
+	const partOf = (cuts: number[]) => {
+		const part = new Map<string, number>()
+		for (const n of nodes) part.set(n.id, cuts.filter((c) => levelOf(n.id) > c).length)
+		for (const n of nodes) {
+			const ins = into.get(n.id)!
+			if (outOf.get(n.id)!.length === 0 && ins.length === 1) part.set(n.id, part.get(edges[ins[0]].from)!)
+		}
+		return part
+	}
+	type Option = { bends: Bends; squeezed: boolean; fit: number; at: Point[]; cost: number; continued?: Set<number> }
+	let best: Option | null = null
+	// Whether a cut is clean: each part holds two steps or more, at most three
+	// arrows cross it, and every one goes on to the next part.
+	const clean = (cuts: number[]) => {
+		const part = partOf(cuts)
+		const count = cuts.length + 1
+		const sizes = Array.from({ length: count }, (_, k) => nodes.filter((n) => part.get(n.id) === k).length)
+		if (sizes.some((m) => m < 2)) return false
+		const across = edges.filter((e) => part.get(e.from) !== part.get(e.to))
+		return across.length <= 3 && across.every((e) => part.get(e.to)! === part.get(e.from)! + 1)
+	}
+	const tryCuts = (cuts: number[], level: 'low' | 'high' | 'top') => {
+		const part = partOf(cuts)
+		const count = cuts.length + 1
+		const members = Array.from({ length: count }, (_, k) => nodes.filter((n) => part.get(n.id) === k))
+		const across = edges.map((e, i) => ({ e, i })).filter(({ e }) => part.get(e.from) !== part.get(e.to))
+		const at = new Map<string, Point>()
+		const bends: Bends = edges.map(() => 0)
+		let left = 0
+		for (let k = 0; k < count; k++) {
+			const own = members[k].map((n) => ({ ...n }))
+			const ownSet = new Set(own.map((n) => n.id))
+			const ownEdges = edges.map((e, i) => ({ e, i })).filter(({ e }) => ownSet.has(e.from) && ownSet.has(e.to))
+			const ownBends = layoutFlowOnce(own, ownEdges.map(({ e }) => e), RANK_GAP, new Map())
+			ownEdges.forEach(({ i }, j) => (bends[i] = ownBends[j] ?? 0))
+			const minX = Math.min(...own.map((n) => n.x))
+			const minY = Math.min(...own.map((n) => n.y))
+			// Level the step this part starts on with the step that leads into it.
+			const inbound = across.filter(({ e }) => ownSet.has(e.to))
+			let dy = 0
+			if (inbound.length && level !== 'top') {
+				// Level with the lowest step that leads in, so no arrow across runs back
+				// up, or with the highest, for a shorter drawing.
+				const sources = inbound.map(({ e }) => ({ e, y: at.get(e.from)!.y + nodes.find((n) => n.id === e.from)!.h / 2 }))
+				const pick = sources.reduce((a, b) => ((level === 'low' ? b.y > a.y : b.y < a.y) ? b : a))
+				const target = own.find((n) => n.id === pick.e.to)!
+				dy = Math.max(0, pick.y - (target.y - minY + target.h / 2))
+			}
+			const labelRoom = Math.max(0, ...inbound.map(({ e }) => (e.labelW > 0 ? e.labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 0)))
+			const gap = k === 0 ? 0 : Math.max(120, labelRoom)
+			for (const n of own) at.set(n.id, { x: left + gap + n.x - minX, y: dy + n.y - minY })
+			left += gap + Math.max(...own.map((n) => n.x + n.w)) - minX
+		}
+		const placed = nodes.map((n) => ({ ...n, ...at.get(n.id)! }))
+		const touch = (a: LayoutNode, b: LayoutNode) => a.x < b.x + b.w + 12 && b.x < a.x + a.w + 12 && a.y < b.y + b.h + 12 && b.y < a.y + a.h + 12
+		if (placed.some((a, i) => placed.some((b, j) => j > i && touch(a, b)))) return
+		const centers = new Map(placed.map((n) => [n.id, { x: n.x + n.w / 2, y: n.y + n.h / 2 }]))
+		const placedBends = placeBends(placed, edges, centers, bends)
+		// An arrow across must not run through a box on its way.
+		for (const { e, i } of across) {
+			const arc = arcPoints(centers.get(e.from)!, centers.get(e.to)!, placedBends[i], 24)
+			if (placed.some((b) => b.id !== e.from && b.id !== e.to && arc.some((p) => p.x > b.x - 6 && p.x < b.x + b.w + 6 && p.y > b.y - 6 && p.y < b.y + b.h + 6))) return
+		}
+		const w = Math.max(...placed.map((n) => n.x + n.w))
+		const h = Math.max(...placed.map((n) => n.y + n.h))
+		const fit = Math.min(1, FIT_W / w, FIT_H / h)
+		const length = across.reduce((s, { e }) => s + Math.hypot(centers.get(e.to)!.x - centers.get(e.from)!.x, centers.get(e.to)!.y - centers.get(e.from)!.y), 0)
+		const at2 = placed.map((n) => ({ x: n.x, y: n.y }))
+		const continued = level === 'top' ? new Set(across.map(({ i }) => i)) : undefined
+		const cost = -Math.min(1, fit) + flowPenalty(nodes, edges, at2, placedBends, continued) + across.length * 0.02 + length / 40000 + (count - 2) * 0.08 + (level === 'top' ? 0.02 : 0)
+		if (!best || cost < best.cost) best = { bends: placedBends, squeezed: false, fit, at: placed.map((n) => ({ x: n.x, y: n.y })), cost, continued }
+	}
+	// Cuts near where the parts come out about the same height, two to four parts.
+	const last = levels.length - 1
+	const tried = new Set<string>()
+	const search = (count: number, spread: number) => {
+		const ideal = Array.from({ length: count - 1 }, (_, k) => Math.round(((k + 1) * levels.length) / count) - 1)
+		const visit = (k: number, cuts: number[]) => {
+			if (k === ideal.length) {
+				const key = cuts.join(',')
+				if (tried.has(key) || !clean(cuts)) return
+				tried.add(key)
+				for (const level of count === 2 ? (['low', 'high', 'top'] as const) : (['low', 'top'] as const)) tryCuts(cuts, level)
+				return
+			}
+			for (let d = -spread; d <= spread; d++) {
+				const c = ideal[k] + d
+				if (c < 0 || c >= last || (cuts.length && c <= cuts[cuts.length - 1])) continue
+				visit(k + 1, [...cuts, c])
+			}
+		}
+		visit(0, [])
+	}
+	search(2, Math.max(2, Math.floor(levels.length / 3)))
+	if (levels.length >= 6) search(3, 1)
+	if (levels.length >= 9) search(4, 1)
+	return best as Option | null
+}
+
+/**
+ * What a reader trips over in a flow drawing, in the units of fit: each pair of
+ * crossing arrows, each arrow that runs back up the page (less for one that
+ * continues a flow in its next column), and each arrow through a box that is
+ * not one of its ends.
+ */
+function flowPenalty(nodes: LayoutNode[], edges: LayoutEdge[], at: Point[], bends: Bends, continued?: Set<number>) {
+	const placed = nodes.map((n, i) => ({ ...n, ...at[i] }))
+	const byId = new Map(placed.map((n) => [n.id, n]))
+	const center = (id: string) => {
+		const n = byId.get(id)!
+		return { x: n.x + n.w / 2, y: n.y + n.h / 2 }
+	}
+	const arcs = edges.map((e, i) => arcPoints(center(e.from), center(e.to), bends[i] ?? 0, 16))
+	let penalty = 0
+	edges.forEach((e, i) => {
+		const a = byId.get(e.from)!
+		const b = byId.get(e.to)!
+		// The further back up an arrow runs, the more it costs.
+		// An arrow from the foot of one column to the head of the next reads as
+		// "continued", as on a poster, and costs only a little.
+		const rise = a.y - (b.y + b.h)
+		if (continued?.has(i)) penalty += 0.08
+		else if (rise > 0) penalty += 0.03 + rise / 700
+		for (const n of placed) {
+			if (n.id === e.from || n.id === e.to) continue
+			if (arcs[i].some((p) => p.x > n.x && p.x < n.x + n.w && p.y > n.y && p.y < n.y + n.h)) penalty += 0.3
+		}
+		for (let j = i + 1; j < edges.length; j++) {
+			const f = edges[j]
+			if ([e.from, e.to].some((id) => id === f.from || id === f.to)) continue
+			if (polylinesCross(arcs[i], arcs[j])) penalty += 0.1
+		}
+	})
+	return penalty
 }
 
 /** The screen a diagram is read on, less a margin, and the least zoom at which its text still reads. */
@@ -547,7 +828,8 @@ function layoutFlowOnce(
 	edges: LayoutEdge[],
 	rankGap: number,
 	center: Map<string, Point>,
-	rankdir: 'TB' | 'LR' = 'TB'
+	rankdir: 'TB' | 'LR' = 'TB',
+	ranking: 'sources' | 'short' = 'sources'
 ): Bends {
 	const g = new Graph({ multigraph: true })
 	g.setGraph({
@@ -561,7 +843,9 @@ function layoutFlowOnce(
 		// choices out of one step sit side by side in the next layer. dagre's
 		// default, network simplex, shortens edges in total instead, and can push
 		// a choice down past its siblings, which a one-arc arrow cannot route around.
-		ranker: rankFromSources,
+		// A map of causes takes network simplex: each cause sits just above what it
+		// leads to, so no arrow runs the whole height of the drawing.
+		ranker: ranking === 'short' ? 'network-simplex' : rankFromSources,
 	})
 	g.setDefaultEdgeLabel(() => ({}))
 	for (const n of nodes) g.setNode(n.id, { width: n.w, height: n.h })
@@ -609,37 +893,80 @@ function layoutFlowOnce(
 
 /**
  * Map layout. A map that is a tree gets a mind-map layout (see layoutTree).
- * Any other map gets a force layout by d3-force on the graph with each labeled edge
- * split at a label node, as in Hu's vPRISM, so labels get room of their own and
- * push other labels and boxes away. Force layouts can settle tangled, so it
- * runs from several fixed starts and keeps the drawing with the fewest
- * problems: labels over boxes or labels, arcs over boxes, crossing edges, and
- * then the least area. Every start is fixed, so the same diagram always lays
- * out the same way.
+ * Any other map is drawn several ways and keeps the drawing with the fewest
+ * problems: labels over boxes or labels, arcs over boxes, crossing edges, then
+ * the zoom it needs to fit a screen and its area. The candidates: a map with
+ * a main loop, such as the water cycle, pinned on a ring with the rest solved
+ * around it; a map of causes without loops, in layers from the causes down to
+ * the outcome; stress layouts; and force layouts by d3-force. Each labeled edge
+ * is split at a label node, as in Hu's vPRISM, so labels get room of their own.
+ * Every start is fixed, so the same diagram always lays out the same way.
  */
 export function layoutMap(nodes: LayoutNode[], edges: LayoutEdge[], tries = MAP_TRIES): Bends {
 	const tree = layoutTree(nodes, edges)
 	if (tree) return tree
 	let best: { score: number; centers: Map<string, Point>; bends: Bends } | null = null
-	// Stress layouts first, then force layouts from fixed starts; the best drawing wins.
 	const starts: (() => Map<string, Point>)[] = []
+	const kinds: string[] = []
+	// The main loop goes first and largest: pinned on a ring, with the rest of the
+	// map solved around it. Each loop long enough to carry the map is tried.
+	for (const cycle of mainCycles(nodes, edges)) {
+		const pins = ringPins(nodes, edges, cycle)
+		const pinned = runStress(nodes, edges, 0, pins)
+		starts.push(() => pinned)
+		kinds.push('ring' + cycle.length)
+		starts.push(() => compact(pinned, nodes, edges, 0.85))
+		kinds.push('ring' + cycle.length + 'c')
+	}
 	for (let seed = 0; seed < Math.min(tries, STRESS_TRIES); seed++) {
 		const stress = runStress(nodes, edges, seed)
 		starts.push(() => stress)
+		kinds.push('stress')
 		// Stress keeps every distance, so it draws roomier than a force layout; a
 		// compacted copy (as in FORBID's scaling step) competes on equal terms.
-		for (const scale of [0.8, 0.65]) starts.push(() => compact(stress, nodes, edges, scale))
+		for (const scale of [0.8, 0.65]) {
+			starts.push(() => compact(stress, nodes, edges, scale))
+			kinds.push('stress-c')
+		}
 	}
-	for (let seed = 0; seed < tries; seed++) starts.push(() => runForce(nodes, edges, seed))
-	for (const start of starts) {
+	for (let seed = 0; seed < tries; seed++) {
+		starts.push(() => runForce(nodes, edges, seed))
+		kinds.push('force')
+	}
+	// A map without loops, such as causes that converge on an outcome, can also be
+	// drawn in layers, causes first and the outcome last: its streams read in one
+	// direction and meet where they meet.
+	// Their arrows keep the bends the layers gave them, which route each label
+	// through the room the layers kept for it.
+	const layeredBends = new Map<number, Bends>()
+	if (isAcyclic(nodes, edges)) {
+		for (const [rankdir, ranking] of [
+			['TB', 'short'],
+			['TB', 'sources'],
+		] as const) {
+			const k = starts.length
+			starts.push(() => {
+				const copy = nodes.map((n) => ({ ...n }))
+				const centers = new Map<string, Point>()
+				layeredBends.set(k, layoutFlowOnce(copy, edges, RANK_GAP, centers, rankdir, ranking))
+				return centers
+			})
+			kinds.push('layers-' + rankdir)
+		}
+	}
+	for (const [k, start] of starts.entries()) {
 		const centers = start()
 		const placed = nodes.map((n) => ({ ...n, x: centers.get(n.id)!.x - n.w / 2, y: centers.get(n.id)!.y - n.h / 2 }))
-		const preferred = edges.map((e, i) => {
-			const label = centers.get(labelKey(i))
-			return label ? bendThrough(centers.get(e.from)!, centers.get(e.to)!, label) : 0
-		})
+		const preferred =
+			layeredBends.get(k) ??
+			edges.map((e, i) => {
+				const label = centers.get(labelKey(i))
+				return label ? bendThrough(centers.get(e.from)!, centers.get(e.to)!, label) : 0
+			})
 		const bends = placeBends(placed, edges, centers, preferred)
-		const score = scoreLayout(placed, edges, centers, bends)
+		// Layers from causes down to the outcome read in one direction, which a
+		// reader of a map of causes is looking for: worth more than one problem.
+		const score = scoreLayout(placed, edges, centers, bends) - (kinds[k] === 'layers-TB' ? 12 : 0)
 		if (!best || score < best.score) best = { score, centers, bends }
 	}
 	const { centers, bends } = untangle(nodes, edges, best!)
@@ -696,6 +1023,24 @@ function untangle(
 		if (!improved) break
 	}
 	return best
+}
+
+/** Whether every arrow can point forward in some order: no loops. */
+function isAcyclic(nodes: LayoutNode[], edges: LayoutEdge[]) {
+	const left = new Map<string, number>(nodes.map((n) => [n.id, 0]))
+	for (const e of edges) left.set(e.to, left.get(e.to)! + 1)
+	const queue = nodes.filter((n) => left.get(n.id) === 0).map((n) => n.id)
+	let seen = 0
+	while (queue.length) {
+		const id = queue.shift()!
+		seen++
+		for (const e of edges) {
+			if (e.from !== id) continue
+			left.set(e.to, left.get(e.to)! - 1)
+			if (left.get(e.to) === 0) queue.push(e.to)
+		}
+	}
+	return seen === nodes.length
 }
 
 /** Whether edge i crosses another edge it shares no box with. */
@@ -761,6 +1106,9 @@ export function treeOf(ids: string[], edges: { from: string; to: string }[]): Tr
 		children.set(id, kids)
 	}
 	if (depth.size !== ids.length) return null
+	// A mind map grows out from its root. Links that point in, such as inputs
+	// that feed a process, make a map of causes that only happens to be a tree.
+	if (edges.some((e) => depth.get(e.to)! < depth.get(e.from)!)) return null
 	return { root, depth, branch, children }
 }
 
@@ -949,6 +1297,91 @@ function runForce(nodes: LayoutNode[], edges: LayoutEdge[], seed: number): Map<s
 const STRESS_TRIES = 4
 
 /**
+ * The loops a cyclic map could be drawn around, such as the water cycle's: for
+ * each length, the loop through the concepts listed earliest, longest first,
+ * in arrow order from the concept listed first. Only loops of four or more
+ * concepts that hold at least two fifths of the map count.
+ */
+function mainCycles(nodes: LayoutNode[], edges: LayoutEdge[]): string[][] {
+	const index = new Map(nodes.map((n, i) => [n.id, i]))
+	const out = nodes.map(() => [] as number[])
+	for (const e of edges) out[index.get(e.from)!].push(index.get(e.to)!)
+	const best = new Map<number, number[]>()
+	const sum = (c: number[]) => c.reduce((t, i) => t + i, 0)
+	let budget = 50000
+	const path: number[] = []
+	const onPath = new Set<number>()
+	const visit = (start: number, v: number) => {
+		if (--budget < 0) return
+		for (const w of out[v]) {
+			if (w === start && path.length >= 4) {
+				const was = best.get(path.length)
+				if (!was || sum(path) < sum(was)) best.set(path.length, [...path])
+			} else if (w > start && !onPath.has(w)) {
+				path.push(w)
+				onPath.add(w)
+				visit(start, w)
+				path.pop()
+				onPath.delete(w)
+			}
+		}
+	}
+	for (let s = 0; s < nodes.length; s++) {
+		path.length = 0
+		onPath.clear()
+		path.push(s)
+		onPath.add(s)
+		visit(s, s)
+	}
+	return [...best.entries()]
+		.filter(([length]) => length * 5 >= nodes.length * 2)
+		.sort((a, b) => b[0] - a[0])
+		.slice(0, 3)
+		.map(([, cycle]) => {
+			// Start the loop at the concept listed first.
+			const first = cycle.indexOf(Math.min(...cycle))
+			return [...cycle.slice(first), ...cycle.slice(0, first)].map((i) => nodes[i].id)
+		})
+}
+
+/** The room an arrow between two pinned neighbors needs between their boxes. */
+function linkRoom(e: LayoutEdge | undefined) {
+	return e && e.labelW > 0 ? e.labelW + LABEL_ARROW_ROOM + LABEL_MARGIN : 90
+}
+
+/**
+ * The main loop pinned clockwise on an ellipse a screen's shape, starting at
+ * the top, as a teacher draws a cycle: just large enough that every arrow
+ * around it has room for its label between its two boxes.
+ */
+function ringPins(nodes: LayoutNode[], edges: LayoutEdge[], cycle: string[]): Map<string, Point> {
+	const byId = new Map(nodes.map((n) => [n.id, n]))
+	const count = cycle.length
+	const at = (scale: number) =>
+		cycle.map((_, k) => {
+			const angle = -Math.PI / 2 + (2 * Math.PI * k) / count
+			return { x: Math.cos(angle) * scale * 1.6, y: Math.sin(angle) * scale }
+		})
+	// Half a box's extent along a direction (the support of a rectangle).
+	const reachAlong = (n: LayoutNode, ux: number, uy: number) => (n.w / 2) * Math.abs(ux) + (n.h / 2) * Math.abs(uy)
+	const fits = (scale: number) => {
+		const p = at(scale)
+		return cycle.every((id, k) => {
+			const next = cycle[(k + 1) % count]
+			const dx = p[(k + 1) % count].x - p[k].x
+			const dy = p[(k + 1) % count].y - p[k].y
+			const d = Math.hypot(dx, dy) || 1
+			const gap = d - reachAlong(byId.get(id)!, dx / d, dy / d) - reachAlong(byId.get(next)!, dx / d, dy / d)
+			return gap >= linkRoom(edges.find((e) => e.from === id && e.to === next))
+		})
+	}
+	let scale = 120
+	while (!fits(scale) && scale < 2000) scale += 10
+	const p = at(scale)
+	return new Map(cycle.map((id, k) => [id, p[k]]))
+}
+
+/**
  * One stress layout (Gansner, Koren, and North, "Graph Drawing by Stress
  * Majorization", 2004, the method behind Graphviz neato). Every pair of bodies
  * wants to sit as far apart as the shortest path between them, where each step
@@ -957,8 +1390,10 @@ const STRESS_TRIES = 4
  * count most, which keeps linked boxes close and short arcs short: the long
  * arcs a force layout leaves on a cyclic map are what this fixes. Seed 0 starts
  * on a circle in the given order, the others from fixed scattered starts.
+ * Pinned nodes, such as a main loop on its ring, hold their places while the
+ * rest settles around them.
  */
-function runStress(nodes: LayoutNode[], edges: LayoutEdge[], seed: number): Map<string, Point> {
+function runStress(nodes: LayoutNode[], edges: LayoutEdge[], seed: number, pins?: Map<string, Point>): Map<string, Point> {
 	type Body = { key: string; w: number; h: number; x: number; y: number }
 	const rand = random(seed + 101)
 	const bodies: Body[] = nodes.map((n) => ({ key: n.id, w: n.w, h: n.h, x: 0, y: 0 }))
@@ -1000,6 +1435,31 @@ function runStress(nodes: LayoutNode[], edges: LayoutEdge[], seed: number): Map<
 		bodies[i].x = seed === 0 ? Math.cos(angle) * spread : (rand() - 0.5) * 2 * spread
 		bodies[i].y = seed === 0 ? Math.sin(angle) * spread : (rand() - 0.5) * 2 * spread
 	})
+	// Pinned nodes hold their place; each free node starts beside the pinned
+	// nodes it links to.
+	const fixed = new Set<number>()
+	if (pins) {
+		const pinnedAt = [...pins.values()]
+		const mid = { x: pinnedAt.reduce((t, p) => t + p.x, 0) / pinnedAt.length, y: pinnedAt.reduce((t, p) => t + p.y, 0) / pinnedAt.length }
+		nodes.forEach((n, i) => {
+			const p = pins.get(n.id)
+			if (!p) return
+			bodies[i].x = p.x
+			bodies[i].y = p.y
+			fixed.add(i)
+		})
+		nodes.forEach((n, i) => {
+			if (fixed.has(i)) return
+			const near = edges.flatMap((e) => (e.from === n.id ? [e.to] : e.to === n.id ? [e.from] : [])).flatMap((id) => (pins.has(id) ? [pins.get(id)!] : []))
+			const c = near.length ? { x: near.reduce((t, p) => t + p.x, 0) / near.length, y: near.reduce((t, p) => t + p.y, 0) / near.length } : mid
+			// Outside the ring, beside what it links to.
+			const out = { x: c.x - mid.x, y: c.y - mid.y }
+			const len = Math.hypot(out.x, out.y)
+			const push = len > 1 ? { x: (out.x / len) * 160, y: (out.y / len) * 160 } : { x: 0, y: i % 2 ? 160 : -160 }
+			bodies[i].x = c.x + push.x + (rand() - 0.5) * 40
+			bodies[i].y = c.y + push.y + (rand() - 0.5) * 40
+		})
+	}
 	edges.forEach((e, i) => {
 		const l = index.get(labelKey(i))
 		if (l === undefined) return
@@ -1009,9 +1469,10 @@ function runStress(nodes: LayoutNode[], edges: LayoutEdge[], seed: number): Map<
 		bodies[l].y = (a.y + b.y) / 2 + (rand() - 0.5) * 10
 	})
 	// Majorization, one body at a time (the localized update of the paper).
-	for (let iter = 0; iter < 300; iter++) {
+	const sweep = () => {
 		let moved = 0
 		for (let i = 0; i < n; i++) {
+			if (fixed.has(i)) continue
 			let sx = 0
 			let sy = 0
 			let sw = 0
@@ -1031,7 +1492,45 @@ function runStress(nodes: LayoutNode[], edges: LayoutEdge[], seed: number): Map<
 			bodies[i].x = nx
 			bodies[i].y = ny
 		}
-		if (moved / n < 0.05) break
+		return moved
+	}
+	for (let iter = 0; iter < 300; iter++) if (sweep() / n < 0.05) break
+	// Stress plus crossings (after Shabbeer et al., arXiv 1210.2041, and SPX,
+	// arXiv 1908.01769): a line between the midpoints of two crossing links
+	// should separate them, so each end on the wrong side moves a step across
+	// it, and a stress sweep restores the distances. Stress alone keeps
+	// distances, not planarity.
+	for (let iter = 0; iter < 80; iter++) {
+		let crossed = 0
+		for (let p = 0; p < links.length; p++) {
+			for (let q = p + 1; q < links.length; q++) {
+				const [a, b] = links[p]
+				const [c, e] = links[q]
+				if (a === c || a === e || b === c || b === e) continue
+				if (!segmentsCross(bodies[a], bodies[b], bodies[c], bodies[e])) continue
+				crossed++
+				let wx = (bodies[a].x + bodies[b].x - bodies[c].x - bodies[e].x) / 2
+				let wy = (bodies[a].y + bodies[b].y - bodies[c].y - bodies[e].y) / 2
+				if (Math.hypot(wx, wy) < 1) {
+					wx = -(bodies[b].y - bodies[a].y)
+					wy = bodies[b].x - bodies[a].x
+				}
+				const norm = Math.hypot(wx, wy) || 1
+				const step = 12
+				for (const i of [a, b]) {
+					if (fixed.has(i)) continue
+					bodies[i].x += (wx / norm) * step
+					bodies[i].y += (wy / norm) * step
+				}
+				for (const i of [c, e]) {
+					if (fixed.has(i)) continue
+					bodies[i].x -= (wx / norm) * step
+					bodies[i].y -= (wy / norm) * step
+				}
+			}
+		}
+		if (!crossed) break
+		sweep()
 	}
 	for (let i = 0; i < 80; i++) if (!separate(bodies)) break
 	return new Map(bodies.map((b) => [b.key, { x: b.x, y: b.y }]))
@@ -1085,7 +1584,10 @@ function separate(bodies: (SimulationNodeDatum & { w: number; h: number })[]) {
 function scoreLayout(placed: LayoutNode[], edges: LayoutEdge[], centers: Map<string, Point>, bends: Bends) {
 	const boxes = placed.map((n) => ({ minX: n.x, minY: n.y, maxX: n.x + n.w, maxY: n.y + n.h, id: n.id }))
 	const center = (id: string) => centers.get(id)!
-	// Each label sits where tldraw puts it: the middle of its arc.
+	const own = (id: string) => boxes.find((b) => b.id === id)!
+	// Each label sits where tldraw puts it: the middle of its arc. A label too
+	// long for the arrow between its boxes is squeezed: narrower, on more lines,
+	// so it takes more height and can reach a neighbor.
 	const labelBoxes = edges.flatMap((e, i) => {
 		if (e.labelW <= 0) return []
 		const a = center(e.from)
@@ -1093,16 +1595,22 @@ function scoreLayout(placed: LayoutNode[], edges: LayoutEdge[], centers: Map<str
 		const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
 		const n = bendNormal(a, b)
 		const at = { x: (a.x + b.x) / 2 + n.x * bends[i], y: (a.y + b.y) / 2 + n.y * bends[i] }
-		return [{ minX: at.x - e.labelW / 2, maxX: at.x + e.labelW / 2, minY: at.y - e.labelH / 2, maxY: at.y + e.labelH / 2, len, edge: e }]
+		// tldraw's rule: on an arrow whose body is wider than tall, the label is
+		// at most the body's width less 64. The estimate keeps a margin.
+		const body = arcBody(arcPoints(a, b, bends[i], 24), own(e.from), own(e.to))
+		const squeezed = body.w > body.h && body.w - LABEL_ARROW_ROOM < e.labelW + 50
+		const w = squeezed ? Math.max(LABEL_ARROW_ROOM, Math.min(e.labelW, body.w - LABEL_ARROW_ROOM)) : e.labelW
+		const h = squeezed ? e.labelH * Math.min(4, Math.ceil(e.labelW / w)) : e.labelH
+		return [{ minX: at.x - w / 2, maxX: at.x + w / 2, minY: at.y - h / 2, maxY: at.y + h / 2, len, edge: e, index: i, squeezed }]
 	})
 	const hit = (A: { minX: number; minY: number; maxX: number; maxY: number }, B: typeof A) =>
-		Math.min(A.maxX, B.maxX) - Math.max(A.minX, B.minX) > 0 && Math.min(A.maxY, B.maxY) - Math.max(A.minY, B.minY) > 0
+		Math.min(A.maxX, B.maxX) - Math.max(A.minX, B.minX) > -6 && Math.min(A.maxY, B.maxY) - Math.max(A.minY, B.minY) > -6
 	let problems = 0
 	for (let i = 0; i < labelBoxes.length; i++) {
-		for (const box of boxes) if (hit(labelBoxes[i], box)) problems += 3
-		for (let j = i + 1; j < labelBoxes.length; j++) if (hit(labelBoxes[i], labelBoxes[j])) problems += 3
-		// A label wider than the room between its boxes is squeezed onto more lines.
-		if (labelBoxes[i].len < labelBoxes[i].edge.labelW + 140) problems += 1
+		for (const box of boxes) if (hit(labelBoxes[i], box)) problems += 5
+		for (let j = i + 1; j < labelBoxes.length; j++) if (hit(labelBoxes[i], labelBoxes[j])) problems += 5
+		// A squeezed label reads badly on its extra lines.
+		if (labelBoxes[i].squeezed) problems += 1
 	}
 	const arcs = edges.map((e, i) => arcPoints(center(e.from), center(e.to), bends[i], 16))
 	edges.forEach((e, i) => {
@@ -1125,7 +1633,10 @@ function scoreLayout(placed: LayoutNode[], edges: LayoutEdge[], centers: Map<str
 	const area = (maxX - minX) * (maxY - minY)
 	// Wide is easier to read on a screen than tall.
 	const aspect = (maxY - minY) / (maxX - minX || 1) > 1 ? 1 : 0
-	return problems * 10 + aspect * 3 + area / 400000
+	// A map shrunk to fit the screen loses its text size: every tenth of zoom
+	// lost costs nearly half a problem.
+	const fit = Math.min(1, FIT_W / (maxX - minX || 1), FIT_H / (maxY - minY || 1))
+	return problems * 10 + aspect * 3 + area / 400000 + (1 - fit) * 45
 }
 
 function polylinesCross(p: Point[], q: Point[]) {
@@ -1279,6 +1790,14 @@ function placeBends(nodes: LayoutNode[], edges: LayoutEdge[], centers: Map<strin
 	return bends
 }
 
+
+/** The size of the part of an arc between its two boxes. */
+function arcBody(arc: Point[], a: { minX: number; minY: number; maxX: number; maxY: number }, b: typeof a) {
+	const inside = (p: Point, r: typeof a) => p.x > r.minX && p.x < r.maxX && p.y > r.minY && p.y < r.maxY
+	const body = arc.filter((p) => !inside(p, a) && !inside(p, b))
+	if (body.length < 2) return { w: 0, h: 0 }
+	return { w: Math.max(...body.map((p) => p.x)) - Math.min(...body.map((p) => p.x)), h: Math.max(...body.map((p) => p.y)) - Math.min(...body.map((p) => p.y)) }
+}
 
 /**
  * Whether tldraw would squeeze a label onto more lines: it does when the part
