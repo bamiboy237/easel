@@ -1,6 +1,8 @@
 import {
 	ANIMATION_STREAM_ERROR,
 	applyAnimationEdits,
+	AnimationReview,
+	parseAnimationChoice,
 	parseAnimationReview,
 	parseAnimationSource,
 	partialAnimationSource,
@@ -64,6 +66,8 @@ export interface AnimationPipelineOptions {
 	base?: string
 	/** Check the sketch's frames with the writer, and fix once. On by default. */
 	review?: boolean
+	/** How many versions the writer writes at once; the review picks the better one. 2 by default. */
+	candidates?: number
 	/** Look up the same title and brief asked for before. On by default. */
 	reuse?: boolean
 	/** Use this source instead of asking the writer, as a test does. */
@@ -86,6 +90,8 @@ export interface AnimationResult {
 	sketchFrames: { url: string; time: number }[]
 	layout: string[]
 	review: 'ok' | 'fixed' | 'skipped' | 'kept'
+	/** Which of two versions was kept, when two were written. */
+	chose: 'A' | 'B' | null
 	problems: string[]
 	cached: boolean
 	seconds: { firstFrame: number | null; written: number | null; checked: number | null; total: number }
@@ -94,6 +100,8 @@ export interface AnimationResult {
 export class AnimationError extends Error {}
 
 const POLL_MS = 350
+/** How long the review waits for the second version once the first is sketched, in milliseconds. */
+const SECOND_VERSION_WAIT_MS = 12000
 /** How often a growing scene is sketched while it is written, at most. */
 const SKETCH_EVERY_MS = 3000
 
@@ -223,8 +231,18 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 			}
 		}
 
-		// 1. Write, sketching the scene as it grows.
+		// 1. Write, sketching the scene as it grows. A second version is written
+		// beside it, so the review can keep the better one: the writer's scenes
+		// vary a lot from one try to the next.
 		report({ phase: 'writing' })
+		const second =
+			!options.source && options.review !== false && (options.candidates ?? 2) > 1
+				? (async () => {
+						const code = parseAnimationSource(await write({ mode: 'write' }))
+						const job = await render(code, 'sketch')
+						return job.status === 'done' ? { source: code, sketch: job } : null
+					})().catch(() => null)
+				: null
 		let source = options.source ?? null
 		let problem: string | null = null
 		for (let attempt = 0; !source && attempt < 2; attempt++) {
@@ -268,9 +286,36 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 		// 3. The writer checks the sketch while the final video renders.
 		let review: AnimationResult['review'] = 'skipped'
 		let problems: string[] = []
+		let chose: 'A' | 'B' | null = null
 		if (options.review !== false) {
 			const images = await Promise.all(sketchFrames.map(async (f) => ({ image: await toDataUrl(base + f.url, signal), time: f.time })))
-			const verdict = parseAnimationReview(await write({ mode: 'review', source, frames: images, layout: sketch.layout, duration: sketch.duration }))
+			const other = second ? await Promise.race([second, sleep(SECOND_VERSION_WAIT_MS, signal).then(() => null)]) : null
+			let verdict: AnimationReview
+			if (other) {
+				const otherImages = await Promise.all(other.sketch.frames.map(async (f) => ({ image: await toDataUrl(base + f.url, signal), time: f.time })))
+				const reply = parseAnimationChoice(
+					await write({
+						mode: 'review',
+						source,
+						frames: images,
+						layout: sketch.layout,
+						duration: sketch.duration,
+						alternative: { source: other.source, frames: otherImages, layout: other.sketch.layout, duration: other.sketch.duration },
+					})
+				)
+				chose = reply.choice
+				verdict = reply.review
+				log('chose', { choice: chose, layout: { A: sketch.layout.length, B: other.sketch.layout.length } })
+				if (chose === 'B') {
+					if (finalJobId) cancelJob(finalJobId)
+					source = other.source
+					sketch = other.sketch
+					firstFinal = startFinal(source)
+				}
+			} else {
+				if (second) log('second version not ready')
+				verdict = parseAnimationReview(await write({ mode: 'review', source, frames: images, layout: sketch.layout, duration: sketch.duration }))
+			}
 			checked = elapsed()
 			if (verdict.ok) {
 				review = 'ok'
@@ -282,21 +327,28 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 				review = 'kept'
 				if (fixedSource && fixedSource !== source) {
 					report({ phase: 'fixing' })
-					// The first version's render gives way, so the fix renders sooner; it
-					// starts again only if the fix fails. The sketch's step count lets the
-					// service split the render into even parts.
-					if (finalJobId) cancelJob(finalJobId)
-					const fixed = await render(fixedSource, 'final', (job) => report({ progress: job.progress }), sketch.steps)
-					if (fixed.status === 'done') return await finish(fixedSource, fixed, sketchFrames, 'fixed', problems, false)
-					log('the fix did not render', fixed.error)
-					firstFinal = startFinal(source)
+					// A fix is kept only if it renders and the layout check finds no more
+					// problems in it than in the first version: a fix can break what worked.
+					const fixSketch = await render(fixedSource!, 'sketch')
+					const better = fixSketch.status === 'done' && fixSketch.layout.length <= sketch.layout.length
+					log('fix sketched', { status: fixSketch.status, layout: fixSketch.layout, kept: better })
+					if (better) {
+						// The first version's render gives way, so the fix renders sooner; it
+						// starts again only if the fix fails. The sketch's step count lets the
+						// service split the render into even parts.
+						if (finalJobId) cancelJob(finalJobId)
+						const fixed = await render(fixedSource!, 'final', (job) => report({ progress: job.progress }), fixSketch.steps)
+						if (fixed.status === 'done') return await finish(fixedSource!, fixed, fixSketch.frames, 'fixed', problems, false, chose)
+						log('the fix did not render', fixed.error)
+						firstFinal = startFinal(source)
+					}
 				}
 			}
 		}
 		report({ phase: 'rendering' })
 		const final = await firstFinal
 		if (final.status !== 'done') throw new AnimationError(final.error ?? 'The final video did not render.')
-		return await finish(source, final, sketchFrames, review, problems, false)
+		return await finish(source, final, sketch.frames, review, problems, false, chose)
 	} catch (error) {
 		if (signal.aborted) throw abortError()
 		throw error
@@ -311,7 +363,8 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 		sketchFrames: { url: string; time: number }[],
 		review: AnimationResult['review'],
 		problems: string[],
-		reused: boolean
+		reused: boolean,
+		chose: 'A' | 'B' | null = null
 	): Promise<AnimationResult> {
 		// Remember what was asked for, so asking again comes from the cache.
 		if (!options.source && !reused) await post('/render/briefs', { title: options.title, brief: options.brief, source, key: job.key }).catch(() => {})
@@ -323,6 +376,7 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 			sketchFrames,
 			layout: job.layout,
 			review,
+			chose,
 			problems,
 			cached: reused || job.cached,
 			seconds: { firstFrame, written, checked, total: elapsed() },

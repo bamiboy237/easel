@@ -18,6 +18,15 @@ export type AnimationReview = { ok: true } | { ok: false; problems: string[]; ed
 
 const EDIT_BLOCK = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n?>>>>>>> REPLACE/g
 
+/** A choice between two versions: which one, and the review of it that follows on the next lines. */
+export function parseAnimationChoice(text: string): { choice: 'A' | 'B'; review: AnimationReview } {
+	const trimmed = text.trim()
+	const first = /^\W*([AB])\b/i.exec(trimmed)
+	const choice = (first?.[1]?.toUpperCase() ?? 'A') as 'A' | 'B'
+	const rest = first ? trimmed.slice(first[0].length) : trimmed
+	return { choice, review: parseAnimationReview(rest) }
+}
+
 /** A writer's check of its render: OK, or FIX with the problems and edits (or a whole corrected file). */
 export function parseAnimationReview(text: string): AnimationReview {
 	const trimmed = text.trim()

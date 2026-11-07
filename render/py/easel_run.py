@@ -293,7 +293,7 @@ def layout_problems(scene):
         if is_text and not inside_text:
             if any(_visible(f) for f in m.get_family()) and m.width > 0.01:
                 texts.append(m)
-        if not is_text and not inside_text and isinstance(m, VMobject) and len(m.points) and not m.submobjects:
+        if not is_text and not inside_text and isinstance(m, VMobject) and len(m.points):
             try:
                 if m.get_stroke_width() > 0.5 and float(m.get_stroke_opacity() or 0) > 0.3:
                     strokes.append(m)
@@ -329,8 +329,8 @@ def layout_problems(scene):
                     problems.append(f'text "{_name(a)}" overlaps text "{_name(b)}"')
     for t in texts:
         x0, y0, x1, y1 = _box(t)
-        # Shrink the box a little, so a line that only grazes a label's edge does not count.
-        px, py = min((x1 - x0) * 0.04, 0.04), (y1 - y0) * 0.1
+        # Grow the box a little: a line that touches a label counts, as it does to the eye.
+        px, py = -0.03, -0.03
         x0, x1, y0, y1 = x0 + px, x1 - px, y0 + py, y1 - py
         for s in strokes:
             pts = _samples(s)
@@ -343,6 +343,105 @@ def layout_problems(scene):
         if p not in out:
             out.append(p)
     return out[:12]
+
+
+def composition_problems(scene):
+    """How the finished picture uses the stage: too small a drawing, or a third of it empty."""
+    from manim import VMobject
+
+    skip = set()
+    for band in (getattr(scene, "_title", None), getattr(scene, "_caption", None)):
+        if band is not None:
+            skip.update(id(m) for m in band.get_family())
+    from manim import MathTex, SingleStringMathTex, Tex, Text, MarkupText, Paragraph, DecimalNumber
+
+    text_types = (Text, MarkupText, Paragraph, MathTex, SingleStringMathTex, Tex, DecimalNumber)
+    in_text = set()
+    for top in scene.mobjects:
+        for m in top.get_family():
+            if isinstance(m, text_types):
+                in_text.update(id(f) for f in m.get_family())
+    boxes = []
+    drawing = []
+    for top in scene.mobjects:
+        for m in top.get_family():
+            if id(m) in skip or m.submobjects or not isinstance(m, VMobject) or not len(m.points):
+                continue
+            if not _visible(m):
+                continue
+            boxes.append(_box(m))
+            if id(m) not in in_text:
+                drawing.append(_box(m))
+    if drawing:
+        dx = min(6.65, max(b[2] for b in drawing)) - max(-6.65, min(b[0] for b in drawing))
+        dy = min(2.35, max(b[3] for b in drawing)) - max(-2.75, min(b[1] for b in drawing))
+        covered = max(0.0, dx) * max(0.0, dy) / (13.3 * 5.1)
+        if covered < 0.3:
+            problems_first = [f"the drawing itself (not counting text) covers only {round(covered * 100)} percent of the stage; draw the main visual larger"]
+        else:
+            problems_first = []
+    else:
+        problems_first = []
+    if not boxes:
+        return ["the finished picture is empty"]
+    left, right, bottom, top = -6.65, 6.65, -2.75, 2.35
+    x0 = max(left, min(b[0] for b in boxes))
+    y0 = max(bottom, min(b[1] for b in boxes))
+    x1 = min(right, max(b[2] for b in boxes))
+    y1 = min(top, max(b[3] for b in boxes))
+    problems = list(problems_first)
+    share = max(0.0, (x1 - x0)) * max(0.0, (y1 - y0)) / ((right - left) * (top - bottom))
+    if share < 0.45:
+        problems.append(f"the finished picture fills only {round(share * 100)} percent of the stage; make the main visual larger")
+    # The widest empty band across the stage, between parts of the picture or at its edge.
+    for axis, low, high, limit, names in ((0, left, right, 3.5, ("x", "left", "right")), (1, bottom, top, 2.2, ("y", "bottom", "top"))):
+        spans = sorted((max(low, b[axis]), min(high, b[axis + 2])) for b in boxes if b[axis + 2] > low and b[axis] < high)
+        edge, gap, where = low, 0.0, None
+        for a, b in spans + [(high, high)]:
+            if a - edge > gap:
+                gap, where = a - edge, (edge + a) / 2
+            edge = max(edge, b)
+        if gap >= limit:
+            problems.append(f"an empty band {gap:.1f} units wide runs across the stage at {names[0]} = {where:.1f}; enlarge or spread the picture to use it")
+    return problems
+
+
+def share_formulas(job_dir, shared_dir):
+    """Compile formulas in the job's own folder, and share the results between jobs.
+
+    Manim deletes every file but the SVGs from its formula folder after each
+    compile, so jobs sharing one folder delete each other's LaTeX files mid-run.
+    Each job compiles in its own folder instead, takes a finished SVG from the
+    shared folder when one exists, and adds the ones it makes.
+    """
+    import shutil
+    from pathlib import Path
+
+    from manim import config
+    import manim.mobject.text.tex_mobject as tex_mobject
+    import manim.utils.tex_file_writing as tex_writing
+
+    shared = Path(shared_dir)
+    private = Path(job_dir) / "tex"
+    private.mkdir(parents=True, exist_ok=True)
+    config.tex_dir = str(private)
+    compile_svg = tex_writing.tex_to_svg_file
+
+    def tex_to_svg_file(expression, environment=None, tex_template=None):
+        template = tex_template if tex_template is not None else config["tex_template"]
+        local = tex_writing.generate_tex_file(expression, environment, template).with_suffix(".svg")
+        known = shared / local.name
+        if known.exists() and not local.exists():
+            shutil.copyfile(known, local)
+        result = compile_svg(expression, environment, template)
+        if not known.exists():
+            staging = shared / f"{local.name}.{os.getpid()}.tmp"
+            shutil.copyfile(result, staging)
+            os.replace(staging, known)
+        return result
+
+    tex_writing.tex_to_svg_file = tex_to_svg_file
+    tex_mobject.tex_to_svg_file = tex_to_svg_file
 
 
 def main():
@@ -383,7 +482,7 @@ def main():
     config.frame_rate = job.get("fps", 15)
     config.media_dir = os.path.join(job_dir, "media")
     if job.get("texDir"):
-        config.tex_dir = job["texDir"]
+        share_formulas(job_dir, job["texDir"])
     config.disable_caching = True
     config.progress_bar = "none"
     config.verbosity = "ERROR"
@@ -412,12 +511,19 @@ def main():
     save_frames = job.get("frames", True)
     drawn = [0]
 
+    beat = {"caption": None, "n": 0}
+
     def record(scene, kind):
         index = len(steps)
         t = float(getattr(scene.renderer, "time", 0.0))
         frame = None
+        # A beat of the story lasts from one caption to the next; its last step shows what the caption says.
+        caption = getattr(scene, "_caption", None)
+        if caption is not beat["caption"]:
+            beat["caption"] = caption
+            beat["n"] += 1
         if index < first or (last >= 0 and index > last):
-            steps.append({"index": index, "kind": kind, "time": round(t, 3), "frame": None})
+            steps.append({"index": index, "kind": kind, "time": round(t, 3), "frame": None, "beat": beat["n"]})
             return
         drawn[0] += 1
         if save_frames and kind == "play":
@@ -437,7 +543,7 @@ def main():
         for p in problems:
             if p not in all_layout:
                 all_layout.append(p)
-        steps.append({"index": index, "kind": kind, "time": round(t, 3), "frame": frame and os.path.relpath(frame, job_dir)})
+        steps.append({"index": index, "kind": kind, "time": round(t, 3), "frame": frame and os.path.relpath(frame, job_dir), "beat": beat["n"]})
         emit({"type": "step", "index": index, "kind": kind, "time": round(t, 3), "frame": frame and os.path.relpath(frame, job_dir), "layout": problems})
 
     original_play = Scene.play
@@ -475,6 +581,13 @@ def main():
         emit({"type": "error", "message": message[:1500], "line": line, "where": where})
         sys.exit(1)
 
+    if last < 0:
+        try:
+            for problem in composition_problems(scene):
+                if problem not in all_layout:
+                    all_layout.append(problem)
+        except Exception:
+            pass
     movie = None if sketch or drawn[0] == 0 else os.path.relpath(str(scene.renderer.file_writer.movie_file_path), job_dir)
     emit(
         {

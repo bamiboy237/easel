@@ -228,7 +228,7 @@ type DoneEvent = {
 	video: string | null
 	empty?: boolean
 	duration: number
-	steps: { index: number; time: number; frame: string | null }[]
+	steps: { index: number; time: number; frame: string | null; beat?: number }[]
 	layout: string[]
 	seconds: number
 }
@@ -441,7 +441,7 @@ function lastLines(text: string) {
 }
 
 /** Move a finished render into the cache: the video, a poster, and a few representative frames. */
-async function store(job: Job, done: { video: string | null; duration: number; steps: { index: number; time: number; frame: string | null }[]; layout: string[]; seconds: number }) {
+async function store(job: Job, done: DoneEvent) {
 	const video = done.video ? join(job.dir, done.video) : null
 	if (video && statSync(video).size > MAX_VIDEO_BYTES) throw new Error('The video is too large.')
 	if (!video && job.quality !== 'sketch') throw new Error('The render made no video.')
@@ -450,7 +450,7 @@ async function store(job: Job, done: { video: string | null; duration: number; s
 	await mkdir(join(staging, 'frames'), { recursive: true })
 	if (video) await copyFile(video, join(staging, 'video.mp4'))
 	const withFrames = done.steps.filter((s) => s.frame)
-	const picks = pickFrames(withFrames.length)
+	const picks = pickFrames(withFrames)
 	const frames: { name: string; time: number }[] = []
 	for (const [i, index] of picks.entries()) {
 		const step = withFrames[index]
@@ -482,11 +482,32 @@ async function store(job: Job, done: { video: string | null; duration: number; s
 }
 
 /** Up to four steps, spread through the animation, always ending on the last. */
-function pickFrames(count: number): number[] {
-	if (count <= 4) return Array.from({ length: count }, (_, i) => i)
-	const picks = [0.3, 0.55, 0.8].map((f) => Math.min(count - 2, Math.round(f * (count - 1))))
-	picks.push(count - 1)
-	return [...new Set(picks)]
+/**
+ * Six steps that tell the story, ending on the last: near 22, 40, 56, 72, and
+ * 86 percent of the way through, by time. A scene with captions is told in
+ * beats, one per caption. The last step of a beat shows what its caption says,
+ * so it is preferred; the step that brings in a new caption is never picked,
+ * since its caption is ahead of the picture.
+ */
+function pickFrames(steps: { beat?: number; time: number }[]): number[] {
+	const count = steps.length
+	if (count <= 6) return Array.from({ length: count }, (_, i) => i)
+	const all = Array.from({ length: count - 1 }, (_, i) => i)
+	const beats = steps[0].beat !== undefined
+	const ends = beats ? all.filter((i) => steps[i + 1].beat !== steps[i].beat) : []
+	const settled = beats ? all.filter((i) => i === 0 || steps[i].beat === steps[i - 1].beat) : all
+	const total = steps[count - 1].time || 1
+	const picks: number[] = []
+	const nearest = (list: number[], t: number) => list.reduce((best, i) => (Math.abs(steps[i].time - t) < Math.abs(steps[best].time - t) ? i : best))
+	for (const f of [0.22, 0.4, 0.56, 0.72, 0.86]) {
+		const t = f * total
+		const free = (list: number[]) => list.filter((i) => !picks.includes(i))
+		const end = free(ends).length ? nearest(free(ends), t) : null
+		if (end !== null && Math.abs(steps[end].time - t) <= 0.1 * total) picks.push(end)
+		else if (free(settled).length) picks.push(nearest(free(settled), t))
+		else if (free(all).length) picks.push(nearest(free(all), t))
+	}
+	return [...picks.sort((x, y) => x - y), count - 1]
 }
 
 /** One frame of a video as a PNG: the frame at time, or the last frame when time is negative. */
@@ -671,7 +692,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
 		}
 		if (req.method === 'GET' && !match[2]) return send(res, 200, view(job))
 	}
-	match = /^\/files\/([0-9a-f]{32})\/(video\.mp4|poster\.png|meta\.json|frames\/[0-3]\.png)$/.exec(path)
+	match = /^\/files\/([0-9a-f]{32})\/(video\.mp4|poster\.png|meta\.json|frames\/[0-5]\.png)$/.exec(path)
 	if (match && req.method === 'GET') return serveFile(req, res, join(cacheDir(match[1]), match[2]))
 	match = /^\/files\/([0-9a-f]{32})\/frame$/.exec(path)
 	if (match && req.method === 'GET') {

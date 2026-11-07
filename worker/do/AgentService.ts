@@ -5,7 +5,7 @@ import {
 	GoogleGenerativeAIProviderOptions,
 } from '@ai-sdk/google'
 import { createOpenAI, OpenAIProvider, OpenAIResponsesProviderOptions } from '@ai-sdk/openai'
-import { jsonSchema, LanguageModel, ModelMessage, Output, streamText } from 'ai'
+import { ImagePart, jsonSchema, LanguageModel, ModelMessage, Output, streamText, TextPart } from 'ai'
 import {
 	AgentModelDefinition,
 	AgentModelName,
@@ -22,7 +22,7 @@ import { Environment } from '../environment'
 import { buildMessages } from '../prompt/buildMessages'
 import { buildLoadedToolsPrompt, buildSystemPrompt } from '../prompt/buildSystemPrompt'
 import { getModelName } from '../prompt/getModelName'
-import { ANIMATION_REVIEW_PROMPT, ANIMATION_SYSTEM_PROMPT } from '../prompt/animationPrompt'
+import { ANIMATION_CHOOSE_PROMPT, ANIMATION_REVIEW_PROMPT, ANIMATION_SYSTEM_PROMPT } from '../prompt/animationPrompt'
 import { WIDGET_SYSTEM_PROMPT } from '../prompt/widgetPrompt'
 import { ActionStream } from './ActionStream'
 
@@ -36,7 +36,7 @@ const MAX_OUTPUT_TOKENS = 16384
 const WIDGET_WRITER_EFFORT: OpenAIReasoningEffort = 'medium'
 
 /** How hard an OpenAI model reasons while writing, and while checking, an animation. */
-const ANIMATION_WRITER_EFFORT: OpenAIReasoningEffort = 'low'
+const ANIMATION_WRITER_EFFORT: OpenAIReasoningEffort = 'medium'
 const ANIMATION_REVIEW_EFFORT: OpenAIReasoningEffort = 'low'
 
 /** What the board sends to have a widget written. */
@@ -68,6 +68,8 @@ export interface AnimationRequest {
 	/** What the automatic layout check found in the render. */
 	layout?: string[]
 	duration?: number
+	/** A second version of the scene, written beside the first: the review picks the better one, then checks it. */
+	alternative?: { source: string; frames: { image: string; time: number }[]; layout: string[]; duration?: number }
 }
 
 export class AgentService {
@@ -151,21 +153,27 @@ export class AgentService {
 		const definition = getAgentModelDefinition(modelName)
 		const review = request.mode === 'review' && !!request.source
 		const intro = [`Title: ${request.title}`, `Brief: ${request.brief}`]
-		let content: Exclude<ModelMessage['content'], string> = []
+		let content: Array<TextPart | ImagePart> = []
+		const choose = review && !!request.alternative
 		if (review) {
-			const frames = (request.frames ?? []).slice(0, 6)
-			content = [
-				{
+			const versions = [
+				{ name: 'A', source: request.source!, frames: request.frames ?? [], layout: request.layout ?? [], duration: request.duration },
+				...(request.alternative ? [{ name: 'B', ...request.alternative }] : []),
+			]
+			content = [{ type: 'text', text: intro.join('\n\n') }]
+			for (const v of versions) {
+				const frames = v.frames.slice(0, choose ? 5 : 6)
+				content.push({
 					type: 'text',
 					text: [
-						...intro,
-						`The scene you wrote:\n\`\`\`python\n${request.source}\n\`\`\``,
-						`It runs ${request.duration ?? '?'} seconds. The frames below are at ${frames.map((f) => `${f.time.toFixed(1)} s`).join(', ')}; the last is the final picture.`,
-						request.layout?.length ? `The automatic layout check found:\n${request.layout.map((p) => `- ${p}`).join('\n')}` : 'The automatic layout check found nothing.',
+						choose ? `Version ${v.name}:` : 'The scene you wrote:',
+						`\`\`\`python\n${v.source}\n\`\`\``,
+						`It runs ${v.duration ?? '?'} seconds. The frames below are at ${frames.map((f) => `${f.time.toFixed(1)} s`).join(', ')}; the last is the final picture.`,
+						v.layout.length ? `The automatic layout check found:\n${v.layout.map((p) => `- ${p}`).join('\n')}` : 'The automatic layout check found nothing.',
 					].join('\n\n'),
-				},
-				...frames.map((f) => ({ type: 'image' as const, image: f.image.replace(/^data:image\/\w+;base64,/, ''), mediaType: 'image/png' })),
-			]
+				})
+				content.push(...frames.map((f) => ({ type: 'image' as const, image: f.image.replace(/^data:image\/\w+;base64,/, ''), mediaType: 'image/png' })))
+			}
 		} else {
 			const lines = [...intro]
 			if (request.source && request.problem) {
@@ -178,7 +186,7 @@ export class AgentService {
 		const started = Date.now()
 		const result = streamText({
 			model,
-			system: review ? ANIMATION_REVIEW_PROMPT : ANIMATION_SYSTEM_PROMPT,
+			system: choose ? ANIMATION_CHOOSE_PROMPT : review ? ANIMATION_REVIEW_PROMPT : ANIMATION_SYSTEM_PROMPT,
 			messages: [{ role: 'user', content } as ModelMessage],
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			...(definition.supportsTemperature ? { temperature: 0 } : {}),
@@ -187,7 +195,7 @@ export class AgentService {
 		void Promise.resolve(result.usage)
 			.then((usage) =>
 				console.log(
-					`[animation] ${review ? 'review' : 'write'} model=${modelName} seconds=${Math.round((Date.now() - started) / 1000)} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0}`
+					`[animation] ${choose ? 'choose' : review ? 'review' : 'write'} model=${modelName} seconds=${Math.round((Date.now() - started) / 1000)} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0}`
 				)
 			)
 			.catch(() => {})

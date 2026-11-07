@@ -39,6 +39,8 @@ from manim import (
     Line,
     ManimColor,
     MathTex,
+    MoveAlongPath,
+    Rectangle,
     Mobject,
     RoundedRectangle,
     Scene,
@@ -57,7 +59,7 @@ from manim import (
 
 PAPER = "#FFFDF8"  # the background
 INK = "#302F2A"  # text, outlines, the main object
-MUTED = "#8A8578"  # secondary text, captions, guides, axes ticks
+MUTED = "#76726A"  # secondary text, captions, guides, axes ticks
 RULE = "#D8D2C4"  # faint lines: grids, tracks, dividers
 RED = "#AE3B2C"  # the thing to watch: a force, an error, the key quantity
 BLUE = "#2F5D8C"  # the second quantity, or motion
@@ -95,7 +97,7 @@ PURE_GREEN = LIGHT_BROWN = DARK_BROWN = GREEN
 SERIF = _os.environ.get("EASEL_SERIF") or "DejaVu Serif"
 SANS = "Inter"
 
-TITLE = 40
+TITLE = 36
 HEADING = 34
 BODY = 30
 LABEL = 26
@@ -121,6 +123,16 @@ STAGE_CENTER = np.array([0.0, (STAGE_TOP + STAGE_BOTTOM) / 2, 0.0])
 STAGE_WIDTH = STAGE_RIGHT - STAGE_LEFT
 STAGE_HEIGHT = STAGE_TOP - STAGE_BOTTOM
 CAPTION_Y = -3.35
+
+# A common split of the stage: the main visual on the left, a column for
+# formulas, readouts, and a legend on the right.
+SIDE_WIDTH = 3.3
+MAIN_LEFT = STAGE_LEFT
+MAIN_RIGHT = STAGE_RIGHT - SIDE_WIDTH - 0.5
+MAIN_WIDTH = MAIN_RIGHT - MAIN_LEFT
+MAIN_CENTER = np.array([(MAIN_LEFT + MAIN_RIGHT) / 2, STAGE_CENTER[1], 0.0])
+SIDE_LEFT = STAGE_RIGHT - SIDE_WIDTH
+SIDE_CENTER = np.array([SIDE_LEFT + SIDE_WIDTH / 2, STAGE_CENTER[1], 0.0])
 
 
 # Manim's own defaults are white or bright, made for a dark background. Every
@@ -181,6 +193,25 @@ VMobject.__init__ = _paper_init
 
 for _cls in (Text,):
     _cls.set_default(font=SERIF, color=INK)
+
+# The board's serif here covers Latin only, so Greek letters and other symbols
+# in plain text come from a serif that has them, instead of empty boxes.
+_LATIN_PUNCTUATION = set("\u2018\u2019\u201c\u201d\u2013\u2014\u2026\u2022\u2032\u2033")
+_text_init = Text.__init__
+
+
+def _covered_init(self, text, *args, **kwargs):
+    if (kwargs.get("font") or SERIF) == SERIF and SERIF != "DejaVu Serif":
+        missing = {c for c in str(text) if ord(c) > 0x24F and c not in _LATIN_PUNCTUATION}
+        if missing:
+            t2f = dict(kwargs.get("t2f") or {})
+            for c in missing:
+                t2f.setdefault(c, "DejaVu Serif")
+            kwargs["t2f"] = t2f
+    _text_init(self, text, *args, **kwargs)
+
+
+Text.__init__ = _covered_init
 MathTex.set_default(color=INK)
 Tex.set_default(color=INK)
 
@@ -301,7 +332,7 @@ def highlight(target, color=OCHRE, buff=0.12):
     return box
 
 
-def plot_axes(x_range, y_range, width=7.5, height=3.6, x_label=None, y_label=None, numbers=True, size=SMALL):
+def plot_axes(x_range, y_range, width=7.5, height=3.6, x_label=None, y_label=None, numbers=True, size=24):
     """Axes in ink, with readable tick numbers and axis names. x_range and y_range are [min, max, step]."""
     ax = Axes(
         x_range=x_range,
@@ -344,6 +375,206 @@ def stack(*mobjects, direction=DOWN, buff=0.3, aligned_edge=LEFT):
     return VGroup(*mobjects).arrange(direction, buff=buff, aligned_edge=aligned_edge)
 
 
+def bottom_strip(*mobjects, buff=0.5):
+    """A row along the bottom of the stage, centred, for a key equation or a result that spans the picture.
+    Leave the bottom 1.1 units of the stage free for it."""
+    row = VGroup(*mobjects).arrange(RIGHT, buff=buff)
+    if row.width > STAGE_WIDTH:
+        row.scale_to_fit_width(STAGE_WIDTH)
+    row.move_to([0, STAGE_BOTTOM + row.height / 2 + 0.08, 0])
+    return row
+
+
+def side_column(*mobjects, buff=0.32, top=STAGE_TOP - 0.1):
+    """A column of formulas, readouts, or notes in the side area, left-aligned, from the top of the stage."""
+    column = VGroup(*mobjects).arrange(DOWN, buff=buff, aligned_edge=LEFT)
+    # A wide column grows to the left rather than shrinking its text.
+    left = min(SIDE_LEFT, STAGE_RIGHT - column.width)
+    column.move_to([left + column.width / 2, top - column.height / 2, 0])
+    return column
+
+
+def legend(*items, size=SMALL):
+    """A small key: legend((RED, "force"), (BLUE, "velocity")). Each item is a colour swatch and its meaning."""
+    rows = []
+    for color, meaning in items:
+        swatch = Line(ORIGIN, 0.42 * RIGHT, color=color, stroke_width=7)
+        rows.append(VGroup(swatch, text(meaning, size=size, color=INK)).arrange(RIGHT, buff=0.16))
+    return VGroup(*rows).arrange(DOWN, buff=0.14, aligned_edge=LEFT)
+
+
+def readout(name, value, unit="", color=INK, decimals=1, size=LABEL):
+    """A live number with its name and unit, like "v = 12.3 m/s". value is a function returning the number now
+    (for example lambda: tracker.get_value()). Returns a mobject that updates itself; position it once with
+    next_to or move_to, and it stays there, left-aligned."""
+    def build():
+        number = value()
+        shown = f"{number:.{decimals}f}"
+        tex = f"{name} = {shown}" + (rf"\,\mathrm{{{unit}}}" if unit else "")
+        return formula(tex, size=size, color=color)
+
+    holder = build()
+    anchor = {"left": None}
+
+    def update(m):
+        new = build()
+        if anchor["left"] is None:
+            anchor["left"] = m.get_left()
+        new.move_to(anchor["left"] + np.array([new.width / 2, 0, 0]))
+        m.become(new)
+
+    holder.add_updater(update)
+    return holder
+
+
+def measure(start, end, label=None, color=MUTED, side=None, size=SMALL, buff=0.22, offset=0.3):
+    """A dimension line between two points, with end ticks and a label beside its middle: a height, a range, a gap.
+    It sits offset units away from the edge it measures, on the label's side, so it never lies on the drawing."""
+    start, end = _point(start), _point(end)
+    if offset:
+        d0 = end - start
+        away = np.array(side, dtype=float) if side is not None else np.array([-d0[1], d0[0], 0.0])
+        away = away / (np.linalg.norm(away) or 1.0)
+        start, end = start + offset * away, end + offset * away
+    d = end - start
+    n = np.array([-d[1], d[0], 0.0])
+    n = n / (np.linalg.norm(n) or 1.0)
+    line = Line(start, end, color=color, stroke_width=2.5)
+    ticks = VGroup(*[Line(p - 0.09 * n, p + 0.09 * n, color=color, stroke_width=2.5) for p in (start, end)])
+    group = VGroup(line, ticks)
+    if label:
+        lab = formula(label, size=size, color=color) if ("\\" in label or "=" in label or "_" in label or "^" in label) else text(label, size=size, color=color)
+        lab.next_to(line, side if side is not None else n, buff=buff)
+        group.add(lab)
+    return group
+
+
+def ghost(mobject, opacity=0.22):
+    """A faint copy of a mobject where it is now, to leave a trace of an earlier state (a stroboscope)."""
+    copy = mobject.copy().clear_updaters()
+    copy.set_opacity(opacity)
+    return copy
+
+
+def _point(p):
+    """A point as x, y, z, from two or three numbers."""
+    p = np.array(p, dtype=float).reshape(-1)
+    return np.array([p[0], p[1], p[2] if len(p) > 2 else 0.0])
+
+
+def dot(point, color=INK, radius=0.09):
+    """A solid dot, for a point that matters."""
+    return Dot(_point(point), radius=radius, color=color)
+
+
+# ---------------------------------------------------------------------------
+# Flows and systems: named parts joined by arrows, with something travelling.
+
+
+def node(name, at, color=BLUE, width=2.5, height=1.0, size=LABEL, note=None):
+    """A part of a system or process: a card with its name inside, centred at `at`. An optional note sits
+    under the name in small grey type, inside the card."""
+    content = text(name, size=size, color=INK)
+    if note:
+        content = VGroup(content, text(note, size=SMALL, color=MUTED, slant="ITALIC")).arrange(DOWN, buff=0.08)
+    w = max(width, content.width + 0.5)
+    h = max(height, content.height + 0.4)
+    soft = {RED: RED_SOFT, BLUE: BLUE_SOFT, GREEN: GREEN_SOFT, OCHRE: OCHRE_SOFT}.get(color, INK_SOFT)
+    box = RoundedRectangle(corner_radius=0.14, width=w, height=h, stroke_color=color, stroke_width=3, fill_color=soft, fill_opacity=1)
+    group = VGroup(box, content.move_to(box.get_center()))
+    group.move_to(_point(at))
+    return group
+
+
+def _edge_point(mobject, toward):
+    box = mobject[0] if isinstance(mobject, VGroup) and len(mobject) else mobject
+    c = box.get_center()
+    d = np.array(toward, dtype=float) - c
+    if abs(d[0]) * box.height >= abs(d[1]) * box.width:
+        return box.get_right() if d[0] > 0 else box.get_left()
+    return box.get_top() if d[1] > 0 else box.get_bottom()
+
+
+def connect(a, b, color=MUTED, label=None, lane=0.0, side=None, size=SMALL, width=4):
+    """An arrow from the edge of node a to the edge of node b, with an optional label beside its middle.
+    lane shifts the arrow sideways (in units), so an outgoing and a returning arrow between the same two
+    nodes run in separate lanes: use lane=0.18 and lane=-0.18. Returns VGroup(arrow[, label]); its path
+    for travel() is the arrow itself."""
+    start = _edge_point(a, b.get_center())
+    end = _edge_point(b, a.get_center())
+    d = end - start
+    n = np.array([-d[1], d[0], 0.0])
+    n = n / (np.linalg.norm(n) or 1.0)
+    ar = arrow(start + lane * n, end + lane * n, color=color, width=width, buff=0.06)
+    group = VGroup(ar)
+    if label:
+        lab = text(label, size=size, color=color if color != MUTED else INK)
+        offset = side if side is not None else (n if lane >= 0 else -n)
+        lab.next_to(ar.get_center(), offset, buff=0.16)
+        group.add(lab)
+    return group
+
+
+def packet(color=RED, radius=0.14):
+    """Something that travels along a flow: a request, a molecule, a message."""
+    return VGroup(Dot(radius=radius + 0.04, color=PAPER), Dot(radius=radius, color=color)).set_z_index(5)
+
+
+def travel(mobject, link, run_time=1.0):
+    """An animation moving mobject along a connect() arrow, from its start to its end."""
+    ar = link[0] if isinstance(link, VGroup) else link
+    path = Line(ar.get_start(), ar.get_end())
+    mobject.move_to(path.get_start())
+    return MoveAlongPath(mobject, path, run_time=run_time, rate_func=smooth)
+
+
+# ---------------------------------------------------------------------------
+# Arrays and algorithms: values as bars that keep their labels when they move.
+
+
+def bar_row(values, center=None, slot=1.15, max_height=3.0, width=0.72, color=BLUE, size=LABEL):
+    """Values as bars standing on one baseline, each with its value under it. Returns a VGroup of items,
+    each VGroup(bar, value); item.value holds the number. Use slot_point(row, i) for slot i's base point,
+    and swap(row, i, j) to animate a swap."""
+    center = STAGE_CENTER + 0.3 * DOWN if center is None else _point(center)
+    top = max(values) or 1
+    n = len(values)
+    base_y = center[1] - max_height / 2
+    items = VGroup()
+    for i, v in enumerate(values):
+        h = max(0.15, max_height * v / top)
+        bar = Rectangle(width=width, height=h, stroke_color=color, stroke_width=2.5, fill_color={RED: RED_SOFT, BLUE: BLUE_SOFT, GREEN: GREEN_SOFT, OCHRE: OCHRE_SOFT}.get(color, INK_SOFT), fill_opacity=1)
+        x = center[0] + (i - (n - 1) / 2) * slot
+        bar.move_to([x, base_y + h / 2, 0])
+        number = text(str(v), size=size, color=INK).next_to(bar, DOWN, buff=0.16)
+        item = VGroup(bar, number)
+        item.value = v
+        items.add(item)
+    items.slot = slot
+    items.base = np.array([center[0] - (n - 1) / 2 * slot, base_y, 0])
+    return items
+
+
+def slot_point(row, i):
+    """The base point of slot i of a bar_row."""
+    return row.base + np.array([i * row.slot, 0, 0])
+
+
+def swap(row, i, j, run_time=0.8):
+    """Animations that swap items i and j of a bar_row along low arcs, and swap them in the row's order too."""
+    a, b = row[i], row[j]
+    shift = (j - i) * row.slot
+    anims = [a.animate(path_arc=-0.6, run_time=run_time).shift(shift * RIGHT), b.animate(path_arc=-0.6, run_time=run_time).shift(-shift * RIGHT)]
+    row.submobjects[i], row.submobjects[j] = b, a
+    return anims
+
+
+def mark(item, color=GREEN):
+    """An animation recolouring a bar_row item, for example when it reaches its final place."""
+    soft = {RED: RED_SOFT, BLUE: BLUE_SOFT, GREEN: GREEN_SOFT, OCHRE: OCHRE_SOFT}.get(color, INK_SOFT)
+    return item[0].animate.set_stroke(color).set_fill(soft, opacity=1)
+
+
 # ---------------------------------------------------------------------------
 # The scene.
 
@@ -362,7 +593,7 @@ class EaselScene(Scene):
         head = text(heading, size=TITLE, weight="SEMIBOLD", max_width=FRAME_W - 2 * MARGIN)
         group = VGroup(head)
         if subtitle:
-            sub = text(subtitle, size=LABEL, color=MUTED, slant="ITALIC", max_width=FRAME_W - 2 * MARGIN)
+            sub = text(subtitle, size=24, color=MUTED, slant="ITALIC", max_width=FRAME_W - 2 * MARGIN)
             sub.next_to(head, DOWN, buff=0.14, aligned_edge=LEFT)
             group.add(sub)
         group.to_corner(UL, buff=MARGIN)
@@ -379,7 +610,7 @@ class EaselScene(Scene):
             animations.append(FadeOut(self._caption, shift=0.1 * UP))
         new = None
         if content:
-            new = text(content, size=LABEL, color=color, max_width=FRAME_W - 2 * MARGIN - 0.4)
+            new = text(content, size=24, color=color, max_width=FRAME_W - 2 * MARGIN - 0.4)
             new.move_to([0, CAPTION_Y, 0])
             animations.append(FadeIn(new, shift=0.1 * UP))
         if animations:
