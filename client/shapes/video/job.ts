@@ -1,4 +1,4 @@
-import { TLShapeId } from 'tldraw'
+import { Editor, TLShapeId } from 'tldraw'
 import type { TldrawAgent } from '../../agent/TldrawAgent'
 import { VIDEO_TYPE, VideoShape } from '../VideoShapeUtil'
 import { freshVideos, runningVideoJobs, setVideoJob } from './jobs'
@@ -20,6 +20,8 @@ export interface VideoJobContext {
 	/** Use this source instead of asking the writer, as a test does. */
 	source?: string
 	renderTimeoutSeconds?: number
+	/** The animation as it was before the request: null for a new one. Undo returns to it in one step. */
+	before?: VideoShape | null
 }
 
 export async function runVideoJob(agent: TldrawAgent, id: TLShapeId, context: VideoJobContext): Promise<void> {
@@ -61,7 +63,9 @@ export async function runVideoJob(agent: TldrawAgent, id: TLShapeId, context: Vi
 	setVideoJob(id, null)
 	if (!editor.getShape(id)) return
 	const options = { baseRev, allowedShapeIds: context.allowedShapeIds, passId: context.passId, requestId: context.requestId }
-	const result = agent.commands.execute('agent', 'animation', () => editor.updateShape<VideoShape>({ id, type: VIDEO_TYPE, props }), options)
+	// The landing is its own undo step, apart from whatever the user did last.
+	editor.markHistoryStoppingPoint('animation landed')
+	const result = agent.commands.execute('agent', 'animation', () => land(editor, id, context.before, props), options)
 	if (result.status === 'applied') {
 		if (props.status === 'ready') freshVideos.add(id)
 		return
@@ -73,8 +77,39 @@ export async function runVideoJob(agent: TldrawAgent, id: TLShapeId, context: Vi
 		result.reason === 'stale'
 			? 'The animation changed while it was being made. Ask for it again.'
 			: "The animation is now inside the user's own work, so the agent cannot fill it in. Ask for it again."
-	agent.commands.execute('agent', 'animation', () => editor.updateShape<VideoShape>({ id, type: VIDEO_TYPE, props: { status: 'failed', error } }), {
+	editor.markHistoryStoppingPoint('animation failed')
+	agent.commands.execute('agent', 'animation', () => land(editor, id, context.before, { status: 'failed', error }), {
 		...options,
 		baseRev: agent.commands.getRev(),
 	})
+}
+
+/**
+ * Land the result as one undo step from the board before the request: put the
+ * animation back as it was, outside history, then make the change that history
+ * records. Undo then removes a new animation, or restores the video it replaced.
+ */
+function land(editor: Editor, id: TLShapeId, before: VideoShape | null | undefined, props: Partial<VideoShape['props']>) {
+	const current = editor.getShape<VideoShape>(id)
+	if (!current) return
+	if (before === undefined) {
+		editor.updateShape<VideoShape>({ id, type: VIDEO_TYPE, props })
+		return
+	}
+	// Arrows and notes bound to the placeholder stay bound to the animation.
+	const bindings = before ? [] : editor.getBindingsInvolvingShape(id)
+	editor.run(
+		() => {
+			if (before) editor.updateShape<VideoShape>({ id, type: VIDEO_TYPE, props: before.props })
+			else editor.deleteShapes([id])
+		},
+		{ history: 'ignore', ignoreShapeLock: true }
+	)
+	const next = { ...current, props: { ...current.props, ...props } }
+	if (before) editor.updateShape<VideoShape>({ id, type: VIDEO_TYPE, props: next.props })
+	else {
+		editor.createShape<VideoShape>({ id, type: VIDEO_TYPE, x: next.x, y: next.y, rotation: next.rotation, parentId: next.parentId, index: next.index, isLocked: next.isLocked, opacity: next.opacity, meta: next.meta, props: next.props })
+		const keep = bindings.filter((b) => editor.getShape(b.fromId) && editor.getShape(b.toId))
+		if (keep.length > 0) editor.store.put(keep)
+	}
 }
