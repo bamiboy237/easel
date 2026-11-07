@@ -77,7 +77,8 @@ export function resolveTarget(editor: Editor, ref: string): BoardTarget | null {
 	const toPage = (p: VecModel) => transform.applyToPoint(p)
 	const corners = part.bounds.corners.map(toPage)
 	const bounds = Box.FromPoints(corners)
-	const anchor = part.anchor ? toPage(part.anchor) : shapeAnchor(bounds)
+	// A part without its own point, such as an equation's term, is pointed at from just below, so the cursor never covers it.
+	const anchor = part.anchor ? toPage(part.anchor) : { x: bounds.midX, y: bounds.maxY + 2 }
 	return { ref, shapeId, part: part.name, label: part.label, bounds, anchor, path: part.path?.map(toPage) }
 }
 
@@ -110,7 +111,8 @@ function sliderParts(parameters: ShapeParameter[], h: number, w: number): Part[]
 		name: p.name,
 		label: `the ${p.name} slider, now ${round(p.value)}`,
 		bounds: new Box(0, top + i * PARAMETER_ROW, w, PARAMETER_ROW),
-		anchor: { x: w * 0.55, y: top + i * PARAMETER_ROW + PARAMETER_ROW / 2 },
+		// On the slider's thumb: the track runs across about the middle 58 percent of the row.
+		anchor: { x: w * (0.24 + 0.58 * Math.min(1, Math.max(0, (p.value - p.min) / (p.max - p.min || 1)))), y: top + i * PARAMETER_ROW + PARAMETER_ROW / 2 + 4 },
 	}))
 }
 
@@ -257,7 +259,7 @@ function equationParts(shape: EquationShape): Part[] {
 		const union = (els: Element[]) => Box.Common(els.map((el) => local(el.getBoundingClientRect())).filter((b) => b.w > 0))
 		const parts: Part[] = groups.map((g, i) => ({
 			name: `term${i + 1}`,
-			label: `the term ${g.els.map((el) => el.textContent ?? '').join('').trim()} in the equation`,
+			label: `the term ${g.els.map((el) => el.textContent ?? '').join('').replace(/[\u200b\s]+/g, ' ').trim()} in the equation`,
 			bounds: union(g.els).expandBy(3),
 		}))
 		const lhs = groups.filter((g) => g.side === 0).flatMap((g) => g.els)
@@ -306,9 +308,12 @@ export function describeBoardForVoice(editor: Editor, max = 50): string {
 		const id = s.id.replace(/^shape:/, '')
 		const owner = getShapeCreator(s) === 'user' || editor.getShapeAncestors(s).some((a) => a.type === 'frame' && getShapeCreator(a) === 'user') ? ", the user's" : ''
 		const where = view.collides(b) ? 'in view' : 'out of view'
-		let line = `${id} (${s.type}${owner}, ${where}): ${describeShape(editor, s).slice(0, 220)}`
+		const described = describeShape(editor, s)
 		const params = parametersOf(s)
-		if (params.length > 0 && !line.includes('Parameters')) line += ` Parameters: ${describeParameters(params)}.`
+		// Long descriptions are cut, but a shape's parameters are always listed whole.
+		const text = described.length > 360 ? `${described.slice(0, 360)}...` : described
+		let line = `${id} (${s.type}${owner}, ${where}): ${text}`
+		if (params.length > 0 && !text.includes(describeParameters(params))) line += ` Parameters: ${describeParameters(params)}.`
 		const parts = getParts(editor, s).map((p) => `${id}.${p.name}`)
 		if (parts.length > 0) line += ` Parts: ${parts.join(', ')}.`
 		lines.push(line)

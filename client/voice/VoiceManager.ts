@@ -41,7 +41,8 @@ export interface VoiceMetrics {
 	turns: { releasedAt: number | null; speechEndAt: number | null; firstAudioAt: number | null; responseId: string }[]
 	interruptions: { reason: string; heardAt: number; stoppedAt: number; wasPlaying: boolean; cancelled: string[] }[]
 	cues: { target: string; part: string | null; highlight: boolean; sentence: string; firedAt: number; sentenceStartAt: number }[]
-	toolCalls: { name: string; args: unknown; output: string; responseId: string; cancelled?: boolean }[]
+	toolCalls: { name: string; args: unknown; output: string; responseId: string; cancelled?: boolean; placed?: string[] }[]
+	/** `startedAt` is when the microphone opened. */
 	sessions: { startedAt: number; endedAt: number | null; transport: string }[]
 }
 
@@ -464,7 +465,7 @@ export class VoiceManager {
 		const work = describeNewWork(agent, from)
 		this.syncBoardAfterDelegate()
 		if (cancelled) {
-			this.metrics.toolCalls.push({ name: 'delegate', args: call.args, output: `cancelled: ${work.summary}`, responseId: call.responseId, cancelled: true })
+			this.metrics.toolCalls.push({ name: 'delegate', args: call.args, output: `cancelled: ${work.summary}`, responseId: call.responseId, cancelled: true, placed: work.created })
 			this.transport?.send({
 				type: 'conversation.item.create',
 				item: { type: 'function_call_output', call_id: call.callId, output: `Stopped, because the user started talking. What was already placed stays. ${work.summary}` },
