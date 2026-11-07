@@ -100,6 +100,8 @@ export interface AnimationResult {
 export class AnimationError extends Error {}
 
 const POLL_MS = 350
+/** How long the check of the sketch may take before it is dropped, in milliseconds. */
+const REVIEW_DEADLINE_MS = 22000
 /** How long the review waits for the second version once the first is sketched, in milliseconds. */
 const SECOND_VERSION_WAIT_MS = 12000
 /** How often a growing scene is sketched while it is written, at most. */
@@ -177,12 +179,13 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 	}
 
 	/** Ask the writer, reading its reply as it streams. */
-	const write = async (request: Record<string, unknown>, onText?: (text: string) => void): Promise<string> => {
+	const write = async (request: Record<string, unknown>, onText?: (text: string) => void, deadlineMs?: number): Promise<string> => {
+		const callSignal = deadlineMs ? AbortSignal.any([signal, AbortSignal.timeout(deadlineMs)]) : signal
 		const response = await fetch(`${base}/animation`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ modelName: options.modelName, title: options.title, brief: options.brief, ...request }),
-			signal,
+			signal: callSignal,
 		})
 		if (!response.ok || !response.body) throw new AnimationError((await response.text()) || `The writer answered ${response.status}.`)
 		const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
@@ -291,6 +294,7 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 			const images = await Promise.all(sketchFrames.map(async (f) => ({ image: await toDataUrl(base + f.url, signal), time: f.time })))
 			const other = second ? await Promise.race([second, sleep(SECOND_VERSION_WAIT_MS, signal).then(() => null)]) : null
 			let verdict: AnimationReview
+			let dropped = false
 			if (other) {
 				const otherImages = await Promise.all(other.sketch.frames.map(async (f) => ({ image: await toDataUrl(base + f.url, signal), time: f.time })))
 				const reply = parseAnimationChoice(
@@ -314,11 +318,22 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 				}
 			} else {
 				if (second) log('second version not ready')
-				verdict = parseAnimationReview(await write({ mode: 'review', source, frames: images, layout: sketch.layout, duration: sketch.duration }))
+				// A review that runs long, usually one rewriting the whole file, is
+				// dropped, so the video still lands in time; the first version stands.
+				try {
+					verdict = parseAnimationReview(
+						await write({ mode: 'review', source, frames: images, layout: sketch.layout, duration: sketch.duration }, undefined, REVIEW_DEADLINE_MS)
+					)
+				} catch (error) {
+					if (signal.aborted) throw error
+					log('review dropped', (error as Error).message)
+					dropped = true
+					verdict = { ok: true }
+				}
 			}
 			checked = elapsed()
 			if (verdict.ok) {
-				review = 'ok'
+				review = dropped ? 'skipped' : 'ok'
 				log('review', { ok: true, seconds: checked })
 			} else {
 				problems = verdict.problems
