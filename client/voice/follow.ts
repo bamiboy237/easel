@@ -26,6 +26,8 @@ export class CameraFollow {
 		const onEvent = (info: TLEventInfo) => {
 			// Pointer moves without a press are only the hand resting on the mouse.
 			if (info.type === 'pointer' && info.name === 'pointer_move' && !editor.inputs.getIsPointing()) return
+			// Holding the talk key is talking to the voice, not working on the board.
+			if (info.type === 'keyboard' && info.key === '`') return
 			this.lastInputAt = performance.now()
 		}
 		editor.on('event', onEvent)

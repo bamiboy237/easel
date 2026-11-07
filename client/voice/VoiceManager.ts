@@ -432,8 +432,19 @@ export class VoiceManager {
 			this.boardSentRev = this.agent.commands.getRev()
 			this.baseRev = this.boardSentRev
 			this.markTurnChanged(`voice-${call.responseId}`)
+			this.revealLastChange()
 		}
 		return result.output
+	}
+
+	/** Bring what the last voice command placed or changed into view, as cues and delegated work do. */
+	private revealLastChange() {
+		const { editor } = this
+		const last = this.agent.commands.getHistory().at(-1)
+		if (!last || last.origin !== 'voice' || last.status !== 'applied') return
+		const ids = [...Object.keys(last.payload.added), ...Object.keys(last.payload.updated)].filter((id) => id.startsWith('shape:'))
+		const boxes = ids.map((id) => editor.getShapePageBounds(id as TLShapeId)).filter((b): b is Box => !!b)
+		if (boxes.length > 0) this.follow.reveal(Box.Common(boxes))
 	}
 
 	// ==================== Delegate ====================
