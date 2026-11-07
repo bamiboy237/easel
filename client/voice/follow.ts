@@ -52,14 +52,14 @@ export class CameraFollow {
 	 * they put it. With `justAsked`, the input that just asked the agent, such
 	 * as Enter in a mark's question, does not count.
 	 */
-	isUserBusy(now = performance.now(), justAsked = false) {
+	isUserBusy(now = performance.now(), justAsked = false, idleElement: Element | null = null) {
 		const { editor } = this
 		if (!justAsked && now - this.lastInputAt < QUIET_MS) return true
 		if (editor.inputs.getIsPointing() || editor.inputs.getIsDragging() || editor.inputs.getIsPinching()) return true
 		if (editor.getEditingShapeId()) return true
 		// Typing in the composer, a mark's question, or a shape's text.
 		const active = document.activeElement as HTMLElement | null
-		if (!justAsked && active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return true
+		if (!justAsked && active && active !== idleElement && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return true
 		return false
 	}
 
@@ -74,9 +74,9 @@ export class CameraFollow {
 	 * further than about half the user's zoom; then its top left part is shown.
 	 * Returns whether the camera moved.
 	 */
-	reveal(box: Box, { justAsked = false }: { justAsked?: boolean } = {}): boolean {
+	reveal(box: Box, { justAsked = false, idleElement = null }: { justAsked?: boolean; idleElement?: Element | null } = {}): boolean {
 		const { editor } = this
-		if (this.isUserBusy(performance.now(), justAsked) || editor.getCameraOptions().isLocked) return false
+		if (this.isUserBusy(performance.now(), justAsked, idleElement) || editor.getCameraOptions().isLocked) return false
 		if (this.isInView(box)) return false
 		const camera = editor.getCamera()
 		const screen = editor.getViewportScreenBounds()
@@ -104,7 +104,7 @@ export class CameraFollow {
 	 * Reveal a note with what it answers: both together when they fit the usable
 	 * view, otherwise the note alone.
 	 */
-	revealWithAnchor(note: Box, anchor: Box | null, opts: { justAsked?: boolean } = {}): boolean {
+	revealWithAnchor(note: Box, anchor: Box | null, opts: { justAsked?: boolean; idleElement?: Element | null } = {}): boolean {
 		const usable = this.usable()
 		const both = anchor ? Box.Common([note, anchor]) : note
 		return this.reveal(both.w <= usable.w && both.h <= usable.h ? both : note, opts)

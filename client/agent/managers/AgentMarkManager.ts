@@ -226,7 +226,11 @@ export class AgentMarkManager extends BaseAgentManager {
 				if (typed !== null) {
 					this.askWhenHeard = null
 					this.ask(text ?? typed)
+					return
 				}
+				// The user stopped talking: the question goes as heard, with no Enter.
+				// Typing stops listening first, so a typed question still waits for Enter.
+				if (text && this.$draft.get()) this.ask(text)
 			},
 		})
 		this.listener = listener
