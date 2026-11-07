@@ -83,6 +83,88 @@ Shapes expose stable shape and part IDs, such as `g1.curve` or `eq3.term2`, so a
 
 The board should feel like paper: warm paper tones, dark ink, an editorial serif for prose, a clean sans-serif for controls, generous spacing, and low surface contrast. Content looks typeset onto the canvas, and frames organize it quietly instead of enclosing everything in cards or sticky notes. Selection outlines and contextual controls appear when needed, and permanent interface chrome stays small. Body text starts around 17 to 18 px at reading zoom. Source Serif 4 is a candidate for the serif, to be compared against reference typography before it is chosen. Text wrapping, selection, equation alignment, and editing get refined before decorative motion. tldraw custom themes and rich text cover most of this.
 
+## Controls
+
+These rules cover every control on the board and around it: sliders, players, scrubbers, status pills, the voice pill, and the answer card. They follow Toolcraft's control rules (pixel-point/toolcraft, MIT), in Easel's paper inks. The styles live in `client/theme/paper.css`.
+
+Each rule is one of two kinds, as in Toolcraft's decision contract:
+
+- **Hard.** It cannot be broken. `npm run check:controls` fails when it is.
+- **Default.** The normal choice. Break it only for a reason, and write the reason here.
+
+A **known gap** is a rule the code does not meet yet. The check prints it as a `GAP` line and does not fail on it. Fix the gap, then make the check enforce it.
+
+The check needs a running dev server: `npm run check:controls -- http://127.0.0.1:5192`, or set `EASEL_URL`. It adds a graph, a scene, and an animation to the reference board, which is never saved, and measures them in Chromium.
+
+### Sliders
+
+One slider, `.paper-range`, serves every range: parameters, scene and simulation time, and the animation scrubber.
+
+- Hard: the hit area is 18 px tall and at least 40 px wide at zoom 1, and all of it takes the pointer.
+- Hard: the track is 1 px. The part before the thumb is `--paper-viz-data`, and the rest is `--paper-viz-line`.
+- Hard: the thumb is a 9 px ink square with a 2 px radius.
+- Hard: hover and drag scale the thumb by 1.4, and drag turns it the accent. Scale takes 200 ms and color 150 ms, both on `--ease-out`.
+- Default: a parameter row is 28 px: the name (serif italic, data), the slider, and the value (ink, tabular numbers). A click on the value opens a field for a typed number.
+- Default: a press or keyboard focus on a slider starts its own undo step.
+- Known gap: at either end of the track, the input clips the grown thumb and the focus ring on the outer side.
+- Known gap: under reduced motion the thumb still animates. The reduced-motion rule lists the WebKit and Firefox thumbs in one selector, so Chromium drops the rule.
+
+### Shade scale
+
+The scale is opaque mixes of `--paper-ink` (#1f1e1b) into `--paper-card` (#fffffd).
+
+| Token | Ink in card | Value | Use |
+| --- | --- | --- | --- |
+| `--paper-viz-grid` | 7% | #efefed | Quiet grids, hover fill behind a value |
+| `--paper-viz-fill-dim` | 14% | #e0dfdd | Large fills |
+| `--paper-viz-fill` | 20% | #d2d2d0 | Alternate fill, hover replacement |
+| `--paper-viz-line` | 30% | #bcbcb9 | Ordinary lines, the unfilled track |
+| `--paper-viz-line-strong` | 45% | #9a9a97 | Essential and value-bearing lines |
+| `--paper-viz-data` | 62% | #747471 | Data marks, the filled track, names, player time |
+| `--paper-ink` | 100% | #1f1e1b | The ink budget, below |
+| `--paper-viz-border` | Ink at 12% alpha | | Resting hairline of a surface |
+| `--paper-viz-border-hover` | Ink at 20% alpha | | Hovered hairline |
+| `--paper-viz-border-focus` | Ink at 30% alpha | | Hairline of an open field |
+
+- Hard: the tokens resolve to these values, within one step per channel.
+- Hard: the three border tokens are the only translucent paints.
+- Hard: a state replaces paint. Hover, press, and drag never stack translucent layers, and no control fades its group for a state. The one exception is a scene the agent is still writing, whose controls fade to 50% as a whole.
+- Default: hover takes an opaque replacement, such as `--paper-hover` or `--paper-viz-grid`, and press takes `--paper-pressed`.
+- Default: `--paper-accent` (#344c41) is the one accent, for a named state only: a dragged thumb, a listening mic, hands-free on, and selection.
+- Known gap: play, pause, and loop buttons hover with a 45% film of `--paper-rule`. It is one layer, so it meets the hard rule, but it is not a replacement.
+- Known gap: the animation's loop button shows "on" in blue (#2f5d8c) on a 10% blue film, not in the accent.
+
+### Ink budget
+
+- Hard: in a control, full ink is only for the focus ring, the mark being dragged, value text, and one resting mark, the slider thumb. Slider names and player time are `--paper-viz-data`.
+- Default: resting structure, such as tracks, rules, and ticks, stays at or below `--paper-viz-line-strong`.
+
+### Handle, focus, and disabled states
+
+- Hard: keyboard focus shows a 2 px ring, 2 px out, with at least 3:1 contrast against the colors on both sides. On the board the ring is ink: an outline on buttons and values, and a ring with a card gap around a slider thumb.
+- Default: in the chat panel, on thread notes, and on the mark composer, the ring is the accent.
+- Hard: a disabled slider fades to 0.35 opacity and loses the pointer cursor.
+- Default: a drag handle rests as a card fill with a `--paper-viz-line-strong` ring and a data dot, strengthens to ink on hover, and takes the accent while dragged.
+- Known gap: a scene's drag handles are Mafs movable points, a filled dot in red pencil or the object's ink, with Mafs's own hover ring.
+
+### Players
+
+- Hard: one transport per player. A scene with a clock, a simulation, and an animation each have exactly one play button and one scrubber, in the bottom row of the shape. Nothing else plays it: no second button, menu item, or chat control. A shape without time has no transport.
+- Default: the row is play (24 by 22 px), the scrubber, the time in data ink, then toggles such as loop. Dragging the scrubber of a scene or simulation pauses it. Play at the end starts again from 0.
+- Default: playback is each viewer's own. A finished animation plays once when it lands.
+
+### Floating surfaces
+
+- Hard: a floating surface is one card layer, at least 98% opaque, never a stack of films.
+- Default: the voice pill and a render's status pill are fully rounded, with a `--paper-viz-border` hairline. The voice pill is the card at 98% with the small shadow, and opens with no transition. The status pill is 24 px and opaque, and Stop is a separate pill on the same surface.
+- Default: the answer card is the top of one floating sheet with the composer: an opaque card, a 1 px `--paper-rule` border, a 22 px radius, and a soft shadow. It opens in 200 ms on `--ease-out`.
+
+### Animated previews, pan, and zoom
+
+- Hard: a playing scene, simulation, or animation pauses its frame work while the user pans, zooms, or drags the canvas, and resumes from the same time without changing play or pause.
+- Default: motion is short and on `--ease-out`. Things move only by transform and opacity, and a color change fades in 150 ms or less. Motion stops under reduced motion.
+- Known gap: previews keep running during pan and zoom.
+
 ## Agent and canvas tools
 
 The agent backend is a local TypeScript process that shares shape schemas and the command model with the frontend. Every board change, from the UI or the agent, is a validated command, so there is one code path for every change.
