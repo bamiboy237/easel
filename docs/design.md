@@ -123,7 +123,7 @@ The agent picks the fastest way that can show something, and loads the instructi
 | Templates | Common topics, such as a projectile, a pendulum, or a wave | The model instantiates a hand-written scene and sets a few parameters. Renders within about 3 seconds |
 | Scenes | New visuals made of geometry, formulas, and motion | The model writes a declarative scene, one object at a time (see below). First object within about 5 seconds, complete within about 15 |
 | Generated code | Visuals a scene cannot express: custom interaction, pixel work, 3D, a clickable prototype from a mockup | A background job, like Manim. The model writes a small HTML and JS program that runs in a sandboxed iframe shape behind a placeholder. See "Generated code" below |
-| Manim | Polished animations to keep. A low-resolution render and representative frames are reviewed for layout before the final render, and content correctness is checked separately | `render_animation`, in the background |
+| Manim | Polished animations to keep. Representative frames of a low-resolution render are reviewed for layout while the final renders, and a fix replaces it. Content correctness is checked separately, from the source | `render_animation`, in the background. See "Manim animations" below |
 
 Vega-Lite charts wait until a session needs real data charts. Mermaid is not used: the native `diagram` action lays out boxes and bound arrows the user can move, which a static Mermaid SVG cannot match.
 
@@ -170,6 +170,16 @@ Generated code is a background job with a placeholder. Its minimum safeguards ar
 The widget owns no durable state. It declares its params and state, receives them as props, and asks the host for changes. The host applies each change as an ordinary command.
 
 A browser lets a sandboxed frame navigate itself, and no CSP directive stops that. The host stops a frame that loads a second page, but by then one request has left. The Mac shell closes this gap by refusing every frame navigation in its navigation delegate. The guard runs at the start of every loop body and every function, so it catches runaway loops, recursion, and callbacks. It cannot interrupt one long built-in call, such as filling a huge array or a catastrophic regular expression. Only process isolation stops those, and `WKWebView` may not provide it.
+
+### Manim animations
+
+`render_animation` places an `animation` shape as a placeholder, then a background job makes the video. tldraw already has a `video` shape for dropped files, so the Manim video has its own type.
+
+- **Render service.** The Worker cannot start processes, so a small local service runs Manim, like the ChatGPT plan helper (`render/server.ts`). The Mac shell runs it in the product. Each job runs in its own process group and folder, with a stripped environment, a wall-clock limit, and size caps. A static check refuses source that imports anything beyond Manim, the helpers, numpy, and math, or names files, processes, or the interpreter. An audit hook blocks sockets and other programs at run time, and on Linux the job also runs in a network namespace with no network.
+- **Steps.** The writer model writes one scene. While it writes, the part written so far renders as a sketch: each animation's end state as a frame at low resolution, with no video. The placeholder shows the newest sketch, so the scene appears within seconds. The finished scene sketches in full, and Manim errors go back to the writer once. The final video starts rendering at once, split into up to three parts that render in parallel and are joined. Meanwhile the writer checks the sketch's frames and an automatic layout check (text on text, text on lines, text off screen or too small) for layout, and its own source for content. It fixes the scene once with small edits. A fix replaces the first render only if it renders and the layout check finds no more problems in it.
+- **Cache.** Renders are cached by a hash of their source, scene, quality, and the helpers. The same title and brief asked for again reuse the first source, so they come from the cache without a model call.
+- **Records.** The shape holds the title, brief, status, source, render key, and duration, so commands, stale checks, and revert treat it like any shape. The render service keeps each finished render with its source, frames, and poster, keyed by the render key. This replaces the `renders` table for now.
+- **Look.** Scenes subclass `EaselScene` from a small helper library (`render/py/easel.py`): the paper background and inks, the board's serif, a title band, a caption band, and builders that keep labels readable and on screen. Manim's bright default colours are mapped to the paper inks.
 
 ### Agent actions and context
 
@@ -288,7 +298,8 @@ The phases keep their numbers, but after Phase 4 they are built in this order, s
     5. About 10 hand-written templates, and saving any scene as one. Check: a template renders within 3 seconds, and the agent prefers a fitting template to a fresh scene.
     6. Generated code as a background job, only when a session needs it. Check: no network, no access to the parent page, an infinite loop does not freeze the board, state goes through commands and revert, and the agent sees the snapshot.\
 **Gate:** on both sessions, the agent shows a new concept as a live scene within 15 seconds, both participants change it, and its numbers pass their checks.
-12. **Manim and `VideoShape`.** Background rendering with progress, cancellation, cached outputs, and isolated jobs.
+12. **Manim and `VideoShape`.** Background rendering with progress, cancellation, cached outputs, and isolated jobs.\
+**Gate:** on both sessions, the agent shows an animation whose first preview frame appears within about 30 seconds of the request and whose final video lands within about 90. The user can stop it mid-render and nothing keeps running. Asking again for the same animation comes from the cache. A job that hangs, or whose source tries the network, is stopped without changing the board. Revert removes the video and keeps newer user work.
 13. **Mac shell and screen capture.** `WKWebView` wrapper, hotkey, floating window, ScreenCaptureKit, with captures feeding the annotation flow.\
 **Gate:** focus, multiple displays, and permissions work without a second interaction system.
 14. **Cross-device.** iPad reconnect, shared-board updates, touch controls. Trusted HTTPS for microphone access on the local network.\
