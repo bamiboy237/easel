@@ -72,11 +72,8 @@ export class VoiceCursorOverlayUtil extends OverlayUtil<VoiceCursorOverlay> {
 				}
 			}
 			if (props.cursor) {
-				const t = (now - props.cursor.startedAt) / props.cursor.duration
-				if (t < 1) {
-					animating = true
-					this.renderTrail(ctx, props.cursor, t, zoom)
-				}
+				// The cursor flies with no trail, as a hand moves a real pointer.
+				if ((now - props.cursor.startedAt) / props.cursor.duration < 1) animating = true
 				const at = getAiCursor(this.editor).position(now)
 				if (at) this.renderCursor(ctx, at, zoom)
 			}
@@ -120,21 +117,7 @@ export class VoiceCursorOverlayUtil extends OverlayUtil<VoiceCursorOverlay> {
 		ctx.restore()
 	}
 
-	/** A faint dotted line ahead of the cursor while it flies. */
-	private renderTrail(ctx: CanvasRenderingContext2D, cursor: AiCursorFlight, t: number, zoom: number) {
-		ctx.save()
-		ctx.strokeStyle = ACCENT
-		ctx.globalAlpha = 0.22 * (1 - Math.max(0, t))
-		ctx.lineWidth = 1.25 / zoom
-		ctx.setLineDash([2 / zoom, 5 / zoom])
-		ctx.beginPath()
-		ctx.moveTo(cursor.from.x, cursor.from.y)
-		ctx.quadraticCurveTo(cursor.control.x, cursor.control.y, cursor.to.x, cursor.to.y)
-		ctx.stroke()
-		ctx.restore()
-	}
-
-	/** The macOS arrow pointer: black with a white edge and a soft shadow, the same size at any zoom. */
+	/** A white arrow pointer with a black edge and a soft shadow, the same size at any zoom. */
 	private renderCursor(ctx: CanvasRenderingContext2D, at: VecModel, zoom: number) {
 		const s = 1 / zoom
 		ctx.save()
@@ -144,13 +127,13 @@ export class VoiceCursorOverlayUtil extends OverlayUtil<VoiceCursorOverlay> {
 		ctx.shadowColor = 'rgba(0, 0, 0, 0.32)'
 		ctx.shadowBlur = 3
 		ctx.shadowOffsetY = 1
-		// The white edge is a wider stroke under the black fill, as the system pointer draws it.
-		ctx.strokeStyle = '#ffffff'
-		ctx.lineWidth = 2.6
+		// The black edge is a wider stroke under the white fill.
+		ctx.strokeStyle = '#000000'
+		ctx.lineWidth = 2.2
 		ctx.lineJoin = 'round'
 		ctx.stroke(arrow)
 		ctx.shadowColor = 'transparent'
-		ctx.fillStyle = '#000000'
+		ctx.fillStyle = '#ffffff'
 		ctx.fill(arrow)
 		ctx.restore()
 	}
