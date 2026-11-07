@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type React from 'react'
 import { T, TLShape, useEditor } from 'tldraw'
 
@@ -127,10 +128,58 @@ export function SliderRows({
 						aria-label={p.name}
 						style={rangeFill(p.value, p.min, p.max)}
 					/>
-					<span className="shape-parameter-value">{round(p.value)}</span>
+					<ParameterValue parameter={p} onSet={(value) => onSet(p.name, value)} />
 				</label>
 			))}
 		</div>
+	)
+}
+
+/**
+ * A slider's value, in ink. A click turns it into a field: Enter or leaving
+ * sets the typed number, clamped to the range and step; Escape keeps the old
+ * value.
+ */
+function ParameterValue({ parameter, onSet }: { parameter: ShapeParameter; onSet: (value: number) => void }) {
+	const [draft, setDraft] = useState<string | null>(null)
+	if (draft === null) {
+		return (
+			<button
+				type="button"
+				className="shape-parameter-value"
+				title="Type a value"
+				onPointerDown={(e) => e.stopPropagation()}
+				onClick={(e) => {
+					e.preventDefault()
+					setDraft(String(round(parameter.value)))
+				}}
+			>
+				{round(parameter.value)}
+			</button>
+		)
+	}
+	const commit = () => {
+		const value = Number(draft.replace(',', '.'))
+		if (draft.trim() !== '' && Number.isFinite(value)) onSet(value)
+		setDraft(null)
+	}
+	return (
+		<input
+			className="shape-parameter-value"
+			inputMode="decimal"
+			aria-label={`${parameter.name} value`}
+			autoFocus
+			value={draft}
+			onFocus={(e) => e.currentTarget.select()}
+			onPointerDown={(e) => e.stopPropagation()}
+			onChange={(e) => setDraft(e.currentTarget.value)}
+			onBlur={commit}
+			onKeyDown={(e) => {
+				e.stopPropagation()
+				if (e.key === 'Enter') commit()
+				if (e.key === 'Escape') setDraft(null)
+			}}
+		/>
 	)
 }
 

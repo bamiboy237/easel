@@ -16,6 +16,23 @@
 	/* Motion, after Emil Kowalski's rules: strong ease-out, short, and only transform and opacity. */
 	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
+	/*
+	 * The geometry of controls: opaque mixes of ink into the card, from the
+	 * quietest grid to full ink, so a state replaces paint and never stacks
+	 * films. Full ink is kept for focus, the one mark being held, and values.
+	 * Borders are the only translucent paints. After Toolcraft's neutral
+	 * ladder (github.com/pixel-point/toolcraft, MIT, Copyright (c) 2026 Pixel Point).
+	 */
+	--paper-viz-grid: color-mix(in srgb, var(--paper-ink) 7%, var(--paper-card));
+	--paper-viz-fill-dim: color-mix(in srgb, var(--paper-ink) 14%, var(--paper-card));
+	--paper-viz-fill: color-mix(in srgb, var(--paper-ink) 20%, var(--paper-card));
+	--paper-viz-line: color-mix(in srgb, var(--paper-ink) 30%, var(--paper-card));
+	--paper-viz-line-strong: color-mix(in srgb, var(--paper-ink) 45%, var(--paper-card));
+	--paper-viz-data: color-mix(in srgb, var(--paper-ink) 62%, var(--paper-card));
+	--paper-viz-border: color-mix(in srgb, var(--paper-ink) 12%, transparent);
+	--paper-viz-border-hover: color-mix(in srgb, var(--paper-ink) 20%, transparent);
+	--paper-viz-border-focus: color-mix(in srgb, var(--paper-ink) 30%, transparent);
+
 	--tl-color-background: var(--paper);
 	--tl-color-selection-fill: rgba(52, 76, 65, 0.12);
 	--tl-color-selection-stroke: var(--paper-accent);
@@ -1711,32 +1728,56 @@
 	font-family: 'Source Serif 4 Variable', Georgia, serif;
 	font-style: italic;
 	font-size: 14px;
-	color: var(--paper-ink);
+	color: var(--paper-viz-data);
 }
 
+/* The value is the one piece of full ink in a row; a click turns it into a field to type a number. */
 .shape-parameter-value {
-	text-align: right;
+	justify-self: end;
+	min-width: 0;
+	max-width: 100%;
+	padding: 1px 4px;
+	margin-right: -4px;
+	border: 0;
+	border-radius: 4px;
+	background: none;
+	font: inherit;
 	font-variant-numeric: tabular-nums;
+	text-align: right;
+	color: var(--paper-ink);
+	cursor: text;
+	pointer-events: all;
 }
 
-/* The value being set reads in ink while its slider is held or focused. */
-.shape-parameter:has(.paper-range:active) .shape-parameter-value,
-.shape-parameter:has(.paper-range:focus-visible) .shape-parameter-value {
-	color: var(--paper-ink);
-	transition: color 150ms var(--ease-out);
+.shape-parameter-value:hover {
+	background: var(--paper-viz-grid);
+}
+
+.shape-parameter-value:focus-visible {
+	outline: 2px solid var(--paper-ink);
+	outline-offset: 2px;
+}
+
+input.shape-parameter-value,
+input.shape-parameter-value:hover,
+input.shape-parameter-value:focus-visible {
+	width: 100%;
+	box-shadow: inset 0 0 0 1px var(--paper-viz-border-focus);
+	background: var(--paper-card);
+	outline: none;
 }
 
 /*
  * Sliders: one paper control for every range on the board, parameters, scene
- * and simulation time, and the animation player. A hairline track with an ink
- * fill and a small ink thumb that grows while it is pointed at or held, with
- * a paper halo so it reads over the fill, and a ring for keyboard focus. The
- * fill is the input's --fill, set from its value.
+ * and simulation time, and the animation player. A 1 px track, the part before
+ * the thumb in data ink, and a 9 px ink thumb with a 2 px radius inside an
+ * 18 px hit area. The thumb grows by 1.4 while pointed at or held, and turns
+ * the accent while it is dragged. Keyboard focus draws a 2 px ink ring 2 px
+ * out. The fill is the input's --fill, set from its value.
  *
- * The proportions and states follow the slider of Toolcraft
- * (https://github.com/pixel-point/toolcraft), MIT License, Copyright (c) 2026
- * Pixel Point: a hairline track, a thumb under 10 px that scales by 1.4 on
- * hover and drag over 200 ms, and an 18 px tall hit area.
+ * Proportions, states, and the ink budget follow Toolcraft's slider
+ * (github.com/pixel-point/toolcraft, MIT License, Copyright (c) 2026 Pixel
+ * Point), in Easel's inks. No code was copied.
  */
 .paper-range {
 	--fill: 0%;
@@ -1756,37 +1797,38 @@
 	outline: none;
 }
 
+.paper-range:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
 .paper-range::-webkit-slider-runnable-track {
-	height: 2px;
-	border-radius: 1px;
-	background: linear-gradient(to right, var(--paper-ink) var(--fill), color-mix(in srgb, var(--paper-ink) 16%, transparent) var(--fill));
+	height: 1px;
+	background: linear-gradient(to right, var(--paper-viz-data) var(--fill), var(--paper-viz-line) var(--fill));
 }
 
 .paper-range::-moz-range-track {
-	height: 2px;
-	border-radius: 1px;
-	background: linear-gradient(to right, var(--paper-ink) var(--fill), color-mix(in srgb, var(--paper-ink) 16%, transparent) var(--fill));
+	height: 1px;
+	background: linear-gradient(to right, var(--paper-viz-data) var(--fill), var(--paper-viz-line) var(--fill));
 }
 
 .paper-range::-webkit-slider-thumb {
 	-webkit-appearance: none;
-	width: 10px;
-	height: 10px;
+	width: 9px;
+	height: 9px;
 	margin-top: -4px;
-	border-radius: 50%;
+	border-radius: 2px;
 	background: var(--paper-ink);
-	box-shadow: 0 0 0 2.5px var(--paper-card);
-	transition: transform 200ms var(--ease-out), box-shadow 150ms var(--ease-out);
+	transition: transform 200ms var(--ease-out), background-color 150ms var(--ease-out);
 }
 
 .paper-range::-moz-range-thumb {
-	width: 10px;
-	height: 10px;
+	width: 9px;
+	height: 9px;
 	border: 0;
-	border-radius: 50%;
+	border-radius: 2px;
 	background: var(--paper-ink);
-	box-shadow: 0 0 0 2.5px var(--paper-card);
-	transition: transform 200ms var(--ease-out), box-shadow 150ms var(--ease-out);
+	transition: transform 200ms var(--ease-out), background-color 150ms var(--ease-out);
 }
 
 .paper-range:hover::-webkit-slider-thumb,
@@ -1799,12 +1841,20 @@
 	transform: scale(1.4);
 }
 
+.paper-range:active::-webkit-slider-thumb {
+	background: var(--paper-accent);
+}
+
+.paper-range:active::-moz-range-thumb {
+	background: var(--paper-accent);
+}
+
 .paper-range:focus-visible::-webkit-slider-thumb {
-	box-shadow: 0 0 0 2.5px var(--paper-card), 0 0 0 4.5px color-mix(in srgb, var(--paper-accent) 55%, transparent);
+	box-shadow: 0 0 0 2px var(--paper-card), 0 0 0 4px var(--paper-ink);
 }
 
 .paper-range:focus-visible::-moz-range-thumb {
-	box-shadow: 0 0 0 2.5px var(--paper-card), 0 0 0 4.5px color-mix(in srgb, var(--paper-accent) 55%, transparent);
+	box-shadow: 0 0 0 2px var(--paper-card), 0 0 0 4px var(--paper-ink);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1874,9 +1924,13 @@
 }
 
 .simulation-play:focus-visible,
-.video-button:focus-visible {
-	outline: 1.5px solid color-mix(in srgb, var(--paper-accent) 55%, transparent);
-	outline-offset: 1px;
+.video-button:focus-visible,
+.voice-mic:focus-visible,
+.voice-mode:focus-visible,
+.voice-undo:focus-visible,
+.voice-close:focus-visible {
+	outline: 2px solid var(--paper-ink);
+	outline-offset: 2px;
 }
 
 /* Widgets: generated code in a sandboxed frame, under a title row. */
@@ -1960,12 +2014,6 @@
 	position: absolute;
 	right: 8px;
 	bottom: 8px;
-	padding: 2px 8px;
-	border-radius: 4px;
-	background: var(--paper-card);
-	border: 1px solid var(--paper-rule);
-	font: 500 11px 'Inter', sans-serif;
-	color: var(--tl-color-text-3);
 	pointer-events: none;
 }
 
@@ -2004,25 +2052,49 @@
 	pointer-events: none;
 }
 
-.video-making-phase {
-	padding: 2px 8px;
-	border: 1px solid var(--paper-rule);
-	border-radius: 4px;
+/*
+ * What a background job is doing, over its preview: a floating status pill
+ * like the voice pill, with the agent's working dots, the step in words, and
+ * the time so far. Stop sits apart, as a quiet button on the same surface.
+ */
+.video-making-phase,
+.widget-writing-badge,
+.video-stop {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	height: 24px;
+	padding: 0 10px;
+	border: 0;
+	border-radius: 12px;
 	background: var(--paper-card);
+	box-shadow: inset 0 0 0 1px var(--paper-viz-border);
 	font: 500 11px 'Inter', sans-serif;
 	color: var(--paper-ink);
+	white-space: nowrap;
 }
 
+.video-making-percent,
 .video-making-time {
-	font: 500 11px 'Inter', sans-serif;
 	font-variant-numeric: tabular-nums;
-	color: var(--tl-color-text-3);
+	color: var(--paper-viz-data);
 }
 
 .video-stop {
 	margin-left: auto;
-	padding: 1px 9px;
-	font-size: 11px;
+	cursor: pointer;
+	pointer-events: all;
+	transition: box-shadow 150ms var(--ease-out), background-color 150ms var(--ease-out);
+}
+
+.video-stop:hover {
+	background: var(--paper-hover);
+	box-shadow: inset 0 0 0 1px var(--paper-viz-border-hover);
+}
+
+.video-stop:focus-visible {
+	outline: 2px solid var(--paper-ink);
+	outline-offset: 2px;
 }
 
 .video-progress {
@@ -2100,8 +2172,10 @@
 .voice-control--on,
 .voice-control--error {
 	padding-right: 6px;
-	background: var(--paper-card);
-	box-shadow: var(--tl-shadow-1);
+	/* A floating surface: a 12 percent ink border on a nearly opaque card, with no transition as it opens. */
+	background: color-mix(in srgb, var(--paper-card) 98%, transparent);
+	box-shadow: inset 0 0 0 1px var(--paper-viz-border), var(--tl-shadow-1);
+	transition: none;
 }
 
 .voice-mic {
@@ -2144,6 +2218,9 @@
 }
 
 .voice-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
 	min-width: 76px;
 	padding: 0 6px 0 4px;
 	white-space: nowrap;
