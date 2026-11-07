@@ -5,6 +5,7 @@ import { AgentHelpers } from '../AgentHelpers'
 import { findNoteSpot, getUsableViewBounds, overlapsShapes } from '../agent/findClearSpace'
 import { getThreadOwnIds, measureThreadHeight, THREAD_TYPE, ThreadShape } from '../shapes/ThreadShapeUtil'
 import { Box } from 'tldraw'
+import { getCameraFollow } from '../voice/follow'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
 
 /** The agent answers a mark in its thread, on the board beside the mark. */
@@ -65,6 +66,18 @@ export const ReplyInThreadActionUtil = registerActionUtil(
 				}
 			}
 			editor.updateShape<ThreadShape>({ id, type: THREAD_TYPE, ...position, props: { entries } })
+			// The answer is to what the user is looking at: when the finished note sits
+			// out of view, the camera glides to show it with its mark, unless the user
+			// is working. It moves after this step is applied, so it is not a command.
+			const markId = thread.props.markShapeId as TLShapeId
+			setTimeout(() => {
+				const note = editor.getShapePageBounds(id)
+				if (!note) return
+				const mark = (markId && editor.getShapePageBounds(markId)) || null
+				const both = mark ? Box.Common([note, mark]) : note
+				const fits = both.w <= editor.getViewportPageBounds().w && both.h <= editor.getViewportPageBounds().h
+				getCameraFollow(editor).reveal(fits ? both : note)
+			}, 0)
 		}
 	}
 )

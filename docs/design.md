@@ -209,7 +209,7 @@ When a mark ends, the app takes the stroke's bounding box, finds the shapes it c
 }
 ```
 
-The stroke binds to its target shapes with tldraw bindings, so moving or resizing a graph moves the circle and the AI's reply with it. If the target is deleted, the thread stays on the board, marked as detached. Each annotation is a thread: follow-up questions attach to it, and `reply_in_thread` answers there.
+The stroke binds to its target shapes with tldraw bindings, so moving or resizing a graph moves the circle and the AI's reply with it. If the target is deleted, the thread stays on the board, marked as detached. Each annotation is a thread: follow-up questions attach to it, and `reply_in_thread` answers there. The answer is to what the user is looking at, so when its note lands out of view, the camera glides to show it with its mark, unless the user is working.
 
 Stroke type sets the default intent when the user gives no text. A circle means explain this, an underline means go deeper, and a strike-through means the user thinks this is wrong. Any text or speech overrides the default.
 
