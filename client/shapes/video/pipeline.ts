@@ -66,7 +66,7 @@ export interface AnimationPipelineOptions {
 	base?: string
 	/** Check the sketch's frames with the writer, and fix once. On by default. */
 	review?: boolean
-	/** How many versions the writer writes at once; the review picks the better one. 2 by default. */
+	/** How many versions the writer writes at once; with two, the review picks the better one. 1 by default: in tests a second version did not raise the scores. */
 	candidates?: number
 	/** Look up the same title and brief asked for before. On by default. */
 	reuse?: boolean
@@ -236,7 +236,7 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 		// vary a lot from one try to the next.
 		report({ phase: 'writing' })
 		const second =
-			!options.source && options.review !== false && (options.candidates ?? 2) > 1
+			!options.source && options.review !== false && (options.candidates ?? 1) > 1
 				? (async () => {
 						const code = parseAnimationSource(await write({ mode: 'write' }))
 						const job = await render(code, 'sketch')
