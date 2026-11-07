@@ -211,6 +211,9 @@ function Simulation({ shape }: { shape: SimulationShape }) {
 							setTime(Number(e.currentTarget.value))
 						}}
 					/>
+					<span className="player-time">
+						{time.toFixed(1)} / {summary.flight.toFixed(1)} s
+					</span>
 				</div>
 				<ParameterSliders shape={shape} />
 			</div>

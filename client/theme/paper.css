@@ -1913,6 +1913,15 @@ input.shape-parameter-value:focus-visible {
 	transition: background-color 150ms var(--ease-out);
 }
 
+/* Where a scene or simulation is in its time, as the animation player shows it. */
+.player-time {
+	flex: none;
+	font: 500 11px 'Inter', sans-serif;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	color: var(--paper-viz-data);
+}
+
 .simulation-play:hover,
 .video-button:hover {
 	background: color-mix(in srgb, var(--paper-rule) 45%, transparent);

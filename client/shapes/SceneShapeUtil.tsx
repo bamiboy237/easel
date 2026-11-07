@@ -305,6 +305,9 @@ function Scene({ shape }: { shape: SceneShape }) {
 							aria-label="Time"
 							onChange={(e) => setT({ playing: false, time: Number(e.currentTarget.value) })}
 						/>
+						<span className="player-time">
+							{t.time.toFixed(1)} / {duration.toFixed(1)} s
+						</span>
 					</div>
 				)}
 				<SliderRows parameters={parameters} onSet={setParam} />
