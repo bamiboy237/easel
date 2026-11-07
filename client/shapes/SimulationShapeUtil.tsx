@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Geometry2d, HTMLContainer, Rectangle2d, RecordProps, ShapeUtil, T, TLShape } from 'tldraw'
 import { parametersHeight } from './GraphShapeUtil'
-import { ParameterSliders, ShapeParameter, shapeParameterValidator } from './math/parameters'
+import { ParameterSliders, rangeFill, ShapeParameter, shapeParameterValidator } from './math/parameters'
 
 export const SIMULATION_TYPE = 'simulation'
 
@@ -198,11 +198,13 @@ function Simulation({ shape }: { shape: SimulationShape }) {
 						{playing ? <PauseGlyph /> : <PlayGlyph />}
 					</button>
 					<input
+						className="paper-range"
 						type="range"
 						min={0}
 						max={summary.flight}
 						step="any"
 						value={time}
+						style={rangeFill(time, 0, summary.flight)}
 						aria-label="Time"
 						onChange={(e) => {
 							setPlaying(false)

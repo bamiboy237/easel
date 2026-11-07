@@ -1,3 +1,4 @@
+import type React from 'react'
 import { T, TLShape, useEditor } from 'tldraw'
 
 /** A named number on a graph or a simulation, which the user and the agent can both change. */
@@ -116,6 +117,7 @@ export function SliderRows({
 						{displayName(p.name)}
 					</span>
 					<input
+						className="paper-range"
 						type="range"
 						min={p.min}
 						max={p.max}
@@ -123,10 +125,17 @@ export function SliderRows({
 						value={p.value}
 						onChange={(e) => onSet(p.name, Number(e.currentTarget.value))}
 						aria-label={p.name}
+						style={rangeFill(p.value, p.min, p.max)}
 					/>
 					<span className="shape-parameter-value">{round(p.value)}</span>
 				</label>
 			))}
 		</div>
 	)
+}
+
+/** How far along its track a slider is, for the ink fill of a `.paper-range`. */
+export function rangeFill(value: number, min: number, max: number): React.CSSProperties {
+	const t = max > min ? (Math.min(max, Math.max(min, value)) - min) / (max - min) : 0
+	return { ['--fill' as string]: `${(t * 100).toFixed(2)}%` }
 }

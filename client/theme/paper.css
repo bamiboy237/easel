@@ -1719,11 +1719,99 @@
 	font-variant-numeric: tabular-nums;
 }
 
-.shape-parameter input[type='range'],
-.simulation-controls input[type='range'] {
+/* The value being set reads in ink while its slider is held or focused. */
+.shape-parameter:has(.paper-range:active) .shape-parameter-value,
+.shape-parameter:has(.paper-range:focus-visible) .shape-parameter-value {
+	color: var(--paper-ink);
+	transition: color 150ms var(--ease-out);
+}
+
+/*
+ * Sliders: one paper control for every range on the board, parameters, scene
+ * and simulation time, and the animation player. A hairline track with an ink
+ * fill and a small ink thumb that grows while it is pointed at or held, with
+ * a paper halo so it reads over the fill, and a ring for keyboard focus. The
+ * fill is the input's --fill, set from its value.
+ *
+ * The proportions and states follow the slider of Toolcraft
+ * (https://github.com/pixel-point/toolcraft), MIT License, Copyright (c) 2026
+ * Pixel Point: a hairline track, a thumb under 10 px that scales by 1.4 on
+ * hover and drag over 200 ms, and an 18 px tall hit area.
+ */
+.paper-range {
+	--fill: 0%;
 	width: 100%;
-	accent-color: var(--paper-accent);
+	min-width: 40px;
+	height: 18px;
+	margin: 0;
+	background: transparent;
 	cursor: pointer;
+	pointer-events: all;
+	touch-action: none;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.paper-range:focus {
+	outline: none;
+}
+
+.paper-range::-webkit-slider-runnable-track {
+	height: 2px;
+	border-radius: 1px;
+	background: linear-gradient(to right, var(--paper-ink) var(--fill), color-mix(in srgb, var(--paper-ink) 16%, transparent) var(--fill));
+}
+
+.paper-range::-moz-range-track {
+	height: 2px;
+	border-radius: 1px;
+	background: linear-gradient(to right, var(--paper-ink) var(--fill), color-mix(in srgb, var(--paper-ink) 16%, transparent) var(--fill));
+}
+
+.paper-range::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	width: 10px;
+	height: 10px;
+	margin-top: -4px;
+	border-radius: 50%;
+	background: var(--paper-ink);
+	box-shadow: 0 0 0 2.5px var(--paper-card);
+	transition: transform 200ms var(--ease-out), box-shadow 150ms var(--ease-out);
+}
+
+.paper-range::-moz-range-thumb {
+	width: 10px;
+	height: 10px;
+	border: 0;
+	border-radius: 50%;
+	background: var(--paper-ink);
+	box-shadow: 0 0 0 2.5px var(--paper-card);
+	transition: transform 200ms var(--ease-out), box-shadow 150ms var(--ease-out);
+}
+
+.paper-range:hover::-webkit-slider-thumb,
+.paper-range:active::-webkit-slider-thumb {
+	transform: scale(1.4);
+}
+
+.paper-range:hover::-moz-range-thumb,
+.paper-range:active::-moz-range-thumb {
+	transform: scale(1.4);
+}
+
+.paper-range:focus-visible::-webkit-slider-thumb {
+	box-shadow: 0 0 0 2.5px var(--paper-card), 0 0 0 4.5px color-mix(in srgb, var(--paper-accent) 55%, transparent);
+}
+
+.paper-range:focus-visible::-moz-range-thumb {
+	box-shadow: 0 0 0 2.5px var(--paper-card), 0 0 0 4.5px color-mix(in srgb, var(--paper-accent) 55%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.paper-range::-webkit-slider-thumb,
+	.paper-range::-moz-range-thumb {
+		transition: none;
+	}
 }
 
 /* Simulations: the arc in pencil, the ball in ink, and a play row. */
@@ -1765,13 +1853,30 @@
 	justify-content: center;
 	flex: none;
 	width: 24px;
-	height: 24px;
+	height: 22px;
 	padding: 0;
 	border: none;
-	border-radius: 50%;
-	background: var(--paper-ink);
-	color: #faf8f2;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--paper-ink);
 	cursor: pointer;
+	transition: background-color 150ms var(--ease-out);
+}
+
+.simulation-play:hover,
+.video-button:hover {
+	background: color-mix(in srgb, var(--paper-rule) 45%, transparent);
+}
+
+.simulation-play:active,
+.video-button:active {
+	background: var(--paper-pressed);
+}
+
+.simulation-play:focus-visible,
+.video-button:focus-visible {
+	outline: 1.5px solid color-mix(in srgb, var(--paper-accent) 55%, transparent);
+	outline-offset: 1px;
 }
 
 /* Widgets: generated code in a sandboxed frame, under a title row. */
@@ -1956,10 +2061,6 @@
 	pointer-events: all;
 }
 
-.video-button:hover {
-	background: color-mix(in srgb, var(--paper-rule) 45%, transparent);
-}
-
 .video-button-on {
 	color: #2f5d8c;
 	background: color-mix(in srgb, #2f5d8c 10%, transparent);
@@ -1972,43 +2073,6 @@
 
 .video-scrubber {
 	flex: 1;
-	min-width: 40px;
-	height: 14px;
-	margin: 0;
-	background: transparent;
-	cursor: pointer;
-	pointer-events: all;
-	-webkit-appearance: none;
-	appearance: none;
-}
-
-.video-scrubber::-webkit-slider-runnable-track {
-	height: 2px;
-	border-radius: 1px;
-	background: linear-gradient(to right, var(--paper-ink) var(--played), var(--paper-rule) var(--played));
-}
-
-.video-scrubber::-moz-range-track {
-	height: 2px;
-	border-radius: 1px;
-	background: linear-gradient(to right, var(--paper-ink) var(--played), var(--paper-rule) var(--played));
-}
-
-.video-scrubber::-webkit-slider-thumb {
-	-webkit-appearance: none;
-	width: 10px;
-	height: 10px;
-	margin-top: -4px;
-	border-radius: 50%;
-	background: var(--paper-ink);
-}
-
-.video-scrubber::-moz-range-thumb {
-	width: 10px;
-	height: 10px;
-	border: 0;
-	border-radius: 50%;
-	background: var(--paper-ink);
 }
 
 /*

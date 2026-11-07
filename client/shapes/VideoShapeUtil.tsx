@@ -323,7 +323,7 @@ function Player({ shape, height }: { shape: VideoShape; height: number }) {
 					)}
 				</button>
 				<input
-					className="video-scrubber"
+					className="paper-range video-scrubber"
 					type="range"
 					min={0}
 					max={total || 1}
@@ -336,7 +336,7 @@ function Player({ shape, height }: { shape: VideoShape; height: number }) {
 						video.currentTime = Number(e.currentTarget.value)
 						setTime(video.currentTime)
 					}}
-					style={{ ['--played' as string]: `${total ? (Math.min(time, total) / total) * 100 : 0}%` }}
+					style={{ ['--fill' as string]: `${total ? (Math.min(time, total) / total) * 100 : 0}%` }}
 				/>
 				<span className="video-time">
 					{formatTime(time)} / {formatTime(total)}
