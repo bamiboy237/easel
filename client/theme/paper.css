@@ -737,6 +737,26 @@
 	white-space: nowrap;
 }
 
+/* "Show": glides to work that landed out of view, styled as "See more". The camera never moves by itself. */
+.chat-panel--floating.tl-theme__light .chat-answer-show {
+	flex: none;
+	height: 24px;
+	margin-left: auto;
+	padding: 0 8px;
+	border: none;
+	border-radius: 8px;
+	background: none;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--paper-ink);
+	cursor: pointer;
+	transition: background-color 150ms var(--ease-out);
+}
+
+.chat-panel--floating.tl-theme__light .chat-answer-show:hover {
+	background-color: var(--paper-hover);
+}
+
 .chat-working-dots {
 	display: inline-flex;
 	flex: none;
