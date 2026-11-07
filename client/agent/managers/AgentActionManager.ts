@@ -1,4 +1,6 @@
 import { atom, Box, BoxModel, RecordsDiff, structuredClone, TLFrameShape, TLRecord, TLShapeId } from 'tldraw'
+import { getAiCursor } from '../aiCursor'
+import { getVoiceManager } from '../../voice/VoiceManager'
 import { parseAgentAction } from '../../../shared/schema/parseAgentAction'
 import { AgentAction } from '../../../shared/types/AgentAction'
 import { ChatHistoryItem } from '../../../shared/types/ChatHistoryItem'
@@ -151,6 +153,24 @@ export class AgentActionManager extends BaseAgentManager {
 			shapeIds,
 			createdIds,
 		})
+	}
+
+	/**
+	 * The AI's cursor moves to each place the agent changes, so the user can
+	 * watch it work. A voice conversation steers the same cursor with its cues,
+	 * so typed work leaves it to the voice while one runs.
+	 */
+	private moveCursor(changes: RecordsDiff<TLRecord>) {
+		const { editor } = this.agent
+		const voice = getVoiceManager(editor)
+		if (voice && voice.$status.get() !== 'off') return
+		const ids = [...Object.keys(changes.added), ...Object.keys(changes.updated)].filter((id) => id.startsWith('shape:')) as TLShapeId[]
+		const boxes = ids.map((id) => editor.getShapePageBounds(id)).filter((b): b is Box => !!b)
+		if (boxes.length === 0) return
+		const cursor = getAiCursor(editor)
+		cursor.flyToBox(boxes[boxes.length - 1])
+		// The cursor stays while the agent works, and leaves a moment after it stops.
+		cursor.hideAfter(4000)
 	}
 
 	/** The frame the changed shapes sit in: a changed frame itself, or the frame holding the first of them. */
@@ -325,6 +345,7 @@ export class AgentActionManager extends BaseAgentManager {
 					commandId = result.commandId
 					this.markLanded(Object.keys(result.changes.added))
 					this.noteWork(result.changes)
+					this.moveCursor(result.changes)
 				}
 				if (result.status === 'rejected') {
 					rejected = true
@@ -332,6 +353,8 @@ export class AgentActionManager extends BaseAgentManager {
 				}
 			} else {
 				diff = this.agent.commands.withoutRecording(() => editor.store.extractingChanges(apply))
+				// A streamed preview of the next step: the cursor is already drawing it.
+				if (this.agent.requests.isGenerating()) this.moveCursor(diff)
 			}
 		} catch (error) {
 			// always toast the error

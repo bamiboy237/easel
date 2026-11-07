@@ -33,6 +33,7 @@ export function VoiceControl() {
 	const status = useValue('voice status', () => voice?.$status.get() ?? 'off', [voice])
 	const mode = useValue('voice mode', () => voice?.$mode.get() ?? 'push', [voice])
 	const level = useValue('voice level', () => voice?.$level.get() ?? 0, [voice])
+	const voiceError = useValue('voice error', () => voice?.$error.get() ?? null, [voice])
 	const lastAi = useValue('voice last line', () => [...(voice?.$lines.get() ?? [])].reverse().find((l) => l.speaker === 'ai'), [voice])
 	const canUndo = useValue('voice can undo', () => !!lastAi?.passId && !!voice?.turnChanged(lastAi.passId), [voice, lastAi])
 	const holding = useRef(false)
@@ -121,7 +122,9 @@ export function VoiceControl() {
 					</button>
 				</>
 			)}
-			{(status === 'error' || connecting) && <span className="voice-status">{STATUS_TEXT[status]}</span>}
+			{(status === 'error' || connecting) && (
+				<span className="voice-status">{status === 'error' ? (voiceError ?? STATUS_TEXT.error) : STATUS_TEXT[status]}</span>
+			)}
 		</div>
 	)
 }

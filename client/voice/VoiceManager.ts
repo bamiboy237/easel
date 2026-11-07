@@ -1,4 +1,5 @@
-import { atom, Box, Editor, TLShape, TLShapeId, VecModel } from 'tldraw'
+import { Atom, atom, Box, Editor, TLShape, TLShapeId, VecModel } from 'tldraw'
+import { AiCursorFlight, getAiCursor } from '../agent/aiCursor'
 import { VoiceMode, voiceTurnDetection } from '../../shared/voice/realtime'
 import type { TldrawAgent } from '../agent/TldrawAgent'
 import { matchCue, PointCue, SentenceTracker } from './cues'
@@ -9,14 +10,8 @@ import { RealtimeTransport, TransportHandlers, WebRtcTransport, WebSocketTranspo
 
 export type VoiceStatus = 'off' | 'connecting' | 'ready' | 'listening' | 'thinking' | 'speaking' | 'working' | 'error'
 
-/** The AI's cursor: where it flies from and to, and when. */
-export interface VoiceCursor {
-	from: VecModel
-	to: VecModel
-	control: VecModel
-	startedAt: number
-	duration: number
-}
+/** The AI's cursor: where it flies from and to, and when. Shared with the agent. */
+export type VoiceCursor = AiCursorFlight
 
 /** A part the AI is pointing at or highlighting. */
 export interface VoiceMark {
@@ -86,7 +81,8 @@ export class VoiceManager {
 	readonly $status = atom<VoiceStatus>('voice status', 'off')
 	readonly $mode = atom<VoiceMode>('voice mode', 'push')
 	readonly $level = atom('voice level', 0)
-	readonly $cursor = atom<VoiceCursor | null>('voice cursor', null)
+	/** The board's one AI cursor, shared with the agent's typed requests. */
+	readonly $cursor: Atom<VoiceCursor | null>
 	readonly $marks = atom<VoiceMark[]>('voice marks', [])
 	readonly $lines = atom<VoiceLine[]>('voice lines', [])
 	readonly $error = atom<string | null>('voice error', null)
@@ -127,6 +123,7 @@ export class VoiceManager {
 		private options: { boardId?: string; persist?: boolean } = {}
 	) {
 		managers.set(agent.editor, this)
+		this.$cursor = getAiCursor(agent.editor).$cursor
 		this.follow = getCameraFollow(agent.editor)
 	}
 
@@ -155,6 +152,7 @@ export class VoiceManager {
 		}
 		const preferred = readTransportPreference()
 		const kinds: ('webrtc' | 'websocket')[] = preferred === 'websocket' ? ['websocket'] : ['webrtc', 'websocket']
+		let reason: string | null = null
 		for (const kind of kinds) {
 			let transport: RealtimeTransport | null = null
 			try {
@@ -166,6 +164,13 @@ export class VoiceManager {
 				break
 			} catch (error) {
 				console.warn(`Voice over ${kind} is unavailable:`, error)
+				reason = voiceFailureReason(error) ?? reason
+				// No key, a refused key, or a blocked microphone fails the other route too.
+				if (error instanceof VoiceSetupError || isMicrophoneError(error)) {
+					transport?.close()
+					this.transport = null
+					break
+				}
 				// On a network without WebRTC, later conversations in this tab go straight to the WebSocket.
 				if (kind === 'webrtc') rememberWebRtcFailed()
 				this.transport = null
@@ -174,7 +179,7 @@ export class VoiceManager {
 		}
 		if (!this.transport) {
 			this.$status.set('error')
-			this.$error.set('Voice could not connect.')
+			this.$error.set(reason ?? 'Could not reach OpenAI')
 			return
 		}
 		this.transport.setMicOpen(mode === 'handsfree')
@@ -198,7 +203,7 @@ export class VoiceManager {
 		this.$level.set(0)
 		this.$status.set('off')
 		this.fadeMarks()
-		setTimeout(() => this.$cursor.set(null), 1500)
+		getAiCursor(this.editor).hideAfter(1500)
 	}
 
 	isOn() {
@@ -224,7 +229,7 @@ export class VoiceManager {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ mode }),
 		})
-		if (!response.ok) throw new Error(`voice conversation ${response.status}`)
+		if (!response.ok) throw new VoiceSetupError(response.status === 503 ? 'No OpenAI key' : 'OpenAI refused the key')
 		return ((await response.json()) as { key: string }).key
 	}
 
@@ -889,4 +894,22 @@ function rememberWebRtcFailed() {
 	} catch {
 		// No storage: try WebRTC again next time.
 	}
+}
+
+/** A setup problem the user can fix: no key, or a key OpenAI refused. */
+class VoiceSetupError extends Error {}
+
+function isMicrophoneError(error: unknown) {
+	return error instanceof DOMException && ['NotAllowedError', 'SecurityError', 'NotFoundError', 'NotReadableError'].includes(error.name)
+}
+
+/** A short reason for the voice pill, so the user knows what to fix. */
+function voiceFailureReason(error: unknown): string | null {
+	if (error instanceof VoiceSetupError) return error.message
+	if (error instanceof DOMException) {
+		if (error.name === 'NotAllowedError' || error.name === 'SecurityError') return 'Microphone blocked'
+		if (error.name === 'NotFoundError') return 'No microphone found'
+		if (error.name === 'NotReadableError') return 'Microphone in use'
+	}
+	return null
 }
