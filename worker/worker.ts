@@ -2,9 +2,9 @@ import { ExecutionContext } from '@cloudflare/workers-types'
 import { WorkerEntrypoint } from 'cloudflare:workers'
 import { AutoRouter, error, IRequest, RequestHandler } from 'itty-router'
 import { Environment } from './environment'
-import { appendCommands, loadBoard, saveSnapshot } from './routes/board'
+import { appendCommands, appendTranscript, loadBoard, loadTranscripts, saveSnapshot } from './routes/board'
 import { stream } from './routes/stream'
-import { createVoiceSession } from './routes/voice'
+import { createVoiceConversation, createVoiceSession } from './routes/voice'
 import { writeWidget } from './routes/widget'
 import { writeAnimation } from './routes/animation'
 
@@ -37,11 +37,14 @@ const router = AutoRouter<IRequest, [env: Environment, ctx: ExecutionContext]>({
 })
 	.post('/stream', requireLocalPage, stream)
 	.post('/voice/session', requireLocalPage, createVoiceSession)
+	.post('/voice/conversation', requireLocalPage, createVoiceConversation)
 	.post('/widget', requireLocalPage, writeWidget)
 	.post('/animation', requireLocalPage, writeAnimation)
 	.get('/board/:boardId', requireLocalPage, loadBoard)
 	.post('/board/:boardId/commands', requireLocalPage, appendCommands)
 	.post('/board/:boardId/snapshots', requireLocalPage, saveSnapshot)
+	.get('/board/:boardId/transcripts', requireLocalPage, loadTranscripts)
+	.post('/board/:boardId/transcripts', requireLocalPage, appendTranscript)
 
 export default class extends WorkerEntrypoint<Environment> {
 	override fetch(request: Request): Promise<Response> {

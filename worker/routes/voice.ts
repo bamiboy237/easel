@@ -1,5 +1,6 @@
 import { IRequest } from 'itty-router'
 import { Environment } from '../environment'
+import { VOICE_MODEL, VoiceMode, voiceSessionConfig } from '../../shared/voice/realtime'
 
 /** How long a listening session's key lasts. A mark's question is short. */
 const SESSION_SECONDS = 120
@@ -52,4 +53,35 @@ export async function createVoiceSession(request: IRequest, env: Environment) {
 	const expiresAt = secret.expires_at ?? secret.client_secret?.expires_at
 	if (!value) return new Response('Could not start listening.', { status: 502 })
 	return Response.json({ key: value, expiresAt })
+}
+
+/** How long a conversation key may wait before it connects. The session itself then runs on. */
+const CONVERSATION_KEY_SECONDS = 60
+
+/**
+ * Start a voice conversation: a short-lived client key for one OpenAI Realtime
+ * speech-to-speech session, with the voice model's instructions and tools set
+ * here, on the server. The browser connects with it over WebRTC (or a WebSocket
+ * when WebRTC cannot reach OpenAI) and never sees the API key.
+ */
+export async function createVoiceConversation(request: IRequest, env: Environment) {
+	if (!env.OPENAI_API_KEY) return new Response('Voice is not set up: OPENAI_API_KEY is missing.', { status: 503 })
+	const { mode } = ((await request.json().catch(() => ({}))) ?? {}) as { mode?: unknown }
+	const voiceMode: VoiceMode = mode === 'handsfree' ? 'handsfree' : 'push'
+	const base = env.OPENAI_API_BASE_URL || 'https://api.openai.com'
+	const upstream = await fetch(`${base}/v1/realtime/client_secrets`, {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			expires_after: { anchor: 'created_at', seconds: CONVERSATION_KEY_SECONDS },
+			session: voiceSessionConfig(voiceMode),
+		}),
+	})
+	if (!upstream.ok) {
+		console.error('voice conversation failed', upstream.status, await upstream.text())
+		return new Response('Could not start the voice conversation.', { status: 502 })
+	}
+	const secret = (await upstream.json()) as { value?: string; expires_at?: number }
+	if (!secret.value) return new Response('Could not start the voice conversation.', { status: 502 })
+	return Response.json({ key: secret.value, expiresAt: secret.expires_at, model: VOICE_MODEL, mode: voiceMode })
 }

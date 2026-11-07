@@ -25,3 +25,16 @@ export async function saveSnapshot(request: IRequest, env: Environment) {
 	await board(env).saveSnapshot(boardId(request), rev, document)
 	return Response.json({ saved: true })
 }
+
+export async function appendTranscript(request: IRequest, env: Environment) {
+	const { speaker, text, ts } = (await request.json()) as { speaker: unknown; text: unknown; ts: unknown }
+	if ((speaker !== 'user' && speaker !== 'ai') || typeof text !== 'string' || !text.trim() || !Number.isInteger(ts)) {
+		return new Response('Expected speaker, text, and ts.', { status: 400 })
+	}
+	await board(env).appendTranscript(boardId(request), speaker, text.slice(0, 4000), ts as number)
+	return Response.json({ saved: true })
+}
+
+export async function loadTranscripts(request: IRequest, env: Environment) {
+	return Response.json({ transcripts: await board(env).transcripts(boardId(request)) })
+}

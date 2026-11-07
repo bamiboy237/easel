@@ -1990,3 +1990,115 @@
 	border-radius: 50%;
 	background: var(--paper-ink);
 }
+
+/*
+ * Voice: a small mic on the bottom row, quiet until used. Once on, it opens
+ * into a slim pill with what the voice is doing, hands-free, and end.
+ */
+.voice-control {
+	position: absolute;
+	right: 150px;
+	bottom: 14px;
+	z-index: 300;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	height: 40px;
+	padding: 3px;
+	border-radius: 20px;
+	pointer-events: all;
+	font-family: var(--tl-font-sans, system-ui, sans-serif);
+	font-size: 12.5px;
+	color: var(--tl-color-text-3);
+	transition: background-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out);
+}
+
+.voice-control--on,
+.voice-control--error {
+	padding-right: 6px;
+	background: var(--paper-card);
+	box-shadow: var(--tl-shadow-1);
+}
+
+.voice-mic {
+	--voice-ring: 0;
+	display: grid;
+	place-items: center;
+	width: 34px;
+	height: 34px;
+	border: 1px solid var(--paper-rule);
+	border-radius: 50%;
+	background: var(--paper-card);
+	color: var(--tl-color-text-1);
+	cursor: pointer;
+	box-shadow:
+		var(--tl-shadow-1),
+		0 0 0 calc(var(--voice-ring) * 5px) rgba(52, 76, 65, 0.16);
+	transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out), box-shadow 80ms linear;
+	touch-action: none;
+}
+
+.voice-mic:hover {
+	background: var(--paper-hover);
+}
+
+.voice-control--on .voice-mic {
+	border-color: transparent;
+	box-shadow: 0 0 0 calc(var(--voice-ring) * 5px) rgba(52, 76, 65, 0.16);
+}
+
+.voice-control--listening .voice-mic {
+	background: var(--paper-accent);
+	color: var(--paper-card);
+}
+
+.voice-control--speaking .voice-mic,
+.voice-control--thinking .voice-mic,
+.voice-control--working .voice-mic {
+	color: var(--paper-accent);
+	background: rgba(52, 76, 65, 0.08);
+}
+
+.voice-status {
+	min-width: 76px;
+	padding: 0 6px 0 4px;
+	white-space: nowrap;
+	color: var(--tl-color-text-1);
+}
+
+.voice-control--thinking .voice-status,
+.voice-control--working .voice-status {
+	color: var(--tl-color-text-3);
+}
+
+.voice-mode,
+.voice-undo,
+.voice-close {
+	height: 26px;
+	padding: 0 9px;
+	border: none;
+	border-radius: 13px;
+	background: none;
+	color: var(--tl-color-text-3);
+	font: inherit;
+	cursor: pointer;
+}
+
+.voice-mode:hover,
+.voice-undo:hover,
+.voice-close:hover {
+	background: var(--paper-hover);
+	color: var(--tl-color-text-1);
+}
+
+.voice-mode--on {
+	background: rgba(52, 76, 65, 0.1);
+	color: var(--paper-accent);
+}
+
+.voice-close {
+	display: grid;
+	place-items: center;
+	width: 26px;
+	padding: 0;
+}

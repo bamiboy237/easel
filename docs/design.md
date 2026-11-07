@@ -190,7 +190,7 @@ The model returns one JSON object of actions. It does not use native tool calls,
 - Groups load up front from signals the client already has: a scene in view or selected, a frame the plan tagged as a scene, or a request to simulate or animate. A `load_tools` action is the fallback, and costs one extra model pass.
 - The response schema keeps every action name, so OpenAI's and Meta's strict schemas do not change between requests.
 
-Pointing while talking comes from Clicky. Clicky's model appends a tag like `[POINT:x,y:label:screen2]` to its reply. The app strips the tag with a regex, sends the rest to text-to-speech, and flies a cursor in a transparent overlay to the coordinates along a curved path. Clicky needs pixel coordinates because it points at arbitrary apps. On the canvas every target has a shape or part ID, so tags reference those directly, for example `[HL:g1.curve]`. The first version points at the phrase level: a tag fires when its sentence starts playing. Word-level timing needs audio alignment, such as text-to-speech that streams character timestamps. The AI has its own visible cursor on the board that moves between targets.
+Pointing while talking comes from Clicky. Clicky's model appends a tag like `[POINT:x,y:label:screen2]` to its reply. The app strips the tag with a regex, sends the rest to text-to-speech, and flies a cursor in a transparent overlay to the coordinates along a curved path. Clicky needs pixel coordinates because it points at arbitrary apps. On the canvas every target has a shape or part ID, so cues reference those directly, for example `g1.curve`. With a speech-to-speech model there is no text-to-speech step to strip a tag from, so Easel sends the same information as a `point` tool call before the speech (see Voice). The first version points at the phrase level: a cue fires when its sentence starts playing. Word-level timing needs audio alignment, such as text-to-speech that streams character timestamps. The AI has its own visible cursor on the board that moves between targets.
 
 ## Annotations
 
@@ -217,7 +217,34 @@ Stroke type sets the default intent when the user gives no text. A circle means 
 
 Voice comes in three steps: push-to-talk, then mark and speak, then hands-free conversation. It uses a realtime speech-to-speech API with tool calling over WebRTC in the browser. The voice model gets the same canvas tools as the agent, so it can talk while it highlights, sets parameters, or asks for a prediction. Work that needs a frontier model, such as building a map or writing a new visualization, goes through a `delegate` tool that calls the agent backend and returns when the shapes are on the board. When the user interrupts, speech stops and pending actions that are now obsolete are canceled.
 
-The AI speaks and writes at the same time: short spoken explanations, with the durable content placed on the board as notes and shapes. A transcript of each exchange is stored with the board.
+The AI speaks and writes at the same time: short spoken answers, with the durable content placed on the board as notes and shapes. A transcript of each exchange is stored with the board.
+
+### How voice is built
+
+**Provider.** OpenAI Realtime, with `gpt-realtime-2.1-mini`, the GA mini speech-to-speech model. It called the canvas tools correctly in every test turn, at about a third of the audio price of `gpt-realtime-2.1` ($10 and $20 per million audio input and output tokens, against $32 and $64), with reasoning effort `low`. The user's words are transcribed with `gpt-live-transcribe`, the same model as mark and speak.
+
+**Session.** `POST /voice/conversation` mints a client secret that lasts 60 seconds, from `OPENAI_API_KEY` on the server. The server sets the model, voice, instructions, and tools, so the browser never sees the API key. The browser connects over WebRTC. When WebRTC cannot connect within 6 seconds, as on a network that passes only HTTPS, the same session runs over a WebSocket, and the page sends the microphone as 24 kHz PCM and plays the audio itself. A tab that saw WebRTC fail goes straight to the WebSocket after that. `?voice=ws` forces it.
+
+**Control.** A small mic sits on the bottom row of the board. A click starts a conversation. Holding the mic, or holding the backquote key, is push-to-talk. The Hands-free toggle switches to server voice activity detection (500 ms of silence ends a turn). The pill shows Listening, Thinking, Speaking, or Drawing, and Undo for the last voice turn that changed the board.
+
+**Tools.** The voice model reads the board as a system message, sent again whenever the board revision changed since it last read it. Each line is a shape with its ID, what it shows, its parameter values, and its part IDs.
+
+| Tool | Effect |
+| --- | --- |
+| `point(cues)` | Flies the AI cursor to shapes or parts while the voice talks about them; see Pointing |
+| `read_board()` | Returns the board description now |
+| `set_parameter(shape, name, value, user_words?)` | The agent's `set_parameter` action, run as a voice command |
+| `place_note(near, text)` | A short text note beside a shape or part |
+| `ask_prediction(near, question)` | A "Predict:" note beside the shape; the voice then asks aloud and waits |
+| `delegate(request)` | Sends the request to the agent pipeline as a user request, and answers when the pass ends, with the IDs of the new shapes |
+
+Every board change from a voice tool is a command with origin `voice`, the board revision the voice model last read as `baseRev`, and one pass per voice response (`voice-<response id>`). Voice commands get the same checks as agent commands: a command whose target a person changed after `baseRev` is rejected as stale, and a command into the user's own shapes or frames is rejected unless the shape is selected or `user_words` quotes the user's latest utterance, the same rule as `claim_user_shapes`. A rejection goes back to the voice model as the tool's answer, so it can tell the user. Voice commands are never newer human work: reverting a voice turn, like reverting an agent pass, keeps changes the user made since. Delegated work runs as ordinary agent commands.
+
+**Pointing.** Shapes and parts are addressed by ID. Part IDs come from what a shape already stores: `g1.curve` and `g1.curve2` for a graph's functions, `g1.point1` for its marked points, `g1.<parameter>` for a slider row, a scene's object IDs such as `scene1.ball`, and an equation's top-level terms `eq3.term1` to `eq3.termN` with `eq3.lhs` and `eq3.rhs`, measured from the typeset KaTeX. A speech-to-speech model has no text-to-speech step to strip tags from: tags written into its output are spoken, partly, as "G1.1" and the like. So pointing is a tool call. Before it speaks, the model calls `point` with one cue per thing, in order, each with a target and the first words of its sentence. The app splits the spoken transcript into sentences and matches cues to them in order by shared words, with the target's label; the first sentence takes the first cue. A cue fires when its sentence starts playing, estimated from the sentence's place in the transcript (68 ms per character) from when the item's audio started. The cursor flies along a curved path in about 650 ms, then a plain point pulses, and a highlight lays a yellow marker stroke over the part, along the curve itself for a graph's function. Pointing and highlights are overlays, not commands, so they never change the board.
+
+**Interruption.** When the user starts talking (a press in push-to-talk, the microphone level over the AI's voice for 100 ms in hands-free, or the server's speech start), the app stops playback at once, truncates the item to what was heard, cancels the response being generated with its tool calls, drops cues not yet shown, and cancels a running delegate pass through the agent's cancel. Work already on the board stays; revert is a separate action. Over WebRTC the app mutes the remote audio and clears the server's output buffer, which truncates the item on the server.
+
+**Transcripts.** Each user and AI line is stored in the `transcripts` table of the board store.
 
 ## macOS shell
 
@@ -287,7 +314,8 @@ The phases keep their numbers, but after Phase 4 they are built in this order, s
 8. **Learning mode.** Opt-in, for people who want to learn. Ordinary collaboration is unchanged. The agent shows a minimal worked example, asks the learner to predict or try the next step on the board before revealing it, and keeps a learner profile built from board evidence: predictions, questions, selections, and corrections. A per-topic concept graph the agent drafts and refines from that evidence sets the pace, and weak concepts come back for spaced review across sessions.\
 **Gate:** a returning learner's next session starts from what they found hard, and the agent holds back until they have tried.
 9. **Voice and pointing.** Push-to-talk, mark and speak, hands-free. Phrase-level pointing by shape and part ID.\
-**Gate:** interrupting stops speech and obsolete actions.
+**Gate:** interrupting stops speech and obsolete actions.\
+**Built (THE-142):** OpenAI Realtime voice with the canvas tools and `delegate`, push-to-talk and hands-free, the AI cursor, and voice commands with origin `voice`. On both sessions, speech stopped 169 to 209 ms after the user started talking, and voice turns revert like agent passes. Mark and speak is unchanged from Phase 4.
 10. **Context and proactive behavior.** Debounced checks, canceled on new interaction, ignoring agent-originated changes.\
 **Gate:** no self-triggering loops and no interruptions during active work.
 11. **Declarative and generated visuals.** In order, each step with its own check:
@@ -311,6 +339,6 @@ Each change is tested on the two fixed sessions, one interaction at a time, comp
 
 ## Open questions
 
-- [ ] Realtime voice provider: OpenAI Realtime, Gemini Live, or a pipeline with character-timestamped text-to-speech?
+- [x] Realtime voice provider: OpenAI Realtime, with `gpt-realtime-2.1-mini` over WebRTC (see Voice).
 - [ ] Which jobs, if any, move to a local model through MLX?
 - [ ] Should boards link to each other when topics overlap?
