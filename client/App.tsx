@@ -23,10 +23,12 @@ import { ChatPanelFallback } from './components/ChatPanelFallback'
 import { ContextualStylePanel } from './components/ContextualStylePanel'
 import { CustomHelperButtons } from './components/CustomHelperButtons'
 import { MarkChip, MarkComposer } from './components/MarkComposer'
+import { VoiceControl } from './components/VoiceControl'
 import { isReferenceBoard, ReferenceBoardLoader } from './components/ReferenceBoard'
 import { paperTheme } from './theme/paperTheme'
 import { AgentHighlightOverlayUtil } from './overlays/AgentHighlightOverlayUtil'
 import { MarkOverlayUtil } from './overlays/MarkOverlayUtil'
+import { VoiceCursorOverlayUtil } from './overlays/VoiceCursorOverlayUtil'
 import { AnnotationBindingUtil } from './shapes/AnnotationBindingUtil'
 import { EquationShapeUtil } from './shapes/EquationShapeUtil'
 import { GraphShapeUtil } from './shapes/GraphShapeUtil'
@@ -45,7 +47,7 @@ DefaultDashStyle.setDefaultValue('solid')
 
 // The Mark tool: circle, underline, strike, scribble, or tap anything to ask about it
 const tools = [MarkTool]
-const overlayUtils = [AgentHighlightOverlayUtil, MarkOverlayUtil]
+const overlayUtils = [AgentHighlightOverlayUtil, MarkOverlayUtil, VoiceCursorOverlayUtil]
 // Threads: a mark's question and answers on a sticky note beside it
 const shapeUtils = [ThreadShapeUtil, EquationShapeUtil, GraphShapeUtil, SimulationShapeUtil, SceneShapeUtil, WidgetShapeUtil, VideoShapeUtil]
 // Marks and threads follow the shapes they point at
@@ -119,6 +121,7 @@ function App() {
 					<TldrawAgentAppContextProvider app={app}>
 						<MarkComposer />
 						<MarkChip />
+						<VoiceControl />
 					</TldrawAgentAppContextProvider>
 				),
 			HelperButtons: () =>

@@ -48,6 +48,13 @@ export class BoardDurableObject extends DurableObject<Environment> {
 				saved_at INTEGER NOT NULL,
 				PRIMARY KEY (board_id, rev)
 			);
+			CREATE TABLE IF NOT EXISTS transcripts (
+				board_id TEXT NOT NULL,
+				speaker TEXT NOT NULL,
+				text TEXT NOT NULL,
+				ts INTEGER NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS transcripts_by_board ON transcripts (board_id, ts);
 		`)
 	}
 
@@ -95,6 +102,19 @@ export class BoardDurableObject extends DurableObject<Environment> {
 			boardId,
 			boardId
 		)
+	}
+
+	/** Store one line of a voice exchange with the board. */
+	appendTranscript(boardId: string, speaker: string, text: string, ts: number) {
+		this.sql.exec('INSERT INTO transcripts (board_id, speaker, text, ts) VALUES (?, ?, ?, ?)', boardId, speaker, text, ts)
+	}
+
+	/** The voice exchanges stored with a board, oldest first. */
+	transcripts(boardId: string) {
+		return this.sql
+			.exec('SELECT speaker, text, ts FROM transcripts WHERE board_id = ? ORDER BY ts', boardId)
+			.toArray()
+			.map((row) => ({ speaker: row.speaker as string, text: row.text as string, ts: row.ts as number }))
 	}
 
 	/** The latest snapshot, and the whole command log in order. */

@@ -24,7 +24,7 @@ export const BoardCommandSchema = z.object({
 	status: CommandStatusSchema,
 	/** The board revision this command produced. Null for a rejected command, which changes nothing. */
 	rev: RevisionSchema.nullable(),
-	/** The board revision an agent command was based on. */
+	/** The board revision an agent or voice command was based on. */
 	baseRev: RevisionSchema.optional(),
 	/** The agent pass the command came from. */
 	passId: z.string().optional(),
@@ -36,7 +36,7 @@ export const BoardCommandSchema = z.object({
 	keptRecordIds: z.array(z.string()).optional(),
 	/** Why a rejected command was rejected. */
 	reason: z.enum(['stale', 'protected']).optional(),
-	/** For a stale command, the records that a user or voice command changed after `baseRev`. */
+	/** For a stale command, the records that a user command changed after `baseRev`. */
 	staleRecordIds: z.array(z.string()).optional(),
 	/** For a protected command, the user's shapes or regions it would have changed or covered. */
 	protectedRecordIds: z.array(z.string()).optional(),
