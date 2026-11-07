@@ -1,4 +1,5 @@
 import { ANNOTATION_BINDING } from '../../shapes/AnnotationBindingUtil'
+import { whileRestoringRecords } from '../restoring'
 import {
 	atom,
 	Box,
@@ -473,7 +474,7 @@ export class BoardCommandManager {
 		}
 
 		const apply = () => {
-			editor.run(
+			whileRestoringRecords(() => editor.run(
 				() => {
 					// Restore deleted shapes first, so updates and bindings can refer to them.
 					if (restoreShapes.length > 0) {
@@ -511,7 +512,7 @@ export class BoardCommandManager {
 					if (others.length > 0) editor.store.put(others)
 				},
 				{ ignoreShapeLock: true, history: 'ignore' }
-			)
+			))
 		}
 
 		this.stampsCreator = false

@@ -1,5 +1,6 @@
 import { atom, b64Vecs, Box, BoxModel, createShapeId, Editor, renderPlaintextFromRichText, TLRichText, TLShapeId, VecModel } from 'tldraw'
 import { convertTldrawShapeToFocusedShape } from '../../../shared/format/convertTldrawShapeToFocusedShape'
+import { getCameraFollow } from '../../voice/follow'
 import { findClearSpaceBeside, findNoteSpot, getUsableViewBounds, overlapsShapes } from '../findClearSpace'
 import { classifyStroke, findMarkTargets, MARK_INTENTS, MARK_LABELS, MarkKind } from '../marks'
 import { VoiceListener } from '../voice'
@@ -449,6 +450,10 @@ export class AgentMarkManager extends BaseAgentManager {
 				bindAnnotation(editor, draft.shapeId, targetIds)
 			}
 		})
+		// The answer is to what the user is looking at, so when its note landed out
+		// of view, the camera glides to show the mark and the note together.
+		const noteBox = editor.getShapePageBounds(threadId)
+		if (noteBox) getCameraFollow(editor).revealWithAnchor(noteBox, markBounds, { justAsked: true })
 		this.send({ ...draft, targetIds, text: intent, threadId, history: [] }, question)
 	}
 

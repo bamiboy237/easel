@@ -1,5 +1,7 @@
 import { FormEventHandler, useCallback, useEffect, useRef, useState } from 'react'
-import { useValue } from 'tldraw'
+import { getCameraFollow } from '../voice/follow'
+import { Box, TLShapeId, useValue } from 'tldraw'
+import { getUsableViewBounds } from '../agent/findClearSpace'
 import { AgentFace } from '../../shared/icons/AgentFace'
 import { answerQuestion, getOpenQuestion } from '../agent/openQuestion'
 import { useAgent } from '../agent/TldrawAgentAppProvider'
@@ -189,8 +191,35 @@ export function ChatPanel() {
 	// drawing is what the user sees. "See more" opens the whole conversation. An
 	// open question is the exception: it must be seen to be answered.
 	const lastWork = useValue('pane last work', () => agent.actions.getLastWork(), [agent])
+	// The line is the agent's own first sentence when it said something, such as
+	// how to use what it drew; otherwise a count of what it drew.
+	const lastSaid = useValue('pane last said', () => firstSentence(lastMessage(agent.chat.getHistory())), [agent])
 	const summary =
-		!isGenerating && lastWork && !hasOpenQuestion ? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
+		!isGenerating && lastWork && !hasOpenQuestion ? lastSaid ?? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
+	// Work that landed out of the user's view gets a Show link. The camera
+	// itself stays where the user put it.
+	const hiddenWork = useValue(
+		'pane hidden work',
+		() => {
+			if (!summary || !lastWork) return null
+			const editor = agent.editor
+			const boxes = lastWork.createdIds
+				.map((id) => editor.getShape(id as TLShapeId))
+				// Page bounds cover work drawn inside frames too, such as a map filled in later.
+				.filter((shape) => !!shape)
+				.map((shape) => editor.getShapePageBounds(shape!))
+				.filter((b): b is Box => !!b)
+			if (boxes.length === 0) return null
+			const all = Box.Common(boxes)
+			return getUsableViewBounds(editor).contains(all) ? null : all
+		},
+		[agent, summary, lastWork]
+	)
+	const showWork = () => {
+		if (!hiddenWork) return
+		// The user asked to see it, so the camera moves now, into the free part of the view.
+		getCameraFollow(agent.editor).reveal(hiddenWork, { justAsked: true })
+	}
 
 	const composer = (
 		<div className="chat-input-container">
@@ -244,7 +273,12 @@ export function ChatPanel() {
 							</div>
 							{summary ? (
 								<p className="chat-answer-status">
-									<span className="chat-answer-status-text">{summary}</span>
+									<span className="chat-answer-status-text" title={summary}>{summary}</span>
+									{hiddenWork && (
+										<button className="chat-answer-show" onClick={showWork}>
+											Show
+										</button>
+									)}
 								</p>
 							) : work ? (
 								<p className="chat-answer-status" role="status">
@@ -302,6 +336,31 @@ export function ChatPanel() {
 }
 
 /** What a request did on the board, in a few words: "Drew 16 shapes", or "Changed 3 shapes". */
+/**
+ * The agent's first message in the newest exchange, if it sent one: its answer
+ * to the user. Later messages are usually notes from follow-up passes.
+ */
+function lastMessage(history: readonly { type: string; promptSource?: string; action?: { _type?: string; text?: unknown } }[]): string | null {
+	let first: string | null = null
+	for (let i = history.length - 1; i >= 0; i--) {
+		const item = history[i]
+		// The agent's own follow-up passes belong to the same exchange.
+		if (item.type === 'prompt' && item.promptSource !== 'self') break
+		if (item.type === 'action' && item.action?._type === 'message' && typeof item.action.text === 'string' && item.action.text.trim()) {
+			first = item.action.text
+		}
+	}
+	return first
+}
+
+/** The first sentence of a message, as plain text, for a one-line status. */
+function firstSentence(text: string | null): string | null {
+	if (!text) return null
+	const plain = text.replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim()
+	const match = /^.*?[.!?](?=\s|$)/.exec(plain)
+	return (match ? match[0] : plain) || null
+}
+
 function describeWork(created: number, changed: number): string | null {
 	const shapes = (n: number) => `${n} ${n === 1 ? 'shape' : 'shapes'}`
 	if (created > 0) return `Drew ${shapes(created)}` + (changed > created ? `, changed ${changed - created} more` : '')

@@ -238,12 +238,17 @@ function Making({ shape }: { shape: VideoShape }) {
 			)}
 			<div className="video-making-status">
 				<span className="video-making-phase">
+					<span className="chat-working-dots" aria-hidden>
+						<span />
+						<span />
+						<span />
+					</span>
 					{PHASE_LABELS[phase]}
-					{showProgress && progress > 0 ? ` ${Math.round(progress * 100)}%` : '...'}
+					{showProgress && progress > 0 ? <span className="video-making-percent">{Math.round(progress * 100)}%</span> : null}
+					<span className="video-making-time">{seconds} s</span>
 				</span>
-				<span className="video-making-time">{seconds} s</span>
 				<button
-					className="widget-restart video-stop"
+					className="video-stop"
 					onPointerDown={keep}
 					onClick={(e) => {
 						keep(e)
@@ -323,7 +328,7 @@ function Player({ shape, height }: { shape: VideoShape; height: number }) {
 					)}
 				</button>
 				<input
-					className="video-scrubber"
+					className="paper-range video-scrubber"
 					type="range"
 					min={0}
 					max={total || 1}
@@ -336,7 +341,7 @@ function Player({ shape, height }: { shape: VideoShape; height: number }) {
 						video.currentTime = Number(e.currentTarget.value)
 						setTime(video.currentTime)
 					}}
-					style={{ ['--played' as string]: `${total ? (Math.min(time, total) / total) * 100 : 0}%` }}
+					style={{ ['--fill' as string]: `${total ? (Math.min(time, total) / total) * 100 : 0}%` }}
 				/>
 				<span className="video-time">
 					{formatTime(time)} / {formatTime(total)}

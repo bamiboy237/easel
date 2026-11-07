@@ -39,6 +39,8 @@ const MAX_SOURCE_CHARS = 40_000
 const MAX_BODY_BYTES = 64_000
 const MAX_VIDEO_BYTES = 200 * 1024 * 1024
 const MAX_RUNNING = 3
+/** Sketches may run beside this many jobs more, so a first preview never waits for a slot. */
+const SKETCH_EXTRA = 1
 /** At most this many processes render one final video, in parallel parts. */
 const MAX_PARTS = 3
 /** How long a finished job's record is kept, for status reads. */
@@ -216,11 +218,22 @@ function runningCount() {
 	return n
 }
 
+/**
+ * Start queued jobs while there is room. Sketches go first, with one slot of
+ * their own: they take a few seconds and are what the board shows while a
+ * scene is written, so a first preview never waits behind final renders that
+ * take a minute.
+ */
 function pump() {
-	while (queue.length && runningCount() < MAX_RUNNING) {
-		const job = queue.shift()!
-		if (job.status !== 'queued') continue
-		void run(job)
+	for (;;) {
+		const running = runningCount()
+		const sketch = queue.findIndex((j) => j.status === 'queued' && j.quality === 'sketch')
+		let index = -1
+		if (sketch >= 0 && running < MAX_RUNNING + SKETCH_EXTRA) index = sketch
+		else if (queue.length && running < MAX_RUNNING) index = 0
+		if (index < 0) return
+		const [job] = queue.splice(index, 1)
+		if (job.status === 'queued') void run(job)
 	}
 }
 

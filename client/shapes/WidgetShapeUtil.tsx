@@ -245,7 +245,14 @@ function WidgetPreview({ shape, preview, height }: { shape: WidgetShape; preview
 				srcDoc={built.doc}
 				style={{ width: '100%', height, border: 0, display: 'block', pointerEvents: 'none', opacity: 0.85 }}
 			/>
-			<div className="widget-writing-badge">Writing the script...</div>
+			<div className="widget-writing-badge">
+				<span className="chat-working-dots" aria-hidden>
+					<span />
+					<span />
+					<span />
+				</span>
+				Writing the script
+			</div>
 		</>
 	)
 }

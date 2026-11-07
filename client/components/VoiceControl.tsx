@@ -91,6 +91,14 @@ export function VoiceControl() {
 			{on && (
 				<>
 					<span className="voice-status" role="status">
+						{(status === 'thinking' || status === 'working') && (
+							// The agent's one working motif, as on the board and in the answer card.
+							<span className="chat-working-dots" aria-hidden>
+								<span />
+								<span />
+								<span />
+							</span>
+						)}
 						{mode === 'handsfree' && status === 'ready' ? 'Listening' : STATUS_TEXT[status]}
 					</span>
 					<button
