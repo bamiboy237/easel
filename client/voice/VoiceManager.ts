@@ -103,6 +103,7 @@ export class VoiceManager {
 	/** Per spoken item: its sentences and its cues. */
 	private speech = new Map<string, { responseId: string; tracker: SentenceTracker; cues: PointCue[]; nextCue: number; chars: number }>()
 	private timers = new Set<ReturnType<typeof setTimeout>>()
+	private cueTimers = new Set<ReturnType<typeof setTimeout>>()
 	private delegateRun: { callId: string; responseId: string; cancel: () => void } | null = null
 	private queuedResponse = false
 	private loudSince: number | null = null
@@ -154,6 +155,8 @@ export class VoiceManager {
 				break
 			} catch (error) {
 				console.warn(`Voice over ${kind} is unavailable:`, error)
+				// On a network without WebRTC, later conversations in this tab go straight to the WebSocket.
+				if (kind === 'webrtc') rememberWebRtcFailed()
 				this.transport = null
 				transport?.close()
 			}
@@ -547,12 +550,15 @@ export class VoiceManager {
 		this.later(() => this.waitFor(get, then, tries + 1), 50)
 	}
 
-	private later(fn: () => void, ms: number) {
+	/** Run a step of pointing later. Pending steps are canceled when the user interrupts. */
+	private later(fn: () => void, ms: number, isCue = true) {
 		const timer = setTimeout(() => {
 			this.timers.delete(timer)
+			this.cueTimers.delete(timer)
 			fn()
 		}, Math.max(0, ms))
 		this.timers.add(timer)
+		if (isCue) this.cueTimers.add(timer)
 	}
 
 	/** Fly the cursor to a target along a curve, and highlight it. */
@@ -610,7 +616,7 @@ export class VoiceManager {
 		// Highlights stay a moment after the voice stops, then fade.
 		this.later(() => {
 			if (!this.transport?.isPlaying()) this.fadeMarks()
-		}, 2500)
+		}, 2500, false)
 	}
 
 	// ==================== Interruption ====================
@@ -660,9 +666,10 @@ export class VoiceManager {
 	/** Cancel what has not happened yet: cues, queued responses, and a running delegate pass. */
 	private cancelPending(_reason: string): string[] {
 		const cancelled: string[] = []
-		if (this.timers.size > 0) cancelled.push(`${this.timers.size} cues`)
+		if (this.cueTimers.size > 0) cancelled.push(`${this.cueTimers.size} pending cues`)
 		for (const timer of this.timers) clearTimeout(timer)
 		this.timers.clear()
+		this.cueTimers.clear()
 		this.pendingCues = []
 		this.queuedResponse = false
 		if (this.delegateRun) {
@@ -737,10 +744,19 @@ function readTransportPreference(): 'webrtc' | 'websocket' | null {
 	try {
 		const query = new URLSearchParams(location.search).get('voice')
 		if (query === 'ws' || query === 'websocket') return 'websocket'
+		if (sessionStorage.getItem('easel.voiceWebRtcFailed') === '1') return 'websocket'
 		const stored = localStorage.getItem('easel.voiceTransport')
 		if (stored === 'websocket' || stored === 'webrtc') return stored
 	} catch {
 		// No storage: use the default.
 	}
 	return null
+}
+
+function rememberWebRtcFailed() {
+	try {
+		sessionStorage.setItem('easel.voiceWebRtcFailed', '1')
+	} catch {
+		// No storage: try WebRTC again next time.
+	}
 }
