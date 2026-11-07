@@ -44,9 +44,9 @@ export function findClearSpaceBeside(editor: Editor, subject: Box, size: { w: nu
 	return null
 }
 
-/** Clear space inside the user's view, scanning from the top left. */
+/** Clear space inside the part of the user's view the menu and toolbar leave free, scanning from the top left. */
 export function findClearSpaceInView(editor: Editor, size: { w: number; h: number }): Box | null {
-	const view = editor.getViewportPageBounds()
+	const view = getUsableViewBounds(editor)
 	const obstacles = getObstacles(editor)
 	const step = Math.max(40, Math.min(size.w, size.h) / 4)
 	for (let y = view.y + MARGIN; y + size.h <= view.maxY - MARGIN; y += step) {
@@ -184,9 +184,12 @@ function measureChrome(editor: Editor): { top: number; bottom: number } {
 	const frame = container.getBoundingClientRect()
 	const menu = container.querySelector('.tlui-menu-zone')?.getBoundingClientRect()
 	const toolbar = container.querySelector('.tlui-main-toolbar')?.getBoundingClientRect()
+	// The voice pill shares the toolbar's row and grows taller while it talks.
+	const voice = container.querySelector('.voice-control')?.getBoundingClientRect()
+	const bottomTop = Math.min(toolbar?.top ?? Infinity, voice && voice.height > 0 ? voice.top : Infinity)
 	return {
 		top: menu ? menu.bottom - frame.top + CHROME_AIR : FALLBACK_TOP_CHROME,
-		bottom: toolbar ? frame.bottom - toolbar.top + CHROME_AIR : FALLBACK_BOTTOM_CHROME,
+		bottom: Number.isFinite(bottomTop) ? frame.bottom - bottomTop + CHROME_AIR : FALLBACK_BOTTOM_CHROME,
 	}
 }
 

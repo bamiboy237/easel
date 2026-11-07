@@ -195,7 +195,7 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 		const sceneLints = lints.filter((l) => l.type === 'scene-problem')
 
 		messages.push(
-			"[LINTER]: The following potential visual problems have been detected in the canvas. You should decide if you want to address them. Defer to your view of the canvas to decide if you need to make changes; it's very possible that you don't need to make any changes."
+			"[LINTER]: The following potential visual problems have been detected in the canvas. You should decide if you want to address them. Defer to your view of the canvas to decide if you need to make changes; it's very possible that you don't need to make any changes. The user does not see this check: never send a message about it, and do not explain that something was intentional. If nothing needs fixing, change nothing and say nothing."
 		)
 
 		if (growYLints.length > 0) {

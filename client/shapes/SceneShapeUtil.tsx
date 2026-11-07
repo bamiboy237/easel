@@ -14,7 +14,7 @@ import {
 import { axisLabels, gridStep, parametersHeight } from './GraphShapeUtil'
 import { newTemplateId, saveTemplate, SceneTemplate } from './scene/templates'
 import { Box, LabelRequest, Obstacles, placeLabels, sampleStroke, textWidthPx, Vec } from './scene/labels'
-import { clampParameter, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
+import { clampParameter, rangeFill, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import {
 	checkHolds,
 	checkScene,
@@ -295,14 +295,19 @@ function Scene({ shape }: { shape: SceneShape }) {
 							{t.playing ? <PauseGlyph /> : <PlayGlyph />}
 						</button>
 						<input
+							className="paper-range"
 							type="range"
 							min={0}
 							max={duration}
 							step="any"
 							value={t.time}
+							style={rangeFill(t.time, 0, duration)}
 							aria-label="Time"
 							onChange={(e) => setT({ playing: false, time: Number(e.currentTarget.value) })}
 						/>
+						<span className="player-time">
+							{t.time.toFixed(1)} / {duration.toFixed(1)} s
+						</span>
 					</div>
 				)}
 				<SliderRows parameters={parameters} onSet={setParam} />
