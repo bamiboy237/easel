@@ -167,7 +167,9 @@ export function MarkComposer() {
 					onKeyDown={(e) => e.stopPropagation()}
 				/>
 			</form>
-			<div className="mark-composer-hint">Enter to ask · Esc to cancel · Click to add</div>
+			<div className="mark-composer-hint">
+				{listening === 'heard' ? 'Asks when you stop talking · Esc to cancel' : 'Enter to ask · Esc to cancel · Click to add'}
+			</div>
 		</div>
 	)
 }

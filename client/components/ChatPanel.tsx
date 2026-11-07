@@ -196,8 +196,8 @@ export function ChatPanel() {
 	const lastSaid = useValue('pane last said', () => firstSentence(lastMessage(agent.chat.getHistory())), [agent])
 	const summary =
 		!isGenerating && lastWork && !hasOpenQuestion ? lastSaid ?? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
-	// Work that landed out of the user's view gets a Show link. The camera
-	// itself stays where the user put it.
+	// Work that landed out of the user's view gets a Show link, for when the
+	// camera could not follow because the user was working.
 	const hiddenWork = useValue(
 		'pane hidden work',
 		() => {
@@ -215,6 +215,16 @@ export function ChatPanel() {
 		},
 		[agent, summary, lastWork]
 	)
+	// When a request's work lands out of view, the camera glides there once the
+	// request finishes, unless the user is working; then Show stays on the card.
+	const revealedWork = useRef<unknown>(null)
+	useEffect(() => {
+		if (!hiddenWork || !lastWork || revealedWork.current === lastWork) return
+		revealedWork.current = lastWork
+		// The composer keeps focus after a request; while it is empty, it is not work in progress.
+		const idle = inputRef.current && !inputRef.current.value.trim() ? inputRef.current : null
+		getCameraFollow(agent.editor).reveal(hiddenWork, { idleElement: idle })
+	}, [agent, hiddenWork, lastWork])
 	const showWork = () => {
 		if (!hiddenWork) return
 		// The user asked to see it, so the camera moves now, into the free part of the view.
