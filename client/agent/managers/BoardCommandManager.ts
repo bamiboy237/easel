@@ -89,8 +89,18 @@ type ShapeLookup = (id: string) => TLShape | undefined
  */
 export const PRESENTATION_COMMAND_TYPES = new Set(['agent-ink'])
 
+/**
+ * Whether a command is a person's own edit. Agent and voice commands are both
+ * the AI's work: the voice model's changes are checked and reverted like the
+ * agent's, and never count as newer human work.
+ */
 function isHumanCommand(origin: string, type: string) {
-	return origin !== 'agent' && !PRESENTATION_COMMAND_TYPES.has(type)
+	return origin === 'user' && !PRESENTATION_COMMAND_TYPES.has(type)
+}
+
+/** Agent and voice commands: the AI's work, checked for stale targets and protected regions. */
+export function isAiOrigin(origin: CommandOrigin): boolean {
+	return origin === 'agent' || origin === 'voice'
 }
 
 // Shapes that only touch at an edge do not overlap.
@@ -205,7 +215,7 @@ function overlaps(a: Box, b: Box): boolean {
 export class BoardCommandManager {
 	private history = atom<readonly BoardCommand[]>('board commands', [])
 	private rev = 0
-	/** The last revision at which a user or voice command changed each record. */
+	/** The last revision at which a user command changed each record. */
 	private humanRevs = new Map<string, number>()
 	/** The last revision at which a person deleted each record. */
 	private humanRemovedRevs = new Map<string, number>()
@@ -291,9 +301,9 @@ export class BoardCommandManager {
 	}
 
 	/**
-	 * Run a command and record it. An agent command is rejected, with its changes
-	 * rolled back, when either check fails:
-	 * - Stale: a user or voice command changed one of its records after its base revision.
+	 * Run a command and record it. An agent or voice command is rejected, with its
+	 * changes rolled back, when either check fails:
+	 * - Stale: a user command changed one of its records after its base revision.
 	 * - Protected: it changes, moves, or deletes a shape the user owns, or places a
 	 *   shape over one, and the current request did not ask for that.
 	 */
@@ -312,10 +322,10 @@ export class BoardCommandManager {
 	): BoardCommandResult {
 		CommandOriginSchema.parse(origin)
 		if (!type) throw new Error('A board command must have a type.')
-		if (origin === 'agent' && baseRev === undefined) {
-			throw new Error('An agent command must carry the board revision it was based on.')
+		if (isAiOrigin(origin) && baseRev === undefined) {
+			throw new Error(`An ${origin} command must carry the board revision it was based on.`)
 		}
-		const checksProtection = origin === 'agent'
+		const checksProtection = isAiOrigin(origin)
 		const overlapsBefore = checksProtection ? this.getProtectedOverlaps(allowedShapeIds) : new Set<string>()
 		const previousOrigin = this.executingOrigin
 		this.executingOrigin = origin
@@ -362,13 +372,16 @@ export class BoardCommandManager {
 		return { status: 'applied', commandId, changes }
 	}
 
-	/** The applied agent commands from one pass, or from every pass of one request. */
+	/**
+	 * The applied agent and voice commands from one pass, or from every pass of
+	 * one request. A voice turn is a pass of its own, with a `voice-` id.
+	 */
 	getAgentCommandIds({ passId, requestId }: { passId?: string; requestId?: string }): string[] {
 		return this.getHistory()
 			.filter(
 				(command) =>
 					command.status === 'applied' &&
-					command.origin === 'agent' &&
+					isAiOrigin(command.origin) &&
 					((passId !== undefined && command.passId === passId) ||
 						(requestId !== undefined && command.requestId === requestId))
 			)

@@ -3,6 +3,7 @@ import { useEditor, useToasts, useValue } from 'tldraw'
 import { isReferenceBoard } from '../components/ReferenceBoard'
 import { TldrawAgent } from './TldrawAgent'
 import { TldrawAgentApp } from './TldrawAgentApp'
+import { VoiceManager } from '../voice/VoiceManager'
 
 const TldrawAgentAppContext = createContext<TldrawAgentApp | null>(null)
 
@@ -108,8 +109,12 @@ export const TldrawAgentAppProvider = memo(function TldrawAgentAppProvider({
 		;(window as any).agentApp = instance
 		;(window as any).agent = defaultAgent
 		;(window as any).editor = editor
+		const voice = new VoiceManager(defaultAgent, { persist: !!instance.board })
+		;(window as any).voice = voice
 
 		return () => {
+			voice.dispose()
+			delete (window as any).voice
 			instance.dispose()
 			setApp(null)
 			onUnmount?.()
