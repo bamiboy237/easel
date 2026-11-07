@@ -2106,14 +2106,63 @@ input.shape-parameter-value:focus-visible {
 	outline-offset: 2px;
 }
 
-.video-progress {
+/*
+ * Progress: the one bar for anything that takes time (docs/design.md,
+ * Controls, Progress). An opaque track at fill-dim and an opaque fill at data,
+ * which grows by transform alone. 3 px along the bottom edge of a placeholder,
+ * 2 px inside a pill, a card, or a note.
+ */
+.paper-progress {
+	position: relative;
+	height: 2px;
+	overflow: hidden;
+	background: var(--paper-viz-fill-dim);
+	pointer-events: none;
+}
+
+.paper-progress--edge {
 	position: absolute;
 	left: 0;
+	right: 0;
 	bottom: 0;
-	height: 2px;
-	background: var(--paper-ink);
-	opacity: 0.55;
-	transition: width 0.4s ease;
+	height: 3px;
+}
+
+.paper-progress-fill {
+	width: 100%;
+	height: 100%;
+	background: var(--paper-viz-data);
+	transform-origin: left center;
+	transition: transform 300ms linear;
+}
+
+/* Under reduced motion the fill steps, once a second, with no glide. */
+@media (prefers-reduced-motion: reduce) {
+	.paper-progress-fill {
+		transition: none;
+	}
+}
+
+/* The answer card's bar runs under its line, inside the card's padding. */
+.chat-panel--floating.tl-theme__light .chat-answer-progress {
+	margin: -4px 16px 12px;
+}
+
+/* In the expanded conversation and on a thread note, the bar sits beside the working dots. */
+.chat-history-progress,
+.thread-progress {
+	display: inline-block;
+	width: 120px;
+	margin-left: 10px;
+	vertical-align: middle;
+}
+
+/* In the voice pill, under the word "Drawing". */
+.voice-progress {
+	position: absolute;
+	left: 4px;
+	right: 6px;
+	bottom: 6px;
 }
 
 .video-controls {
@@ -2227,6 +2276,8 @@ input.shape-parameter-value:focus-visible {
 }
 
 .voice-status {
+	position: relative;
+	align-self: stretch;
 	display: inline-flex;
 	align-items: center;
 	gap: 7px;

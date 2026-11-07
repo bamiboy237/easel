@@ -1,7 +1,7 @@
 import { Editor, TLShapeId } from 'tldraw'
 import type { TldrawAgent } from '../../agent/TldrawAgent'
 import { VIDEO_TYPE, VideoShape } from '../VideoShapeUtil'
-import { freshVideos, runningVideoJobs, setVideoJob } from './jobs'
+import { freshVideos, reportVideoJob, runningVideoJobs, setVideoJob, startVideoJob } from './jobs'
 import { runAnimationPipeline } from './pipeline'
 
 /**
@@ -31,8 +31,7 @@ export async function runVideoJob(agent: TldrawAgent, id: TLShapeId, context: Vi
 	// A newer job for the same animation replaces this one.
 	runningVideoJobs.get().get(id)?.controller.abort()
 	const controller = new AbortController()
-	const startedAt = Date.now()
-	setVideoJob(id, { controller, startedAt, progress: { phase: 'writing', progress: 0, frame: null, frames: [] } })
+	startVideoJob(id, controller, { phase: 'writing', progress: 0, frame: null, frames: [] })
 	const baseRev = agent.commands.getRev()
 	const { title, brief } = shape.props
 
@@ -45,9 +44,7 @@ export async function runVideoJob(agent: TldrawAgent, id: TLShapeId, context: Vi
 			signal: controller.signal,
 			source: context.source,
 			renderTimeoutSeconds: context.renderTimeoutSeconds,
-			onProgress: (progress) => {
-				if (runningVideoJobs.get().get(id)?.controller === controller) setVideoJob(id, { controller, startedAt, progress })
-			},
+			onProgress: (progress) => reportVideoJob(id, controller, progress),
 			onLog: (event, detail) => console.debug(`[animation ${id}] ${event}`, detail ?? ''),
 		})
 		props = { status: 'ready', error: '', renderKey: result.key, source: result.source, duration: Math.round(result.duration * 10) / 10 }

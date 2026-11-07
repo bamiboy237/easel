@@ -14,6 +14,7 @@ import {
 import { parametersHeight } from './GraphShapeUtil'
 import { clampParameter, describeParameters, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import { MAX_DROPPED, MAX_STATE_CHARS, RateLimiter, readWidgetMessage } from './widget/bridge'
+import { EXPECTED_MS, ProgressBar } from '../components/ProgressBar'
 import { isWidgetJobRunning, runningWidgetJobs, widgetPreviews } from './widget/jobs'
 import { buildWidgetDocument } from './widget/sandbox'
 
@@ -169,7 +170,8 @@ function Widget({ shape }: { shape: WidgetShape }) {
 	const editor = useEditor()
 	const { w, h, title, status, params } = shape.props
 	const parameters = Object.values(params)
-	const jobRunning = useValue('widget job running', () => runningWidgetJobs.get().has(shape.id), [shape.id])
+	const jobStartedAt = useValue('widget job started', () => runningWidgetJobs.get().get(shape.id)?.startedAt ?? null, [shape.id])
+	const jobRunning = jobStartedAt !== null
 	const preview = useValue('widget preview', () => widgetPreviews.get().get(shape.id) ?? null, [shape.id])
 	const frameHeight = Math.max(40, h - widgetChromeHeight(shape.props))
 	// The frame takes pointer events once the widget is selected, so a first
@@ -221,6 +223,9 @@ function Widget({ shape }: { shape: WidgetShape }) {
 							)}
 						</div>
 					)}
+					{status === 'writing' && jobStartedAt !== null ? (
+						<ProgressBar variant="edge" label="Writing the widget" runKey={jobStartedAt} estimate={{ startedAt: jobStartedAt, expectedMs: EXPECTED_MS.widget }} />
+					) : null}
 				</div>
 				<SliderRows parameters={parameters} onSet={setParam} />
 			</div>
