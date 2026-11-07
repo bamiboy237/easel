@@ -2,7 +2,7 @@ import { atom, Box, Editor, TLShape, TLShapeId, VecModel } from 'tldraw'
 import { VoiceMode, voiceTurnDetection } from '../../shared/voice/realtime'
 import type { TldrawAgent } from '../agent/TldrawAgent'
 import { matchCue, PointCue, SentenceTracker } from './cues'
-import { CameraFollow } from './follow'
+import { CameraFollow, getCameraFollow } from './follow'
 import { BoardTarget, describeBoardForVoice, resolveTarget } from './parts'
 import { askPrediction, describeNewWork, placeNote, setParameter, VoiceTurn } from './tools'
 import { RealtimeTransport, TransportHandlers, WebRtcTransport, WebSocketTransport } from './transport'
@@ -126,7 +126,7 @@ export class VoiceManager {
 		private options: { boardId?: string; persist?: boolean } = {}
 	) {
 		managers.set(agent.editor, this)
-		this.follow = new CameraFollow(agent.editor)
+		this.follow = getCameraFollow(agent.editor)
 	}
 
 	get editor() {

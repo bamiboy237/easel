@@ -11,13 +11,26 @@ const EDGE = 48
 const MIN_ZOOM_RATIO = 0.55
 
 /**
- * Keeps what the voice talks about, and the work it delegates, in view. While
+ * Keeps what the voice talks about, the work it delegates, and the answer to
+ * a mark the user just asked about, in view. While
  * a voice conversation points at a part that is off screen, or the agent
  * places work for it there, the camera glides just far enough to show it,
  * inside the part of the view the menu and toolbar leave free. It never moves
  * while the user is working: pressing, dragging, scrolling, typing, editing a
  * shape, or within a moment of any of those.
  */
+const follows = new WeakMap<Editor, CameraFollow>()
+
+/** The editor's camera follow, made on first use. */
+export function getCameraFollow(editor: Editor): CameraFollow {
+	let follow = follows.get(editor)
+	if (!follow) {
+		follow = new CameraFollow(editor)
+		follows.set(editor, follow)
+	}
+	return follow
+}
+
 export class CameraFollow {
 	private lastInputAt = 0
 	private dispose: () => void
@@ -34,15 +47,19 @@ export class CameraFollow {
 		this.dispose = () => editor.off('event', onEvent)
 	}
 
-	/** Whether the user is working on the board, so the camera must stay where they put it. */
-	isUserBusy(now = performance.now()) {
+	/**
+	 * Whether the user is working on the board, so the camera must stay where
+	 * they put it. With `justAsked`, the input that just asked the agent, such
+	 * as Enter in a mark's question, does not count.
+	 */
+	isUserBusy(now = performance.now(), justAsked = false) {
 		const { editor } = this
-		if (now - this.lastInputAt < QUIET_MS) return true
+		if (!justAsked && now - this.lastInputAt < QUIET_MS) return true
 		if (editor.inputs.getIsPointing() || editor.inputs.getIsDragging() || editor.inputs.getIsPinching()) return true
 		if (editor.getEditingShapeId()) return true
 		// Typing in the composer, a mark's question, or a shape's text.
 		const active = document.activeElement as HTMLElement | null
-		if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return true
+		if (!justAsked && active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return true
 		return false
 	}
 
@@ -57,9 +74,9 @@ export class CameraFollow {
 	 * further than about half the user's zoom; then its top left part is shown.
 	 * Returns whether the camera moved.
 	 */
-	reveal(box: Box): boolean {
+	reveal(box: Box, { justAsked = false }: { justAsked?: boolean } = {}): boolean {
 		const { editor } = this
-		if (this.isUserBusy() || editor.getCameraOptions().isLocked) return false
+		if (this.isUserBusy(performance.now(), justAsked) || editor.getCameraOptions().isLocked) return false
 		if (this.isInView(box)) return false
 		const camera = editor.getCamera()
 		const screen = editor.getViewportScreenBounds()
@@ -89,5 +106,6 @@ export class CameraFollow {
 
 	close() {
 		this.dispose()
+		follows.delete(this.editor)
 	}
 }
