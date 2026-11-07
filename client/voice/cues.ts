@@ -96,6 +96,11 @@ export class SentenceTracker {
 		return this.sentences.length
 	}
 
+	/** The whole transcript so far. */
+	getText() {
+		return this.text
+	}
+
 	/** Characters before a sentence, for estimating when it plays when audio timing is unknown. */
 	charsBefore(index: number): number {
 		return this.sentences[index]?.start ?? this.text.length

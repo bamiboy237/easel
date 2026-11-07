@@ -1,7 +1,8 @@
-import { atom, Editor, VecModel } from 'tldraw'
+import { atom, Box, Editor, TLShape, TLShapeId, VecModel } from 'tldraw'
 import { VoiceMode, voiceTurnDetection } from '../../shared/voice/realtime'
 import type { TldrawAgent } from '../agent/TldrawAgent'
 import { matchCue, PointCue, SentenceTracker } from './cues'
+import { CameraFollow } from './follow'
 import { BoardTarget, describeBoardForVoice, resolveTarget } from './parts'
 import { askPrediction, describeNewWork, placeNote, setParameter, VoiceTurn } from './tools'
 import { RealtimeTransport, TransportHandlers, WebRtcTransport, WebSocketTransport } from './transport'
@@ -34,6 +35,10 @@ export interface VoiceLine {
 	ts: number
 	/** For the AI: the voice turn whose board changes can be reverted together. */
 	passId?: string
+	/** For the AI: the spoken item, so a line cut short can be trimmed to what was heard. */
+	itemId?: string
+	/** For the AI: the user started talking before this line finished playing. */
+	interrupted?: boolean
 }
 
 /** Timing the gate measures. All times are `performance.now()`. */
@@ -111,12 +116,17 @@ export class VoiceManager {
 	private userText = ''
 	private lastSpeechStoppedAt: number | null = null
 	private releasedAt: number | null = null
+	/** Keeps what the voice points at, and the work it delegates, in view. */
+	readonly follow: CameraFollow
+	/** AI lines not yet stored, by item, until their speech has played or been cut off. */
+	private unsaved = new Map<string, VoiceLine>()
 
 	constructor(
 		private agent: TldrawAgent,
 		private options: { boardId?: string; persist?: boolean } = {}
 	) {
 		managers.set(agent.editor, this)
+		this.follow = new CameraFollow(agent.editor)
 	}
 
 	get editor() {
@@ -175,8 +185,11 @@ export class VoiceManager {
 	stop() {
 		const transport = this.transport
 		this.transport = null
+		// What was playing when the conversation ended was heard only in part.
+		if (transport?.isPlaying()) this.cutLine(transport.stopPlayback())
 		this.cancelPending('stopped')
 		transport?.close()
+		this.saveLines()
 		const session = this.metrics.sessions[this.metrics.sessions.length - 1]
 		if (session && session.endedAt === null) session.endedAt = performance.now()
 		this.activeResponse = null
@@ -462,7 +475,13 @@ export class VoiceManager {
 		// Wait for the request to start, then to finish.
 		const started = Date.now()
 		while (!cancelled && !agent.requests.isGenerating() && Date.now() - started < 3000) await sleep(50)
-		while (!cancelled && agent.requests.isGenerating()) await sleep(200)
+		let followedAt = 0
+		while (!cancelled && agent.requests.isGenerating()) {
+			await sleep(200)
+			// Work placed for the voice comes into view as it lands, a glide at a time.
+			if (performance.now() - followedAt > 1500 && this.followNewWork(from)) followedAt = performance.now()
+		}
+		if (!cancelled) this.followNewWork(from)
 		const run = this.delegateRun
 		if (run?.callId === call.callId) this.delegateRun = null
 		const work = describeNewWork(agent, from)
@@ -478,6 +497,31 @@ export class VoiceManager {
 		this.sendToolOutput(call, `Done. ${work.summary}`)
 		if (!this.transport) return
 		this.createResponse()
+	}
+
+	/**
+	 * Bring the top-level shapes the agent placed since a history index into
+	 * view. When they are too many to show at a readable zoom, the newest is
+	 * shown. Returns whether the camera moved.
+	 */
+	private followNewWork(fromIndex: number): boolean {
+		const { editor } = this
+		const ids = new Set<string>()
+		for (const c of this.agent.commands.getHistory().slice(fromIndex)) {
+			if (c.status !== 'applied' || c.origin !== 'agent') continue
+			for (const id of Object.keys(c.payload.added)) if (id.startsWith('shape:')) ids.add(id)
+		}
+		const boxes = [...ids]
+			.map((id) => editor.getShape(id as TLShapeId))
+			.filter((s): s is TLShape => !!s && s.parentId === editor.getCurrentPageId() && !s.meta.scenePreview)
+			.map((s) => editor.getShapePageBounds(s))
+			.filter((b): b is Box => !!b)
+		if (boxes.length === 0) return false
+		const all = Box.Common(boxes)
+		const view = editor.getViewportPageBounds()
+		// Readable: no smaller than about half the user's zoom.
+		const target = all.w <= view.w * 1.8 && all.h <= view.h * 1.8 ? all : boxes[boxes.length - 1]
+		return this.follow.reveal(target)
 	}
 
 	private syncBoardAfterDelegate() {
@@ -517,7 +561,7 @@ export class VoiceManager {
 		if (!speech || this.cancelledResponses.has(event.response_id)) return
 		for (const index of speech.tracker.end()) if (index > 0) this.assignCue(event.item_id, index, speech.tracker.get(index).text)
 		const text = String(event.transcript ?? '').trim()
-		if (text) this.addLine({ speaker: 'ai', text, ts: Date.now(), passId: `voice-${event.response_id}` })
+		if (text) this.addLine({ speaker: 'ai', text, ts: Date.now(), passId: `voice-${event.response_id}`, itemId: event.item_id })
 	}
 
 	/** Match a sentence to its cue, and fire the cue when the sentence starts playing. */
@@ -565,6 +609,12 @@ export class VoiceManager {
 	fireCue(cue: Pick<PointCue, 'target' | 'highlight'>, sentence = '', sentenceStartAt = performance.now()) {
 		const target = resolveTarget(this.editor, cue.target)
 		if (!target) return
+		// A target off screen comes into view, unless the user is working; the
+		// cursor flies in page space, so it lands on the target either way.
+		// The whole shape shows when it fits, so a part is seen with its context.
+		const whole = this.editor.getShapePageBounds(target.shapeId)
+		const view = this.editor.getViewportPageBounds()
+		this.follow.reveal(whole && whole.w <= view.w * 0.9 && whole.h <= view.h * 0.75 ? whole : target.bounds)
 		const now = performance.now()
 		const current = this.cursorPosition(now)
 		const from = current ?? { x: target.anchor.x - 180, y: target.anchor.y - 120 }
@@ -604,6 +654,7 @@ export class VoiceManager {
 	}
 
 	private handlePlaybackStart(itemId: string, at: number) {
+		this.saveLines(itemId)
 		const speech = this.speech.get(itemId)
 		const turn = this.metrics.turns.find((t) => t.responseId === speech?.responseId) ?? this.metrics.turns[this.metrics.turns.length - 1]
 		if (turn && turn.firstAudioAt === null) turn.firstAudioAt = at
@@ -611,6 +662,7 @@ export class VoiceManager {
 	}
 
 	private handlePlaybackEnd() {
+		if (!this.transport?.isPlaying()) this.saveLines()
 		if (this.activeResponse || this.delegateRun || this.pushing) return
 		this.$status.set(this.transport ? (this.$mode.get() === 'handsfree' ? 'listening' : 'ready') : 'off')
 		// Highlights stay a moment after the voice stops, then fade.
@@ -636,6 +688,7 @@ export class VoiceManager {
 		if (wasPlaying) {
 			const { itemId, playedMs } = transport.stopPlayback()
 			cancelled.push('speech')
+			this.cutLine({ itemId, playedMs })
 			// Over a WebSocket the page knows what was heard, so it trims the rest from the conversation.
 			if (transport.kind === 'websocket' && itemId) {
 				transport.send({ type: 'conversation.item.truncate', item_id: itemId, content_index: 0, audio_end_ms: playedMs })
@@ -719,8 +772,61 @@ export class VoiceManager {
 		return result
 	}
 
+	/**
+	 * Add a line to the transcript. The user's lines are stored at once. The
+	 * AI's are stored once their speech has played, so a line the user cut off
+	 * is stored as far as it was heard.
+	 */
 	private addLine(line: VoiceLine) {
 		this.$lines.update((lines) => [...lines.slice(-40), line])
+		if (line.speaker === 'ai' && line.itemId && !line.interrupted) {
+			this.unsaved.set(line.itemId, line)
+			// The transcript can finish after the speech has: then it is stored now.
+			if (!this.transport?.isPlaying()) this.saveLines()
+			return
+		}
+		this.saveLine(line)
+	}
+
+	/**
+	 * The user cut the AI off: its line becomes what was heard, ending in an
+	 * ellipsis. Speech runs at about MS_PER_CHAR, so the words heard are those
+	 * that fit in the time played, cut at a word.
+	 */
+	private cutLine({ itemId, playedMs }: { itemId: string | null; playedMs: number }) {
+		if (!itemId) return
+		const speech = this.speech.get(itemId)
+		const existing = this.$lines.get().find((l) => l.itemId === itemId)
+		const full = existing?.text ?? speech?.tracker.getText().trim() ?? ''
+		if (!full) return
+		let heard = full.slice(0, Math.max(0, Math.round(playedMs / MS_PER_CHAR)))
+		if (heard.length < full.length) heard = heard.replace(/\s+\S*$/, '')
+		heard = heard.replace(/[\s,;:.!?-]+$/, '')
+		const text = heard.length < full.length ? `${heard}...` : full
+		const line: VoiceLine = existing
+			? { ...existing, text, interrupted: true }
+			: { speaker: 'ai', text, ts: Date.now(), passId: speech ? `voice-${speech.responseId}` : undefined, itemId, interrupted: true }
+		this.unsaved.delete(itemId)
+		if (!heard) {
+			// Cut off before a word was heard: nothing was said.
+			if (existing) this.$lines.update((lines) => lines.filter((l) => l !== existing))
+			return
+		}
+		if (existing) this.$lines.update((lines) => lines.map((l) => (l === existing ? line : l)))
+		else this.$lines.update((lines) => [...lines.slice(-40), line])
+		this.saveLine(line)
+	}
+
+	/** Store the AI lines whose speech has played, all but `playing`'s. */
+	private saveLines(playing?: string) {
+		for (const [itemId, line] of this.unsaved) {
+			if (itemId === playing) continue
+			this.unsaved.delete(itemId)
+			this.saveLine(line)
+		}
+	}
+
+	private saveLine(line: VoiceLine) {
 		if (!this.options.persist) return
 		void fetch(`/board/${this.options.boardId ?? 'default'}/transcripts`, {
 			method: 'POST',
@@ -731,6 +837,7 @@ export class VoiceManager {
 
 	dispose() {
 		this.stop()
+		this.follow.close()
 		managers.delete(this.agent.editor)
 	}
 }
