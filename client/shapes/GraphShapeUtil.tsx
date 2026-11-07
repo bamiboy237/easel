@@ -153,6 +153,16 @@ export class GraphShapeUtil extends ShapeUtil<GraphShape> {
 		return new Rectangle2d({ width: shape.props.w, height: shape.props.h, isFilled: true })
 	}
 
+	/**
+	 * A marked point that sits on a curve stays on it when a parameter changes,
+	 * whoever changes it: a "t = 3 s" mark on v = a t moves up the line as a
+	 * slider makes the line steeper, instead of being left behind.
+	 */
+	override onBeforeUpdate(prev: GraphShape, next: GraphShape) {
+		const points = keepPointsOnCurves(prev.props, next.props)
+		return points ? { ...next, props: { ...next.props, points } } : next
+	}
+
 	override onResize(shape: GraphShape, info: { scaleX: number; scaleY: number }) {
 		const sliders = parametersHeight(shape.props.parameters)
 		const plot = Math.max(80, (shape.props.h - sliders) * Math.abs(info.scaleY))
@@ -277,6 +287,50 @@ export function viewYMin(yMin: number, yMax: number, plotHeight: number) {
 	return yMax - (yMax * plotHeight) / (plotHeight - room)
 }
 
+/** How far a marked point may be from a curve and still be on it. */
+function onCurveTolerance(y: number) {
+	return Math.max(1e-6, Math.abs(y) * 0.05 + 0.05)
+}
+
+/**
+ * The marked points after a parameter change, with each point that was on a
+ * curve moved to stay on it. Null when nothing moves: no parameter changed,
+ * the functions changed too, or no point was on a curve. A point the same
+ * update moved itself is left where it was put.
+ */
+export function keepPointsOnCurves(prev: GraphShapeProps, next: GraphShapeProps): GraphPoint[] | null {
+	const points = next.points ?? []
+	if (points.length === 0 || prev.parameters === next.parameters) return null
+	const before = parameterScope(prev.parameters)
+	const after = parameterScope(next.parameters)
+	if (Object.keys(after).every((k) => before[k] === after[k])) return null
+	if (prev.functions.length !== next.functions.length || prev.functions.some((f, i) => f.expression !== next.functions[i].expression)) return null
+	const fns = next.functions.map((f) => {
+		try {
+			return compileExpression(f.expression)
+		} catch {
+			return null
+		}
+	})
+	let changed = false
+	const moved = points.map((p, i) => {
+		const old = prev.points?.[i]
+		if (!old || old.x !== p.x || old.y !== p.y) return p
+		let best: { fn: CompiledExpression; d: number } | null = null
+		for (const fn of fns) {
+			if (!fn) continue
+			const d = Math.abs(fn({ ...before, x: p.x }) - p.y)
+			if (Number.isFinite(d) && d <= onCurveTolerance(p.y) && (!best || d < best.d)) best = { fn, d }
+		}
+		if (!best) return p
+		const y = best.fn({ ...after, x: p.x })
+		if (!Number.isFinite(y) || y === p.y) return p
+		changed = true
+		return { ...p, y: Math.round(y * 1e6) / 1e6 }
+	})
+	return changed ? moved : null
+}
+
 /** A marked point takes the ink of the curve it lies on, so its label reads with that curve. */
 function pointInk(p: GraphPoint, compiled: { fn: CompiledExpression | null }[], scope: Record<string, number>, functions: GraphFunction[]) {
 	let best = { i: -1, d: Infinity }
@@ -286,7 +340,7 @@ function pointInk(p: GraphPoint, compiled: { fn: CompiledExpression | null }[], 
 		const d = Math.abs(y - p.y)
 		if (Number.isFinite(d) && d < best.d) best = { i, d }
 	})
-	const tolerance = Math.max(1e-6, Math.abs(p.y) * 0.05 + 0.05)
+	const tolerance = onCurveTolerance(p.y)
 	return best.i >= 0 && best.d <= tolerance ? curveInk(functions, best.i) : curveInk(functions, 0)
 }
 
