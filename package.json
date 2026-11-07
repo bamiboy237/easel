@@ -14,7 +14,8 @@
 		"dev": "vite --host 127.0.0.1",
 		"preview": "vite preview",
 		"chatgpt": "node chatgpt/helper.ts",
-		"render": "node render/server.ts"
+		"render": "node render/server.ts",
+		"check:controls": "node scripts/check-controls.mjs"
 	},
 	"dependencies": {
 		"@ai-sdk/anthropic": "^2.0.80",
@@ -51,6 +52,7 @@
 		"@types/react-dom": "^19.2.3",
 		"@vitejs/plugin-react": "^6.0.1",
 		"jose": "^6.2.15",
+		"playwright": "1.63.0",
 		"typescript": "^5.8.3",
 		"vite": "^8.0.16"
 	}
