@@ -433,7 +433,21 @@ def share_formulas(job_dir, shared_dir):
         known = shared / local.name
         if known.exists() and not local.exists():
             shutil.copyfile(known, local)
-        result = compile_svg(expression, environment, template)
+        try:
+            result = compile_svg(expression, environment, template)
+        except ValueError:
+            # Manim's message points at a log file; the writer needs the LaTeX error itself.
+            reason = ""
+            try:
+                lines = local.with_suffix(".log").read_text(errors="replace").splitlines()
+                errors = [l for l in lines if l.startswith("!")]
+                reason = " ".join(errors[:2])
+            except Exception:
+                pass
+            import re
+
+            shown = re.sub(r"\\special\{dvisvgm:raw [^}]*\}", "", expression)
+            raise ValueError(f"LaTeX could not typeset {shown!r}: {reason or 'unknown error'}. Use plain LaTeX math; words go in \\text{{}}.") from None
         if not known.exists():
             staging = shared / f"{local.name}.{os.getpid()}.tmp"
             shutil.copyfile(result, staging)

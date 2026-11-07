@@ -329,19 +329,25 @@ export async function runAnimationPipeline(options: AnimationPipelineOptions): P
 					report({ phase: 'fixing' })
 					// A fix is kept only if it renders and the layout check finds no more
 					// problems in it than in the first version: a fix can break what worked.
-					const fixSketch = await render(fixedSource!, 'sketch')
+					// Its final video renders beside that check, and is dropped if the fix is;
+					// the first version's render goes on meanwhile, in case it is needed.
+					let fixJobId: string | null = null
+					const fixFinal = render(fixedSource, 'final', (job) => {
+						fixJobId = job.id
+						report({ progress: job.progress })
+					}, sketch.steps)
+					fixFinal.catch(() => {})
+					const fixSketch = await render(fixedSource, 'sketch')
 					const better = fixSketch.status === 'done' && fixSketch.layout.length <= sketch.layout.length
 					log('fix sketched', { status: fixSketch.status, layout: fixSketch.layout, kept: better })
 					if (better) {
-						// The first version's render gives way, so the fix renders sooner; it
-						// starts again only if the fix fails. The sketch's step count lets the
-						// service split the render into even parts.
 						if (finalJobId) cancelJob(finalJobId)
-						const fixed = await render(fixedSource!, 'final', (job) => report({ progress: job.progress }), fixSketch.steps)
-						if (fixed.status === 'done') return await finish(fixedSource!, fixed, fixSketch.frames, 'fixed', problems, false, chose)
+						const fixed = await fixFinal
+						if (fixed.status === 'done') return await finish(fixedSource, fixed, fixSketch.frames, 'fixed', problems, false, chose)
 						log('the fix did not render', fixed.error)
+						// The first version again: from the cache if its render had finished.
 						firstFinal = startFinal(source)
-					}
+					} else if (fixJobId) cancelJob(fixJobId)
 				}
 			}
 		}

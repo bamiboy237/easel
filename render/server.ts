@@ -51,7 +51,7 @@ export type Quality = 'sketch' | 'preview' | 'final'
 const QUALITIES: Record<Quality, { width: number; height: number; fps: number; timeoutSeconds: number }> = {
 	sketch: { width: 854, height: 480, fps: 5, timeoutSeconds: 30 },
 	preview: { width: 854, height: 480, fps: 10, timeoutSeconds: 60 },
-	final: { width: 1920, height: 1080, fps: 30, timeoutSeconds: 150 },
+	final: { width: 1600, height: 900, fps: 24, timeoutSeconds: 150 },
 }
 
 type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
