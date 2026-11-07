@@ -582,6 +582,29 @@ export const WidgetAction = z
 
 export type WidgetAction = z.infer<typeof WidgetAction>
 
+// Render Animation Action
+export const RenderAnimationAction = z
+	.object({
+		_type: z.literal('render_animation'),
+		intent: z.string(),
+		shapeId: SimpleShapeIdSchema,
+		title: z.string(),
+		brief: z.string(),
+		x: z.number(),
+		y: z.number(),
+		width: z.number().optional(),
+		height: z.number().optional(),
+	})
+	.meta({
+		title: 'Render Animation',
+		description: [
+			'The AI starts an animation: a polished Manim video, about 10 to 30 seconds, written and rendered in the background behind a placeholder that shows it taking shape. Use it when the user asks to animate something, or to see how something moves, grows, or changes over time as a story to watch, such as a projectile with its velocity vectors, a wave built from a circle, an algorithm step by step, or a process in stages. When the user wants to change values and explore, a live scene (scene or scene_template) is the better choice. It takes about a minute, so tell the user it is on its way and carry on.',
+			'brief: everything the animation must show, in order, as the full spec for the writer, who sees nothing else: the situation with its numbers, what moves and how, what is labelled, which colour means what, and the one idea the last frame should hold. width is the video width in pixels (default 640; the height follows at 16:9). The board shows you the finished video as its last frame. To remake an animation, send it again with its shapeId and a new brief; asking again for one already on the board with the same title and brief is served from the cache at once.',
+		].join(' '),
+	})
+
+export type RenderAnimationAction = z.infer<typeof RenderAnimationAction>
+
 // Scene Object Action
 export const SceneObjectAction = z
 	.object({

@@ -1,5 +1,6 @@
 import type { OpenAIReasoningEffort } from '../../shared/models'
 import { cancelWidgetJobs } from '../shapes/widget/jobs'
+import { cancelVideoJobs } from '../shapes/video/jobs'
 import { Editor, RecordsDiff, reverseRecordsDiff, structuredClone, TLRecord, TLShapeId } from 'tldraw'
 import { convertTldrawShapeToFocusedShape } from '../../shared/format/convertTldrawShapeToFocusedShape'
 import { AgentModelName } from '../../shared/models'
@@ -663,12 +664,13 @@ export class TldrawAgent {
 
 	/**
 	 * The user stops the agent: its current request and its background work,
-	 * such as widgets still being written. A new request interrupting an old one
+	 * such as widgets and animations still being made. A new request interrupting an old one
 	 * calls cancel instead, which leaves background work running.
 	 */
 	stop() {
 		this.cancel()
 		cancelWidgetJobs()
+		cancelVideoJobs()
 	}
 
 	/**

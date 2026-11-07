@@ -105,7 +105,7 @@ function sameValue(a: unknown, b: unknown): boolean {
  * can change different parts of one shape at once: the user drags a scene's
  * slider while the agent adds an object to it. Other shapes are checked whole.
  */
-const FIELD_LEVEL_TYPES: ReadonlySet<string> = new Set(['scene', 'widget'])
+const FIELD_LEVEL_TYPES: ReadonlySet<string> = new Set(['scene', 'widget', 'animation'])
 
 /** Separates the keys of a field path. Keys are names and ids, which never hold it. */
 const PATH_SEPARATOR = '\u001f'

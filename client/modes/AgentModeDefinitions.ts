@@ -21,6 +21,7 @@ import {
 	SceneTemplateActionUtil,
 	SetParameterActionUtil,
 	WidgetActionUtil,
+	RenderAnimationActionUtil,
 	SimulationActionUtil,
 } from '../actions/InteractiveActionUtils'
 import { ReplyInThreadActionUtil } from '../actions/ReplyInThreadActionUtil'
@@ -178,6 +179,7 @@ export const AGENT_MODE_DEFINITIONS = [
 			SceneTemplateActionUtil.type,
 			SetParameterActionUtil.type,
 			WidgetActionUtil.type,
+			RenderAnimationActionUtil.type,
 
 			// Individual shapes
 			CreateActionUtil.type,
