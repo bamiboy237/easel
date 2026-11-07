@@ -15,6 +15,7 @@ import {
 	useValue,
 } from 'tldraw'
 import { AgentAppAgentsManager } from '../agent/managers/AgentAppAgentsManager'
+import { RequestProgress } from '../components/RequestProgress'
 import { isDetached } from './AnnotationBindingUtil'
 
 export const THREAD_TYPE = 'thread'
@@ -286,6 +287,7 @@ function OpenThreadNote({ shape }: { shape: ThreadShape }) {
 							<span />
 							<span />
 						</span>
+						{agentOf(editor) && <RequestProgress agent={agentOf(editor)} label="Answering" className="thread-progress" />}
 					</p>
 				)}
 				{extra === 'detached' && <p className="thread-entry thread-entry--quiet">Its shape was deleted</p>}

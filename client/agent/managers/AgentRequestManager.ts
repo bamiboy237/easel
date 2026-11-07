@@ -27,6 +27,12 @@ export class AgentRequestManager extends BaseAgentManager {
 	private $isPrompting: Atom<boolean>
 
 	/**
+	 * When the current request started, from Date.now(), for its progress bar.
+	 * The agent's own follow-up passes belong to the same request.
+	 */
+	private $startedAt: Atom<number | null>
+
+	/**
 	 * A function that cancels the agent's current prompt, if one is active.
 	 */
 	private cancelFn: (() => void) | null = null
@@ -40,6 +46,7 @@ export class AgentRequestManager extends BaseAgentManager {
 		this.$activeRequest = atom('activeRequest', null)
 		this.$scheduledRequest = atom('scheduledRequest', null)
 		this.$isPrompting = atom('isPrompting', false)
+		this.$startedAt = atom('requestStartedAt', null)
 	}
 
 	/**
@@ -50,6 +57,7 @@ export class AgentRequestManager extends BaseAgentManager {
 		this.$activeRequest.set(null)
 		this.$scheduledRequest.set(null)
 		this.$isPrompting.set(false)
+		this.$startedAt.set(null)
 		this.cancelFn = null
 	}
 
@@ -66,7 +74,14 @@ export class AgentRequestManager extends BaseAgentManager {
 	 * @param value - True if the agent is prompting, false otherwise.
 	 */
 	setIsPrompting(value: boolean) {
+		if (value && !this.$isPrompting.get()) this.$startedAt.set(Date.now())
+		if (!value) this.$startedAt.set(null)
 		this.$isPrompting.set(value)
+	}
+
+	/** When the current request started, or null when the agent is idle. */
+	getStartedAt() {
+		return this.$startedAt.get()
 	}
 
 	/**

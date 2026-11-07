@@ -10,7 +10,8 @@ import {
 	TLShapeId,
 	useValue,
 } from 'tldraw'
-import { cancelVideoJob, freshVideos, isVideoJobRunning, runningVideoJobs } from './video/jobs'
+import { ProgressBar } from '../components/ProgressBar'
+import { cancelVideoJob, freshVideos, isVideoJobRunning, runningVideoJobs, videoJobProgress } from './video/jobs'
 import type { AnimationPhase } from './video/pipeline'
 
 /** tldraw has its own `video` shape, for files the user drops, so this one has its own type. */
@@ -215,7 +216,10 @@ function Video({ shape }: { shape: VideoShape }) {
 	)
 }
 
-/** The placeholder while the animation is made: the scene so far, the phase, and a stop button. */
+/**
+ * The placeholder while the animation is made: the scene so far, the phase,
+ * the time, a stop button, and one bar for the whole job along the bottom.
+ */
 function Making({ shape }: { shape: VideoShape }) {
 	const job = useValue('video job', () => runningVideoJobs.get().get(shape.id) ?? null, [shape.id])
 	const [, tick] = useState(0)
@@ -224,9 +228,11 @@ function Making({ shape }: { shape: VideoShape }) {
 		return () => clearInterval(timer)
 	}, [])
 	if (!job) return null
-	const { phase, progress, frame } = job.progress
+	const { phase, frame } = job.progress
 	const seconds = Math.round((Date.now() - job.startedAt) / 1000)
-	const showProgress = phase === 'rendering' || phase === 'fixing'
+	// The percent shows only where the bar is driven by real render frames.
+	const real = (phase === 'rendering' || phase === 'fixing') && job.progress.progress > 0
+	const percent = real ? Math.round(videoJobProgress(job) * 100) : null
 	return (
 		<div className="video-making">
 			{frame ? (
@@ -244,7 +250,7 @@ function Making({ shape }: { shape: VideoShape }) {
 						<span />
 					</span>
 					{PHASE_LABELS[phase]}
-					{showProgress && progress > 0 ? <span className="video-making-percent">{Math.round(progress * 100)}%</span> : null}
+					{percent !== null ? <span className="video-making-percent">{percent}%</span> : null}
 					<span className="video-making-time">{seconds} s</span>
 				</span>
 				<button
@@ -258,7 +264,7 @@ function Making({ shape }: { shape: VideoShape }) {
 					Stop
 				</button>
 			</div>
-			<div className="video-progress" style={{ width: `${Math.round((showProgress ? progress : phase === 'writing' ? 0.05 : 0.15) * 100)}%` }} />
+			<ProgressBar variant="edge" label="Making the animation" runKey={job.startedAt} compute={(now) => videoJobProgress(job, now)} />
 		</div>
 	)
 }

@@ -5,7 +5,13 @@ import { atom, TLShapeId } from 'tldraw'
  * so a widget still marked as writing with no job here was left behind, by a
  * reload or a cancel, and shows that instead of waiting forever.
  */
-export const runningWidgetJobs = atom<ReadonlyMap<TLShapeId, AbortController>>('running widget jobs', new Map())
+export interface WidgetJob {
+	controller: AbortController
+	/** When the job started, from Date.now(), for its progress bar. */
+	startedAt: number
+}
+
+export const runningWidgetJobs = atom<ReadonlyMap<TLShapeId, WidgetJob>>('running widget jobs', new Map())
 
 export function isWidgetJobRunning(id: TLShapeId): boolean {
 	return runningWidgetJobs.get().has(id)
@@ -28,6 +34,6 @@ export function setWidgetPreview(id: TLShapeId, preview: { html: string; css: st
 
 /** Stop every widget job, as when the user stops the agent. */
 export function cancelWidgetJobs() {
-	for (const controller of runningWidgetJobs.get().values()) controller.abort()
+	for (const job of runningWidgetJobs.get().values()) job.controller.abort()
 	runningWidgetJobs.set(new Map())
 }

@@ -7,6 +7,7 @@ import {
 import { useAgent } from '../../agent/TldrawAgentAppProvider'
 import { ChatHistoryGroup, getActionHistoryGroups } from './ChatHistoryGroup'
 import { ChatHistoryPrompt } from './ChatHistoryPrompt'
+import { RequestProgress } from '../RequestProgress'
 
 export interface ChatHistorySection {
 	prompt: ChatHistoryPromptItem
@@ -16,9 +17,12 @@ export interface ChatHistorySection {
 export function ChatHistorySection({
 	section,
 	loading,
+	progress = true,
 }: {
 	section: ChatHistorySection
 	loading: boolean
+	/** Show the request's progress bar beside the working dots. */
+	progress?: boolean
 }) {
 	const agent = useAgent()
 	const actions = section.items.filter((item) => item.type === 'action')
@@ -37,6 +41,7 @@ export function ChatHistorySection({
 						<span />
 						<span />
 					</span>
+					{progress && <RequestProgress agent={agent} className="chat-history-progress" />}
 				</p>
 			)}
 		</div>

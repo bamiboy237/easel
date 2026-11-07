@@ -85,7 +85,7 @@ The board should feel like paper: warm paper tones, dark ink, an editorial serif
 
 ## Controls
 
-These rules cover every control on the board and around it: sliders, players, scrubbers, status pills, the voice pill, and the answer card. They follow Toolcraft's control rules (pixel-point/toolcraft, MIT), in Easel's paper inks. The styles live in `client/theme/paper.css`.
+These rules cover every control on the board and around it: sliders, players, scrubbers, status pills, progress bars, the voice pill, and the answer card. They follow Toolcraft's control rules (pixel-point/toolcraft, MIT), in Easel's paper inks. The styles live in `client/theme/paper.css`.
 
 Each rule is one of two kinds, as in Toolcraft's decision contract:
 
@@ -94,7 +94,7 @@ Each rule is one of two kinds, as in Toolcraft's decision contract:
 
 A **known gap** is a rule the code does not meet yet. The check prints it as a `GAP` line and does not fail on it. Fix the gap, then make the check enforce it.
 
-The check needs a running dev server: `npm run check:controls -- http://127.0.0.1:5192`, or set `EASEL_URL`. It adds a graph, a scene, and an animation to the reference board, which is never saved, and measures them in Chromium.
+The check needs a running dev server: `npm run check:controls -- http://127.0.0.1:5192`, or set `EASEL_URL`. It adds a graph, a scene, and an animation to the reference board, which is never saved, and measures them in Chromium. For the progress bar it runs a stand-in animation job and widget job through the app's job records, with no model calls.
 
 ### Sliders
 
@@ -158,6 +158,33 @@ The scale is opaque mixes of `--paper-ink` (#1f1e1b) into `--paper-card` (#fffff
 - Hard: a floating surface is one card layer, at least 98% opaque, never a stack of films.
 - Default: the voice pill and a render's status pill are fully rounded, with a `--paper-viz-border` hairline. The voice pill is the card at 98% with the small shadow, and opens with no transition. The status pill is 24 px and opaque, and Stop is a separate pill on the same surface.
 - Default: the answer card is the top of one floating sheet with the composer: an opaque card, a 1 px `--paper-rule` border, a 22 px radius, and a soft shadow. It opens in 200 ms on `--ease-out`.
+
+### Progress
+
+One bar, `ProgressBar` (`client/components/ProgressBar.tsx`, styled as `.paper-progress`), shows how far along any work is that takes more than about 2 seconds: an animation, a widget's code, an agent request, and a voice `delegate` pass.
+
+- Hard: work that takes more than about 2 seconds shows this bar, not only dots or a spinner. The working dots and the step text stay beside it.
+- Hard: the track is 1 to 3 px, an opaque `--paper-viz-fill-dim` or `--paper-viz-line`. The fill is an opaque `--paper-viz-data` or `--paper-ink`. No film or fade sits over the bar or its parents.
+- Hard: the bar never goes backward while the same work runs. An animation has one bar for the whole job, so a new phase starts where the bar stands.
+- Default: the fill is `--paper-viz-data`, so the bar stays within the ink budget. It grows by `transform` alone, with a 300 ms linear glide. Under reduced motion it steps once a second, with no glide.
+- Default: along the bottom edge of a placeholder (an animation or a widget) the bar is 3 px and spans the frame. Inside the answer card, the voice pill, the expanded conversation, and a thread note it is 2 px.
+- Default: real progress drives the bar where it exists: the final video's rendered frames. Elsewhere the bar is an estimate. It eases toward 90% over the expected duration (about 81% at that duration, about 89% at twice it), never reaches 90% on its own, and fills when the work ends.
+- Default: a percent shows only while real frames drive the bar. An estimate shows no number.
+- Default: when a request ends, its bar fills and stays for 450 ms, then goes. Under reduced motion it goes at once.
+
+The expected durations are measured on the plan model, in November 2026.
+
+| Work | Expected | Measured |
+| --- | --- | --- |
+| Agent request, typed or delegated | 15 s | 12 s and 18 s |
+| Widget code | 35 s | 29 s and 40 s |
+| Animation: writing, then the whole scene's sketch | 35 s, to 50% of the bar | 30, 37, and 39 s |
+| Animation: checking the sketch | 10 s, to 65% | 4, 9, and 11 s |
+| Animation: a fix, its sketch and video | 12 s, real frames to 100% | 8, 11, and 13 s |
+| Animation: the final video | 15 s, real frames to 100% | Not reached: all three reviews fixed the scene |
+| Animation: the whole job | | 42, 60, and 62 s (the Phase 12 gate saw 64 to 89 s) |
+
+The animation's phases and their stretches of the bar are in `client/shapes/video/progress.ts`. The other durations are `EXPECTED_MS` in `ProgressBar.tsx`.
 
 ### Animated previews, pan, and zoom
 
