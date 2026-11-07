@@ -1,9 +1,10 @@
 import { atom, Editor, OverlayUtil, TLOverlay, VecModel } from 'tldraw'
-import { getVoiceManager, VoiceCursor, VoiceMark } from '../voice/VoiceManager'
+import { AiCursorFlight, getAiCursor } from '../agent/aiCursor'
+import { getVoiceManager, VoiceMark } from '../voice/VoiceManager'
 
 interface VoiceCursorOverlay extends TLOverlay {
 	type: 'voice-cursor'
-	props: { cursor: VoiceCursor | null; marks: VoiceMark[] }
+	props: { cursor: AiCursorFlight | null; marks: VoiceMark[] }
 }
 
 /** The board's accent ink, for the AI's cursor. */
@@ -41,18 +42,16 @@ export class VoiceCursorOverlayUtil extends OverlayUtil<VoiceCursorOverlay> {
 
 	override isActive(): boolean {
 		const voice = getVoiceManager(this.editor)
-		return !!voice && (!!voice.$cursor.get() || voice.$marks.get().length > 0)
+		return !!getAiCursor(this.editor).$cursor.get() || (!!voice && voice.$marks.get().length > 0)
 	}
 
 	override getOverlays(): VoiceCursorOverlay[] {
 		const voice = getVoiceManager(this.editor)
-		if (!voice) return []
 		this.$frame.get()
-		return [{ id: 'voice-cursor', type: 'voice-cursor', props: { cursor: voice.$cursor.get(), marks: voice.$marks.get() } }]
+		return [{ id: 'voice-cursor', type: 'voice-cursor', props: { cursor: getAiCursor(this.editor).$cursor.get(), marks: voice?.$marks.get() ?? [] } }]
 	}
 
 	override render(ctx: CanvasRenderingContext2D, overlays: VoiceCursorOverlay[]): void {
-		const voice = getVoiceManager(this.editor)
 		const zoom = this.editor.getZoomLevel()
 		const now = performance.now()
 		let animating = false
@@ -72,13 +71,13 @@ export class VoiceCursorOverlayUtil extends OverlayUtil<VoiceCursorOverlay> {
 					} else if (pulse < 0) animating = true
 				}
 			}
-			if (props.cursor && voice) {
+			if (props.cursor) {
 				const t = (now - props.cursor.startedAt) / props.cursor.duration
 				if (t < 1) {
 					animating = true
 					this.renderTrail(ctx, props.cursor, t, zoom)
 				}
-				const at = voice.cursorPosition(now)
+				const at = getAiCursor(this.editor).position(now)
 				if (at) this.renderCursor(ctx, at, zoom)
 			}
 		}
@@ -122,7 +121,7 @@ export class VoiceCursorOverlayUtil extends OverlayUtil<VoiceCursorOverlay> {
 	}
 
 	/** A faint dotted line ahead of the cursor while it flies. */
-	private renderTrail(ctx: CanvasRenderingContext2D, cursor: VoiceCursor, t: number, zoom: number) {
+	private renderTrail(ctx: CanvasRenderingContext2D, cursor: AiCursorFlight, t: number, zoom: number) {
 		ctx.save()
 		ctx.strokeStyle = ACCENT
 		ctx.globalAlpha = 0.22 * (1 - Math.max(0, t))
