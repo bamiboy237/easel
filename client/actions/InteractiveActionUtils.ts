@@ -681,17 +681,27 @@ export const RenderAnimationActionUtil = registerActionUtil(
 				w,
 				h: videoHeightForWidth(w),
 			}
-			if (existing) {
-				editor.updateShape<VideoShape>({ id, type: VIDEO_TYPE, props })
-			} else {
-				const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
-				editor.createShape<VideoShape>({ id, type: VIDEO_TYPE, x: at.x, y: at.y, props })
-				settleBlock(this.agent, id)
-			}
+			// The placeholder stays out of undo history. The finished animation lands
+			// as one undo step from the board before the request, so Undo takes the
+			// whole animation away (or brings back the video it replaced) at once,
+			// never a placeholder whose job is gone.
+			const before = existing ?? null
+			editor.run(
+				() => {
+					if (existing) {
+						editor.updateShape<VideoShape>({ id, type: VIDEO_TYPE, props })
+					} else {
+						const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
+						editor.createShape<VideoShape>({ id, type: VIDEO_TYPE, x: at.x, y: at.y, props })
+						settleBlock(this.agent, id)
+					}
+				},
+				{ history: 'ignore' }
+			)
 			// The job starts once this command is recorded, so its base revision
 			// follows it, and only if the command was applied.
 			const agent = this.agent
-			const context = { ...agent.getPassIds(), allowedShapeIds: agent.getAllowedShapeIds() }
+			const context = { ...agent.getPassIds(), allowedShapeIds: agent.getAllowedShapeIds(), before }
 			const brief = props.brief
 			setTimeout(() => {
 				const placed = editor.getShape<VideoShape>(id)
