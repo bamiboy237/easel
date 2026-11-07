@@ -72,8 +72,11 @@ export class VoiceCursorOverlayUtil extends OverlayUtil<VoiceCursorOverlay> {
 				}
 			}
 			if (props.cursor) {
-				// The cursor flies with no trail, as a hand moves a real pointer.
-				if ((now - props.cursor.startedAt) / props.cursor.duration < 1) animating = true
+				const t = (now - props.cursor.startedAt) / props.cursor.duration
+				if (t < 1) {
+					animating = true
+					this.renderTrail(ctx, props.cursor, t, zoom)
+				}
 				const at = getAiCursor(this.editor).position(now)
 				if (at) this.renderCursor(ctx, at, zoom)
 			}
@@ -117,13 +120,27 @@ export class VoiceCursorOverlayUtil extends OverlayUtil<VoiceCursorOverlay> {
 		ctx.restore()
 	}
 
-	/** A white arrow pointer with a black edge and a soft shadow, the same size at any zoom. */
+	/** A faint dotted line ahead of the cursor while it flies. */
+	private renderTrail(ctx: CanvasRenderingContext2D, cursor: AiCursorFlight, t: number, zoom: number) {
+		ctx.save()
+		ctx.strokeStyle = ACCENT
+		ctx.globalAlpha = 0.22 * (1 - Math.max(0, t))
+		ctx.lineWidth = 1.25 / zoom
+		ctx.setLineDash([2 / zoom, 5 / zoom])
+		ctx.beginPath()
+		ctx.moveTo(cursor.from.x, cursor.from.y)
+		ctx.quadraticCurveTo(cursor.control.x, cursor.control.y, cursor.to.x, cursor.to.y)
+		ctx.stroke()
+		ctx.restore()
+	}
+
+	/** A white arrowhead pointer with no tail, a black edge and a soft shadow, the same size at any zoom. */
 	private renderCursor(ctx: CanvasRenderingContext2D, at: VecModel, zoom: number) {
 		const s = 1 / zoom
 		ctx.save()
 		ctx.translate(at.x, at.y)
 		ctx.scale(s, s)
-		const arrow = new Path2D('M0 0 L0 16.6 L3.9 12.9 L6.6 19.3 L9.4 18.1 L6.8 11.9 L12 11.9 Z')
+		const arrow = new Path2D('M0 0 L0 15.5 L4.4 11.3 L11.2 11 Z')
 		ctx.shadowColor = 'rgba(0, 0, 0, 0.32)'
 		ctx.shadowBlur = 3
 		ctx.shadowOffsetY = 1

@@ -1,4 +1,5 @@
 import { atom, Box, BoxModel, RecordsDiff, structuredClone, TLFrameShape, TLRecord, TLShapeId } from 'tldraw'
+import { getCameraFollow } from '../../voice/follow'
 import { getAiCursor } from '../aiCursor'
 import { getVoiceManager } from '../../voice/VoiceManager'
 import { parseAgentAction } from '../../../shared/schema/parseAgentAction'
@@ -168,7 +169,13 @@ export class AgentActionManager extends BaseAgentManager {
 		const boxes = ids.map((id) => editor.getShapePageBounds(id)).filter((b): b is Box => !!b)
 		if (boxes.length === 0) return
 		const cursor = getAiCursor(editor)
-		cursor.flyToBox(boxes[boxes.length - 1])
+		const last = boxes[boxes.length - 1]
+		// The camera follows the agent as it creates, so the user watches it draw,
+		// unless they are working. An empty composer that kept focus is not work.
+		const active = document.activeElement
+		const idle = active instanceof HTMLTextAreaElement && active.closest('.chat-input-container') && !active.value.trim() ? active : null
+		getCameraFollow(editor).reveal(last, { idleElement: idle })
+		cursor.flyToBox(last)
 		// The cursor stays while the agent works, and leaves a moment after it stops.
 		cursor.hideAfter(4000)
 	}
