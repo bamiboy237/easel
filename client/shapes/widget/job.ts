@@ -30,9 +30,9 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 	const shape = editor.getShape<WidgetShape>(id)
 	if (!shape || shape.type !== WIDGET_TYPE) return
 	// A newer job for the same widget replaces this one.
-	runningWidgetJobs.get().get(id)?.abort()
+	runningWidgetJobs.get().get(id)?.controller.abort()
 	const controller = new AbortController()
-	runningWidgetJobs.update((jobs) => new Map(jobs).set(id, controller))
+	runningWidgetJobs.update((jobs) => new Map(jobs).set(id, { controller, startedAt: Date.now() }))
 	const baseRev = agent.commands.getRev()
 	const { title, brief, w, h, params, state } = shape.props
 	const request = {

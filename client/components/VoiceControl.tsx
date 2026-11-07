@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useEditor, useValue } from 'tldraw'
 import { getVoiceManager, VoiceStatus } from '../voice/VoiceManager'
+import { AgentAppAgentsManager } from '../agent/managers/AgentAppAgentsManager'
+import { RequestProgress } from './RequestProgress'
 
 const STATUS_TEXT: Record<VoiceStatus, string> = {
 	off: 'Voice',
@@ -37,6 +39,7 @@ export function VoiceControl() {
 	const lastAi = useValue('voice last line', () => [...(voice?.$lines.get() ?? [])].reverse().find((l) => l.speaker === 'ai'), [voice])
 	const canUndo = useValue('voice can undo', () => !!lastAi?.passId && !!voice?.turnChanged(lastAi.passId), [voice, lastAi])
 	const holding = useRef(false)
+	const agent = AgentAppAgentsManager.getAgents(editor)[0]
 
 	useEffect(() => {
 		if (!voice) return
@@ -101,6 +104,8 @@ export function VoiceControl() {
 							</span>
 						)}
 						{mode === 'handsfree' && status === 'ready' ? 'Listening' : STATUS_TEXT[status]}
+						{/* A delegate pass is an agent request: its bar sits under the word. */}
+						{status === 'working' && agent && <RequestProgress agent={agent} label="Drawing" className="voice-progress" />}
 					</span>
 					<button
 						className={`voice-mode${mode === 'handsfree' ? ' voice-mode--on' : ''}`}

@@ -5,7 +5,9 @@
  * It opens the reference board (which is never saved), adds a graph with
  * sliders, a scene with a player, and an animation on a fresh page at zoom 1,
  * and measures the controls in a real browser: computed styles, the rules in
- * paper.css, and pixels from screenshots. It needs no model calls.
+ * paper.css, and pixels from screenshots. It also runs a stand-in animation
+ * job and widget job through the app's own job records, to measure the
+ * progress bar. It needs no model calls.
  *
  * Usage:
  *   npm run check:controls -- http://127.0.0.1:5192
@@ -60,6 +62,7 @@ const SPEC = {
 	button: { w: 24, h: 22 },
 	focus: { width: 2, offset: 2, minContrast: 3 },
 	disabledOpacity: 0.35,
+	progress: { minHeight: 1, maxHeight: 3, track: ['--paper-viz-fill-dim', '--paper-viz-line'], fill: ['--paper-viz-data', '--paper-ink'] },
 }
 
 const results = []
@@ -262,6 +265,7 @@ async function main() {
 		await checkStateLayers(page)
 		await checkTransport(page)
 		await checkDisabledAndSurfaces(page)
+		await checkProgress(page)
 		await probePanAndZoom(page)
 	} catch (error) {
 		fail('the check ran to the end', String(error?.stack || error))
@@ -676,6 +680,114 @@ async function checkDisabledAndSurfaces(page) {
 	check(st.bg.a === 1 && hairline.test(st.shadow) && parseFloat(st.radius) * 2 >= parseFloat(st.height), 'status pill: opaque card, ink hairline, fully rounded', `alpha ${st.bg.a}, ${st.radius} on ${st.height}`)
 	const a = facts.answer
 	check(a.bg.a === 1 && a.border === '1px' && a.radius === '22px', 'answer card: opaque card, 1 px rule, 22 px radius', `alpha ${a.bg.a}, ${a.border}, ${a.radius}`)
+}
+
+/**
+ * Progress: the shared bar on an animation and a widget whose jobs run. The
+ * jobs are stand-ins, set in the app's own job records, so no model runs.
+ */
+async function checkProgress(page) {
+	const facts = await page.evaluate(async () => {
+		// The app's own module instances, as the page loaded them.
+		const load = (p) => import(performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p)
+		const video = await load('/client/shapes/video/jobs.ts')
+		const widget = await load('/client/shapes/widget/jobs.ts')
+		const editor = window.editor
+		const ids = { video: 'shape:cc-making', widget: 'shape:cc-writing' }
+		editor.createShapes([
+			{ id: ids.video, type: 'animation', x: 40, y: 560, props: { title: 'Progress check', brief: 'A stand-in job.', status: 'rendering' } },
+			{ id: ids.widget, type: 'widget', x: 720, y: 560, props: { title: 'Progress check', brief: 'A stand-in job.', status: 'writing', w: 360, h: 240 } },
+		])
+		const now = Date.now()
+		const controller = new AbortController()
+		video.startVideoJob(ids.video, controller, { phase: 'writing', progress: 0, frame: null, frames: [] }, now - 30000)
+		widget.runningWidgetJobs.update((jobs) => new Map(jobs).set(ids.widget, { controller: new AbortController(), startedAt: now - 10000 }))
+		const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+		await wait(400)
+
+		const read = (id) => {
+			const bar = document.querySelector(`[data-shape-id="${id}"] .paper-progress`)
+			if (!bar) return null
+			const fill = bar.querySelector('.paper-progress-fill')
+			let faded = []
+			for (let node = bar; node && node !== document.documentElement; node = node.parentElement) {
+				const o = Number(getComputedStyle(node).opacity)
+				if (o < 1) faded.push(`${String(node.className).split(' ')[0]} ${o}`)
+			}
+			const fillOpacity = Number(getComputedStyle(fill).opacity)
+			if (fillOpacity < 1) faded.push(`fill ${fillOpacity}`)
+			return {
+				role: bar.getAttribute('role'),
+				valuenow: bar.getAttribute('aria-valuenow'),
+				height: bar.getBoundingClientRect().height,
+				track: __cc.parseColor(getComputedStyle(bar).backgroundColor),
+				fill: __cc.parseColor(getComputedStyle(fill).backgroundColor),
+				faded,
+				value: Number(bar.dataset.progress),
+			}
+		}
+		const tokens = (names) => names.map((n) => __cc.hex(__cc.resolve(`var(${n})`, document.querySelector(`[data-shape-id="${ids.video}"]`))))
+		const first = { video: read(ids.video), widget: read(ids.widget) }
+
+		// Walk the animation through its phases, with a render that starts over
+		// from 0, and read the bar after each step: it may only go forward.
+		const steps = [
+			['checking', 0],
+			['fixing', 0.6],
+			['fixing', 0.1],
+			['writing', 0],
+			['rendering', 0.05],
+			['rendering', 0.5],
+		]
+		const values = [first.video?.value ?? 0]
+		for (const [phase, progress] of steps) {
+			video.reportVideoJob(ids.video, controller, { phase, progress, frame: null, frames: [] })
+			await wait(350)
+			values.push(read(ids.video)?.value ?? -1)
+		}
+		const sheet = []
+		for (const s of document.styleSheets) {
+			const walk = (list, reduce) => {
+				for (const r of list) {
+					const inReduce = reduce || (r.media && /prefers-reduced-motion:\s*reduce/.test(r.media.mediaText))
+					if (r.selectorText && inReduce && /paper-progress-fill/.test(r.selectorText)) sheet.push(r.style.transition || r.style.transitionProperty)
+					else if (r.cssRules) walk(r.cssRules, inReduce)
+				}
+			}
+			try {
+				walk(s.cssRules, false)
+			} catch {}
+		}
+		video.cancelVideoJob(ids.video)
+		widget.cancelWidgetJobs()
+		editor.deleteShapes([ids.video, ids.widget])
+		return { first, values, reduced: sheet, track: tokens(['--paper-viz-fill-dim', '--paper-viz-line']), fill: tokens(['--paper-viz-data', '--paper-ink']) }
+	})
+	const p = SPEC.progress
+	for (const [label, bar] of [
+		['animation', facts.first.video],
+		['widget', facts.first.widget],
+	]) {
+		if (!bar) {
+			fail(`progress (${label}): a running job shows a progress bar`)
+			continue
+		}
+		pass(`progress (${label}): a running job shows a progress bar`)
+		check(bar.role === 'progressbar' && bar.valuenow !== null, `progress (${label}): the bar is a progressbar with a value`, `${bar.role}, ${bar.valuenow}`)
+		check(bar.height >= p.minHeight - 0.01 && bar.height <= p.maxHeight + 0.01, `progress (${label}): the track is ${p.minHeight} to ${p.maxHeight} px`, `${bar.height} px`)
+		const trackHex = hexOf(bar.track)
+		const fillHex = hexOf(bar.fill)
+		check(bar.track.a === 1 && facts.track.some((t) => sameHex(t, trackHex, 1)), `progress (${label}): the track is an opaque fill-dim or line`, `${trackHex}/${bar.track.a}`)
+		check(bar.fill.a === 1 && facts.fill.some((t) => sameHex(t, fillHex, 1)), `progress (${label}): the fill is an opaque data or ink`, `${fillHex}/${bar.fill.a}`)
+		check(bar.faded.length === 0, `progress (${label}): no film or fade over the bar`, bar.faded.join('; ') || 'none')
+	}
+	const backward = facts.values.findIndex((v, i) => i > 0 && v < facts.values[i - 1] - 1e-6)
+	check(backward < 0 && facts.values.at(-1) > facts.values[0], 'progress: an animation\'s bar only moves forward across its phases', facts.values.map((v) => v.toFixed(3)).join(' -> '))
+	check(facts.reduced.some((t) => /none|^0s/.test(t)), 'progress: the fill does not glide under reduced motion', facts.reduced.join(', ') || 'no reduced-motion rule')
+}
+
+function hexOf(c) {
+	return '#' + [c.r, c.g, c.b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
 }
 
 /** Known gap: animated previews keep running while the user pans and zooms. Reported, not enforced. */

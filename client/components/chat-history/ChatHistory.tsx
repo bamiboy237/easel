@@ -66,6 +66,8 @@ export function ChatHistory({ agent, latestOnly = false }: { agent: TldrawAgent;
 						key={'history-section-' + (allSections.length - sections.length + i)}
 						section={section}
 						loading={i === sections.length - 1 && isGenerating}
+						// The answer card has its own bar, along its bottom edge.
+						progress={!latestOnly}
 					/>
 				)
 			})}

@@ -7,6 +7,7 @@ import { answerQuestion, getOpenQuestion } from '../agent/openQuestion'
 import { useAgent } from '../agent/TldrawAgentAppProvider'
 import { ChatHistory } from './chat-history/ChatHistory'
 import { ChatInput } from './ChatInput'
+import { RequestProgress } from './RequestProgress'
 import { TodoList } from './TodoList'
 
 /**
@@ -304,6 +305,8 @@ export function ChatPanel() {
 							) : (
 								<ChatHistory agent={agent} latestOnly />
 							)}
+							{/* While the agent works, one bar along the bottom of the card shows how far it has got. */}
+							<RequestProgress agent={agent} className="chat-answer-progress" />
 						</div>
 					)}
 					{composer}
