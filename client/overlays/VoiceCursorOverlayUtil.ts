@@ -134,31 +134,24 @@ export class VoiceCursorOverlayUtil extends OverlayUtil<VoiceCursorOverlay> {
 		ctx.restore()
 	}
 
-	/** An arrow pointer in the accent ink, with a paper edge, the same size at any zoom. */
+	/** The macOS arrow pointer: black with a white edge and a soft shadow, the same size at any zoom. */
 	private renderCursor(ctx: CanvasRenderingContext2D, at: VecModel, zoom: number) {
 		const s = 1 / zoom
 		ctx.save()
 		ctx.translate(at.x, at.y)
 		ctx.scale(s, s)
-		ctx.shadowColor = 'rgba(60, 45, 20, 0.18)'
-		ctx.shadowBlur = 4
+		const arrow = new Path2D('M0 0 L0 16.6 L3.9 12.9 L6.6 19.3 L9.4 18.1 L6.8 11.9 L12 11.9 Z')
+		ctx.shadowColor = 'rgba(0, 0, 0, 0.32)'
+		ctx.shadowBlur = 3
 		ctx.shadowOffsetY = 1
-		ctx.beginPath()
-		ctx.moveTo(0, 0)
-		ctx.lineTo(0, 18)
-		ctx.lineTo(4.6, 13.8)
-		ctx.lineTo(8, 21)
-		ctx.lineTo(11, 19.6)
-		ctx.lineTo(7.7, 12.6)
-		ctx.lineTo(13.6, 12.6)
-		ctx.closePath()
-		ctx.fillStyle = ACCENT
-		ctx.fill()
-		ctx.shadowColor = 'transparent'
-		ctx.strokeStyle = '#fffefb'
-		ctx.lineWidth = 1.5
+		// The white edge is a wider stroke under the black fill, as the system pointer draws it.
+		ctx.strokeStyle = '#ffffff'
+		ctx.lineWidth = 2.6
 		ctx.lineJoin = 'round'
-		ctx.stroke()
+		ctx.stroke(arrow)
+		ctx.shadowColor = 'transparent'
+		ctx.fillStyle = '#000000'
+		ctx.fill(arrow)
 		ctx.restore()
 	}
 }
