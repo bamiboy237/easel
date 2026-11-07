@@ -1,4 +1,5 @@
 import { FormEventHandler, useCallback, useEffect, useRef, useState } from 'react'
+import { getCameraFollow } from '../voice/follow'
 import { Box, TLShapeId, useValue } from 'tldraw'
 import { getUsableViewBounds } from '../agent/findClearSpace'
 import { AgentFace } from '../../shared/icons/AgentFace'
@@ -204,7 +205,8 @@ export function ChatPanel() {
 			const editor = agent.editor
 			const boxes = lastWork.createdIds
 				.map((id) => editor.getShape(id as TLShapeId))
-				.filter((shape) => !!shape && shape.parentId === editor.getCurrentPageId())
+				// Page bounds cover work drawn inside frames too, such as a map filled in later.
+				.filter((shape) => !!shape)
 				.map((shape) => editor.getShapePageBounds(shape!))
 				.filter((b): b is Box => !!b)
 			if (boxes.length === 0) return null
@@ -215,10 +217,8 @@ export function ChatPanel() {
 	)
 	const showWork = () => {
 		if (!hiddenWork) return
-		agent.editor.zoomToBounds(hiddenWork.clone().expandBy(60), {
-			targetZoom: Math.min(1, agent.editor.getZoomLevel()),
-			animation: { duration: 500 },
-		})
+		// The user asked to see it, so the camera moves now, into the free part of the view.
+		getCameraFollow(agent.editor).reveal(hiddenWork, { justAsked: true })
 	}
 
 	const composer = (

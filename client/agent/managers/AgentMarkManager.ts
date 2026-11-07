@@ -453,11 +453,7 @@ export class AgentMarkManager extends BaseAgentManager {
 		// The answer is to what the user is looking at, so when its note landed out
 		// of view, the camera glides to show the mark and the note together.
 		const noteBox = editor.getShapePageBounds(threadId)
-		if (noteBox) {
-			const both = Box.Common([noteBox, markBounds])
-			const view = editor.getViewportPageBounds()
-			getCameraFollow(editor).reveal(both.w <= view.w && both.h <= view.h ? both : noteBox, { justAsked: true })
-		}
+		if (noteBox) getCameraFollow(editor).revealWithAnchor(noteBox, markBounds, { justAsked: true })
 		this.send({ ...draft, targetIds, text: intent, threadId, history: [] }, question)
 	}
 

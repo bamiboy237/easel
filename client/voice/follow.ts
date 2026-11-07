@@ -100,6 +100,16 @@ export class CameraFollow {
 		return true
 	}
 
+	/**
+	 * Reveal a note with what it answers: both together when they fit the usable
+	 * view, otherwise the note alone.
+	 */
+	revealWithAnchor(note: Box, anchor: Box | null, opts: { justAsked?: boolean } = {}): boolean {
+		const usable = this.usable()
+		const both = anchor ? Box.Common([note, anchor]) : note
+		return this.reveal(both.w <= usable.w && both.h <= usable.h ? both : note, opts)
+	}
+
 	private usable() {
 		return getUsableViewBounds(this.editor)
 	}

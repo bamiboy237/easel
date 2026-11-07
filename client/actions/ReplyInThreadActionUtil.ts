@@ -71,12 +71,13 @@ export const ReplyInThreadActionUtil = registerActionUtil(
 			// is working. It moves after this step is applied, so it is not a command.
 			const markId = thread.props.markShapeId as TLShapeId
 			setTimeout(() => {
+				// A reply rejected as stale or protected was rolled back: there is nothing to show.
+				const current = editor.getShape<ThreadShape>(id)
+				if (!current || JSON.stringify(current.props.entries) !== JSON.stringify(entries)) return
 				const note = editor.getShapePageBounds(id)
 				if (!note) return
 				const mark = (markId && editor.getShapePageBounds(markId)) || null
-				const both = mark ? Box.Common([note, mark]) : note
-				const fits = both.w <= editor.getViewportPageBounds().w && both.h <= editor.getViewportPageBounds().h
-				getCameraFollow(editor).reveal(fits ? both : note)
+				getCameraFollow(editor).revealWithAnchor(note, mark)
 			}, 0)
 		}
 	}

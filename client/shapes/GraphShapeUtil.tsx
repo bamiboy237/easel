@@ -1,4 +1,5 @@
 import { Coordinates, Line, Mafs, Plot, Point } from 'mafs'
+import { isRestoringRecords } from '../agent/restoring'
 import 'mafs/core.css'
 import { useMemo } from 'react'
 import { Geometry2d, HTMLContainer, Rectangle2d, RecordProps, ShapeUtil, T, TLShape } from 'tldraw'
@@ -159,6 +160,8 @@ export class GraphShapeUtil extends ShapeUtil<GraphShape> {
 	 * slider makes the line steeper, instead of being left behind.
 	 */
 	override onBeforeUpdate(prev: GraphShape, next: GraphShape) {
+		// A revert writes the merged record as it is, so newer human points stay where they were.
+		if (isRestoringRecords()) return next
 		const points = keepPointsOnCurves(prev.props, next.props)
 		return points ? { ...next, props: { ...next.props, points } } : next
 	}

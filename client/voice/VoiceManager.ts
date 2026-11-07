@@ -120,6 +120,7 @@ export class VoiceManager {
 	readonly follow: CameraFollow
 	/** AI lines not yet stored, by item, until their speech has played or been cut off. */
 	private unsaved = new Map<string, VoiceLine>()
+	private stoppingPlayback = false
 
 	constructor(
 		private agent: TldrawAgent,
@@ -186,7 +187,7 @@ export class VoiceManager {
 		const transport = this.transport
 		this.transport = null
 		// What was playing when the conversation ended was heard only in part.
-		if (transport?.isPlaying()) this.cutLine(transport.stopPlayback())
+		if (transport?.isPlaying()) this.cutLine(this.stopPlaybackQuietly(transport))
 		this.cancelPending('stopped')
 		transport?.close()
 		this.saveLines()
@@ -673,7 +674,8 @@ export class VoiceManager {
 	}
 
 	private handlePlaybackEnd() {
-		if (!this.transport?.isPlaying()) this.saveLines()
+		// A cut-off line is saved by cutLine, as far as it was heard, not here in full.
+		if (!this.stoppingPlayback && !this.transport?.isPlaying()) this.saveLines()
 		if (this.activeResponse || this.delegateRun || this.pushing) return
 		this.$status.set(this.transport ? (this.$mode.get() === 'handsfree' ? 'listening' : 'ready') : 'off')
 		// Highlights stay a moment after the voice stops, then fade.
@@ -697,7 +699,7 @@ export class VoiceManager {
 		const wasPlaying = transport.isPlaying()
 		const cancelled: string[] = []
 		if (wasPlaying) {
-			const { itemId, playedMs } = transport.stopPlayback()
+			const { itemId, playedMs } = this.stopPlaybackQuietly(transport)
 			cancelled.push('speech')
 			this.cutLine({ itemId, playedMs })
 			// Over a WebSocket the page knows what was heard, so it trims the rest from the conversation.
@@ -804,6 +806,16 @@ export class VoiceManager {
 	 * ellipsis. Speech runs at about MS_PER_CHAR, so the words heard are those
 	 * that fit in the time played, cut at a word.
 	 */
+	/** Stop playback without saving the playing line in full: the caller saves the heard part. */
+	private stopPlaybackQuietly(transport: NonNullable<VoiceManager['transport']>) {
+		this.stoppingPlayback = true
+		try {
+			return transport.stopPlayback()
+		} finally {
+			this.stoppingPlayback = false
+		}
+	}
+
 	private cutLine({ itemId, playedMs }: { itemId: string | null; playedMs: number }) {
 		if (!itemId) return
 		const speech = this.speech.get(itemId)
