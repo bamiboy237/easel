@@ -604,6 +604,11 @@ async function checkStateLayers(page) {
 	}, IDS)
 }
 
+/** Pause a player in one step: it may reach its end, and turn back into Play, at any moment. */
+function pauseIfPlaying(page, id) {
+	return page.evaluate((id) => document.querySelector(`[data-shape-id="${id}"] button[aria-label="Pause"]`)?.click(), id)
+}
+
 async function checkTransport(page) {
 	const count = (id) =>
 		page.evaluate((id) => {
@@ -623,8 +628,7 @@ async function checkTransport(page) {
 		await page.waitForTimeout(150)
 		const playing = await count(id)
 		check(playing.play === 1, `${label}: still one play control while playing`, `${playing.play}`)
-		const pause = page.locator(`[data-shape-id="${id}"] button[aria-label="Pause"]`)
-		if (await pause.count()) await pause.click()
+		await pauseIfPlaying(page, id)
 	}
 	const graph = await count(IDS.graph)
 	check(graph.play === 0, 'graph: no transport on a shape without time', `${graph.play}`)
@@ -659,9 +663,8 @@ async function checkDisabledAndSurfaces(page) {
 		const voice = read(host.querySelector('.voice-control'))
 		const status = read(host.querySelector('.video-making-phase'))
 		const answer = read(host.querySelector('.chat-sheet'))
-		const border = __cc.hex(__cc.resolve('var(--paper-viz-border)', theme))
 		host.remove()
-		return { disabled, voice, status, answer, borderAlpha: 0.12, border }
+		return { disabled, voice, status, answer }
 	}, IDS.graph)
 	check(Number(facts.disabled.opacity) === SPEC.disabledOpacity && facts.disabled.cursor === 'default', `a disabled slider fades to ${SPEC.disabledOpacity} with no pointer cursor`, `${facts.disabled.opacity}, ${facts.disabled.cursor}`)
 
@@ -690,8 +693,7 @@ async function probePanAndZoom(page) {
 		editor.setCamera({ x: 0, y: 0, z: 1 })
 	})
 	const after = await readTime()
-	const pause = page.locator(`[data-shape-id="${IDS.scene}"] button[aria-label="Pause"]`)
-	if (await pause.count()) await pause.click()
+	await pauseIfPlaying(page, IDS.scene)
 	if (before !== after) gap('animated previews pause during pan and zoom', `scene time ran from ${before} to ${after} while the camera moved`)
 	else pass('animated previews pause during pan and zoom')
 }
