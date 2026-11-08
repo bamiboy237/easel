@@ -354,6 +354,7 @@ label {
 	overflow: hidden;
 }
 
+svg text,
 .paper-plot text {
 	font-family: var(--serif);
 }
