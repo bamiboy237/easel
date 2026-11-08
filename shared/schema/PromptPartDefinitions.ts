@@ -193,6 +193,7 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 		const overlappingTextLints = lints.filter((l) => l.type === 'overlapping-text')
 		const friendlessArrowLints = lints.filter((l) => l.type === 'friendless-arrow')
 		const sceneLints = lints.filter((l) => l.type === 'scene-problem')
+		const liveValueLints = lints.filter((l) => l.type === 'live-value')
 
 		messages.push(
 			"[LINTER]: The following potential visual problems have been detected in the canvas. You should decide if you want to address them. Defer to your view of the canvas to decide if you need to make changes; it's very possible that you don't need to make any changes. The user does not see this check: never send a message about it, and do not explain that something was intentional. If nothing needs fixing, change nothing and say nothing."
@@ -231,6 +232,14 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 							.map((t) => `      - ${t}`)
 							.join('\n')}`
 				),
+			]
+			messages.push(lines.join('\n'))
+		}
+
+		if (liveValueLints.length > 0) {
+			const lines = [
+				"Stale numbers: these notes write the current value of a slider the user can drag, so they go wrong as soon as the user moves it. Rewrite each one to name the parameter and explain the relationship instead (\"v rises by a every second\", not \"a = 2, so v rises by 2 m/s every second\"). Keep a number only where the note is clearly a fixed worked example that says so (\"for example, with a = 2 m/s²\").",
+				...liveValueLints.map((lint) => `  - ${lint.shapeIds[0]}: ${lint.texts?.join('; ') ?? ''}`),
 			]
 			messages.push(lines.join('\n'))
 		}
@@ -537,6 +546,37 @@ export const SceneTemplatesPartDefinition: PromptPartDefinition<SceneTemplatesPa
 					: []),
 			].join('\n'),
 		]
+	},
+}
+
+// BoardFacts
+export interface BoardFactsPart {
+	type: 'boardFacts'
+	/** Live sliders, with their current values, ranges, and units. */
+	parameters: string[]
+	/** Quantities written on the board, with the words around them. */
+	quantities: string[]
+	/** Names of things on the board: titles and headings. */
+	names: string[]
+}
+
+export const BoardFactsPartDefinition: PromptPartDefinition<BoardFactsPart> = {
+	type: 'boardFacts',
+	priority: -45,
+	buildContent({ parameters, quantities, names }: BoardFactsPart) {
+		if (parameters.length + quantities.length + names.length === 0) return []
+		const lines = [
+			'What the board already settles. New work, and every brief you write for a scene, widget, game, or animation, reuses these values, units, and names unless the user asks for different ones: one push force, one mass, one product name, one name for each object. Copy them exactly into briefs.',
+		]
+		if (parameters.length > 0) {
+			lines.push(
+				'Live sliders. The user can drag these at any time, so in notes and answers refer to a slider by its name and say how things depend on it ("v grows by a every second"), and do not write its current value into text. The slider shows the live value.',
+				...parameters.map((p) => `  - ${p}`)
+			)
+		}
+		if (quantities.length > 0) lines.push('Values written on the board:', ...quantities.map((q) => `  - "${q}"`))
+		if (names.length > 0) lines.push('Names and titles on the board:', ...names.map((n) => `  - "${n}"`))
+		return [lines.join('\n')]
 	},
 }
 

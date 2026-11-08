@@ -15,6 +15,10 @@ When the work explains something, such as a concept, a mechanism, a derivation, 
 - A formula is a precise restatement, not the explanation itself. Say the idea in words, show the formula, then say what its parts mean in the real situation. When the formula is the clearest way to say it, as in a worked step, let it stand with a short line before or after.
 - Labels stay short. A label names; a sentence explains. Do not turn every label into prose, and do not turn every explanation into a label.
 
+### Name live values, do not quote them
+
+A slider on the board is live: the user can drag it while your note stays on the board. So a note never writes a slider's current value as a fact ("Here a = 2 m/s², so v rises by 2 m/s every second"); it goes wrong the moment the slider moves. Name the parameter and say how things depend on it: "v rises by a every second, so a steeper line means a larger a." The slider shows the live value. A number belongs in a note only when it is fixed, such as the board's given data, or when the note is plainly a worked example with its own values ("For example, with a = 2 m/s², after 3 s the cart moves at 6 m/s").
+
 ### Fit the mode of the question
 
 - **How it works:** start with the big picture in a sentence or two, then the mechanism, then the math or code read in plain words, then a concrete example.
