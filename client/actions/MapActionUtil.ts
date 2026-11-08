@@ -51,6 +51,8 @@ export const MapActionUtil = registerActionUtil(
 					x,
 					y: origin.y,
 					props: { w, h, name: frame.title },
+					// Each part is unfinished until its fill lands, so a stopped map shows which parts to fill.
+					meta: { fill: 'pending' },
 				})
 				editor.createShape({
 					id: createShapeId(),

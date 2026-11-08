@@ -1,6 +1,7 @@
 import { Circle, Coordinates, Line, Mafs, MovablePoint, Plot, Point, Polygon, Polyline, Text, Vector } from 'mafs'
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
+	Editor,
 	Geometry2d,
 	HTMLContainer,
 	Rectangle2d,
@@ -11,7 +12,8 @@ import {
 	useEditor,
 	useValue,
 } from 'tldraw'
-import { axisLabels, gridStep, parametersHeight } from './GraphShapeUtil'
+import { axisLabels, gridStep, parametersHeight, viewYMin } from './GraphShapeUtil'
+import { playbackStep } from './playback'
 import { newTemplateId, saveTemplate, SceneTemplate } from './scene/templates'
 import { Box, LabelRequest, Obstacles, placeLabels, sampleStroke, textWidthPx, Vec } from './scene/labels'
 import { clampParameter, rangeFill, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
@@ -118,13 +120,16 @@ export class SceneShapeUtil extends ShapeUtil<SceneShape> {
 
 function Scene({ shape }: { shape: SceneShape }) {
 	const editor = useEditor()
-	const { w, h, title, xMin, xMax, yMin, yMax, duration, params, objects } = shape.props
+	const { w, h, title, xMin, xMax, yMin: frameYMin, yMax, duration, params, objects } = shape.props
 	const axes = shape.props.axes !== false
 	// While the agent is still writing a new scene, it shows read-only.
 	const preview = shape.meta.scenePreview === true
 	const parameters = sceneParameters(shape.props)
 	const plotHeight = Math.max(60, h - sceneChromeHeight(shape.props))
-	const [t, setT] = usePlayback(duration)
+	// With axes on, a frame that starts at y = 0 reaches a little lower, so the x
+	// axis keeps its numbers instead of losing them under the plot's edge.
+	const yMin = axes ? viewYMin(frameYMin, yMax, plotHeight) : frameYMin
+	const [t, setT] = usePlayback(duration, editor)
 	// When the agent pins a time, every viewer stops on it.
 	const { pinnedTime, pinCount } = shape.props
 	useEffect(() => {
@@ -146,12 +151,15 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const [saved, setSaved] = useState<'saved' | 'problems' | null>(null)
 	// Chat-history previews are read-only copies, where a save would go nowhere.
 	const readOnlyEditor = useValue('scene read-only', () => editor.getIsReadonly(), [editor])
+	// Authoring tools, saving a template and the formulas, show on the selected
+	// scene only, so the learner's view holds the picture and its controls.
+	const selected = useValue('scene selected', () => editor.getOnlySelectedShapeId() === shape.id, [editor, shape.id])
 	const formulas = useMemo(
 		() => (showFormulas ? formulaRows(objects, values.scope) : []),
 		[showFormulas, objects, values.scope]
 	)
 	const xStep = gridStep(xMax - xMin, w, Math.max(Math.abs(xMin), Math.abs(xMax)))
-	const yStep = gridStep(yMax - yMin, plotHeight, Math.max(Math.abs(yMin), Math.abs(yMax)))
+	const yStep = gridStep(yMax - yMin, plotHeight, Math.max(Math.abs(yMin), Math.abs(yMax)), true)
 	// Both axes share one scale, set by whichever range is tighter, so the plot
 	// shows a little more than the range on the other axis.
 	const unitsPerPixel = Math.max((xMax - xMin) / w, (yMax - yMin) / plotHeight)
@@ -248,7 +256,7 @@ function Scene({ shape }: { shape: SceneShape }) {
 							)}
 						</div>
 					)}
-					{!readOnlyEditor && (
+					{!readOnlyEditor && selected && (
 					<button
 						className="scene-save-template"
 						title="Save this scene as a template the agent can place again"
@@ -275,15 +283,17 @@ function Scene({ shape }: { shape: SceneShape }) {
 						{saved === 'saved' ? 'Saved' : saved === 'problems' ? 'Fix its problems first' : 'Save as template'}
 					</button>
 					)}
-					<button
-						className="scene-formulas-toggle"
-						aria-pressed={showFormulas}
-						title={showFormulas ? 'Hide formulas' : 'Show formulas'}
-						onPointerDown={(e) => e.stopPropagation()}
-						onClick={() => setShowFormulas((v) => !v)}
-					>
-						f(x)
-					</button>
+					{(selected || showFormulas) && (
+						<button
+							className="scene-formulas-toggle"
+							aria-pressed={showFormulas}
+							title={showFormulas ? 'Hide formulas' : 'Show formulas'}
+							onPointerDown={(e) => e.stopPropagation()}
+							onClick={() => setShowFormulas((v) => !v)}
+						>
+							f(x)
+						</button>
+					)}
 				</div>
 				{duration > 0 && (
 					<div className="simulation-controls" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
@@ -317,7 +327,7 @@ function Scene({ shape }: { shape: SceneShape }) {
 }
 
 /** Local playback: time runs from 0 to the duration, and stops there. */
-function usePlayback(duration: number) {
+function usePlayback(duration: number, editor: Editor) {
 	const [state, setState] = useState({ time: 0, playing: false })
 	const frame = useRef(0)
 	useEffect(() => setState((s) => ({ ...s, time: Math.min(s.time, duration) })), [duration])
@@ -325,9 +335,11 @@ function usePlayback(duration: number) {
 		if (!state.playing) return
 		let last = performance.now()
 		const step = (now: number) => {
-			const dt = (now - last) / 1000
+			// The clock holds while the canvas pans or zooms.
+			const dt = playbackStep(editor, (now - last) / 1000)
 			last = now
-			setState((s) => {
+			// No frame work while it holds: nothing changes, so nothing renders.
+			if (dt > 0) setState((s) => {
 				const time = s.time + dt
 				return time >= duration ? { time: duration, playing: false } : { ...s, time }
 			})
@@ -335,7 +347,7 @@ function usePlayback(duration: number) {
 		}
 		frame.current = requestAnimationFrame(step)
 		return () => cancelAnimationFrame(frame.current)
-	}, [state.playing, duration])
+	}, [state.playing, duration, editor])
 	return [state, setState] as const
 }
 
@@ -419,6 +431,61 @@ const LAYER: Record<SceneObject['type'], number> = {
 	label: 4,
 }
 
+/** The smallest a fitted arrow may be drawn, as a share of its true length. */
+const MIN_VECTOR_SCALE = 0.15
+
+/**
+ * One scale for every arrow in a scene, so a large value never runs an arrow
+ * past the scene's edge: the largest factor, up to 1, at which each visible
+ * arrow whose tail is in view keeps its tip inside the view, with room for
+ * its label. All arrows share it, so their lengths still compare truly.
+ */
+export function fitVectorScale(
+	visible: [string, SceneObject][],
+	values: SceneValues,
+	view: { x: [number, number]; y: [number, number] },
+	unitsPerPixel: number
+): number {
+	const margin = 22 * unitsPerPixel
+	const x0 = view.x[0] + margin
+	const x1 = view.x[1] - margin
+	const y0 = view.y[0] + margin
+	const y1 = view.y[1] - margin
+	// A handle on an arrow's tip is where the user grabs it, so it must stay on the
+	// tip: a scene with one keeps its true lengths, and its handle keeps it in view.
+	const handles = visible
+		.filter(([, o]) => o.type === 'point' && o.drag)
+		.map(([id]) => values.points[id])
+		.filter((p): p is [number, number] => !!p && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+	let scale = 1
+	for (const [, o] of visible) {
+		if (o.type !== 'vector') continue
+		try {
+			const tail = resolveRef(o.from, values)
+			const tip = [tail[0] + evaluateIn(o.dx, values.scope), tail[1] + evaluateIn(o.dy, values.scope)]
+			if (handles.some((h) => Math.hypot(h[0] - tip[0], h[1] - tip[1]) < 4 * unitsPerPixel)) return 1
+		} catch {
+			continue
+		}
+	}
+	for (const [, o] of visible) {
+		if (o.type !== 'vector') continue
+		try {
+			const tail = resolveRef(o.from, values)
+			const dx = evaluateIn(o.dx, values.scope)
+			const dy = evaluateIn(o.dy, values.scope)
+			if (![tail[0], tail[1], dx, dy].every(Number.isFinite)) continue
+			// A tail outside the view is the agent's choice; only arrows that start in view are fitted.
+			if (tail[0] < x0 || tail[0] > x1 || tail[1] < y0 || tail[1] > y1) continue
+			const room = (d: number, at: number, lo: number, hi: number) => (d > 0 ? (hi - at) / d : d < 0 ? (lo - at) / d : Infinity)
+			scale = Math.min(scale, room(dx, tail[0], x0, x1), room(dy, tail[1], y0, y1))
+		} catch {
+			continue
+		}
+	}
+	return Math.max(MIN_VECTOR_SCALE, Math.min(1, scale))
+}
+
 function renderObjects(
 	objects: Record<string, SceneObject>,
 	values: SceneValues,
@@ -441,7 +508,8 @@ function renderObjects(
 		}
 	}
 	const visible = Object.entries(objects).filter(([, o]) => LAYER[o.type] >= 0 && isVisible(o, values.scope))
-	const labels = layoutLabels(visible, values, params, readOnly, unitsPerPixel, traces, duration, time, view, reserved)
+	const vectorScale = fitVectorScale(visible, values, view, unitsPerPixel)
+	const labels = layoutLabels(visible, values, params, readOnly, unitsPerPixel, traces, duration, time, view, reserved, vectorScale)
 	const drawn = visible
 		.sort((a, b) => LAYER[a[1].type] - LAYER[b[1].type])
 		.map(([id, o]) => {
@@ -498,8 +566,8 @@ function renderObjects(
 							case 'vector': {
 								const tail = resolveRef(o.from, values)
 								const tip: [number, number] = [
-									tail[0] + evaluateIn(o.dx, values.scope),
-									tail[1] + evaluateIn(o.dy, values.scope),
+									tail[0] + evaluateIn(o.dx, values.scope) * vectorScale,
+									tail[1] + evaluateIn(o.dy, values.scope) * vectorScale,
 								]
 								if (!finite(tail) || !finite(tip)) return null
 								const pixels = Math.hypot(tip[0] - tail[0], tip[1] - tail[1]) / unitsPerPixel
@@ -623,7 +691,8 @@ function layoutLabels(
 	duration: number,
 	time: number,
 	view: { x: [number, number]; y: [number, number] },
-	reserved: Box[]
+	reserved: Box[],
+	vectorScale = 1
 ): { id: string; center: Vec; text: string; size: number; color: string }[] {
 	const finite = (p: Vec) => Number.isFinite(p[0]) && Number.isFinite(p[1])
 	const requests: (LabelRequest & { color: string })[] = []
@@ -656,7 +725,7 @@ function layoutLabels(
 				}
 				case 'vector': {
 					const tail = resolveRef(o.from, values)
-					const tip: Vec = [tail[0] + evaluateIn(o.dx, values.scope), tail[1] + evaluateIn(o.dy, values.scope)]
+					const tip: Vec = [tail[0] + evaluateIn(o.dx, values.scope) * vectorScale, tail[1] + evaluateIn(o.dy, values.scope) * vectorScale]
 					if (!finite(tail) || !finite(tip) || Math.hypot(tip[0] - tail[0], tip[1] - tail[1]) / u < 2) break
 					obstacles.strokes.push(...sampleStroke([tail, tip], u))
 					obstacles.discs.push({ center: tip, radius: 8 })

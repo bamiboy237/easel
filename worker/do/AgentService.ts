@@ -22,7 +22,7 @@ import { Environment } from '../environment'
 import { buildMessages } from '../prompt/buildMessages'
 import { buildLoadedToolsPrompt, buildSystemPrompt } from '../prompt/buildSystemPrompt'
 import { getModelName } from '../prompt/getModelName'
-import { ANIMATION_CHOOSE_PROMPT, ANIMATION_REVIEW_PROMPT, ANIMATION_SYSTEM_PROMPT } from '../prompt/animationPrompt'
+import { ANIMATION_CHOOSE_PROMPT, ANIMATION_REVIEW_PROMPT, animationWriterPrompt } from '../prompt/animationPrompt'
 import { WIDGET_SYSTEM_PROMPT } from '../prompt/widgetPrompt'
 import { ActionStream } from './ActionStream'
 
@@ -186,7 +186,8 @@ export class AgentService {
 		const started = Date.now()
 		const result = streamText({
 			model,
-			system: choose ? ANIMATION_CHOOSE_PROMPT : review ? ANIMATION_REVIEW_PROMPT : ANIMATION_SYSTEM_PROMPT,
+			// The review needs the rules, not the reference scenes: a shorter prompt answers sooner.
+			system: choose ? ANIMATION_CHOOSE_PROMPT : review ? ANIMATION_REVIEW_PROMPT : animationWriterPrompt(request.title ?? '', request.brief ?? ''),
 			messages: [{ role: 'user', content } as ModelMessage],
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			...(definition.supportsTemperature ? { temperature: 0 } : {}),

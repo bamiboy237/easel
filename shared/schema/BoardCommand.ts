@@ -34,11 +34,14 @@ export const BoardCommandSchema = z.object({
 	revertedCommandIds: z.array(z.string()).optional(),
 	/** For a revert or restore, the records it left as they were, to keep newer human work. */
 	keptRecordIds: z.array(z.string()).optional(),
-	/** Why a rejected command was rejected. */
-	reason: z.enum(['stale', 'protected']).optional(),
+	/**
+	 * Why a rejected command was rejected. `user-text`: it would delete or
+	 * rewrite text in the user's own shape that the request did not ask about.
+	 */
+	reason: z.enum(['stale', 'protected', 'user-text']).optional(),
 	/** For a stale command, the records that a user command changed after `baseRev`. */
 	staleRecordIds: z.array(z.string()).optional(),
-	/** For a protected command, the user's shapes or regions it would have changed or covered. */
+	/** For a protected or user-text command, the user's shapes or regions it would have changed or covered. */
 	protectedRecordIds: z.array(z.string()).optional(),
 	payload: z.object({
 		added: z.record(z.string(), RecordSchema),

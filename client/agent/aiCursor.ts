@@ -48,10 +48,12 @@ export class AiCursor {
 		this.$cursor.set({ from, to, control, startedAt: now, duration })
 	}
 
-	/** Fly to a box as if the hand just finished drawing it: just inside its lower right corner. */
+	/**
+	 * Fly to a box as if the hand just finished drawing it: just outside its
+	 * lower right corner, so the cursor rests beside the work, never on it.
+	 */
 	flyToBox(box: Box) {
-		const inset = Math.min(18, box.w / 4, box.h / 4)
-		this.flyTo({ x: box.maxX - inset, y: box.maxY - inset })
+		this.flyTo({ x: box.maxX + 4, y: box.maxY + 4 })
 	}
 
 	/** Where the cursor is now, or null when it is not on the board. */

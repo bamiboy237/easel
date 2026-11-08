@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Geometry2d, HTMLContainer, Rectangle2d, RecordProps, ShapeUtil, T, TLShape } from 'tldraw'
+import { Geometry2d, HTMLContainer, Rectangle2d, RecordProps, ShapeUtil, T, TLShape, useEditor } from 'tldraw'
 import { parametersHeight } from './GraphShapeUtil'
+import { playbackStep } from './playback'
 import { ParameterSliders, rangeFill, ShapeParameter, shapeParameterValidator } from './math/parameters'
 
 export const SIMULATION_TYPE = 'simulation'
@@ -130,6 +131,7 @@ function Simulation({ shape }: { shape: SimulationShape }) {
 	const plotHeight = Math.max(80, h - CONTROLS - parametersHeight(parameters))
 	const [time, setTime] = useState(summary.flight)
 	const [playing, setPlaying] = useState(false)
+	const editor = useEditor()
 	const frame = useRef(0)
 
 	// A new flight time, from new parameters, keeps the playhead inside the flight.
@@ -139,9 +141,10 @@ function Simulation({ shape }: { shape: SimulationShape }) {
 		if (!playing) return
 		let last = performance.now()
 		const step = (now: number) => {
-			const dt = (now - last) / 1000
+			// The clock holds while the canvas pans or zooms.
+			const dt = playbackStep(editor, (now - last) / 1000)
 			last = now
-			setTime((t) => {
+			if (dt > 0) setTime((t) => {
 				const next = t + dt
 				if (next >= summary.flight) {
 					setPlaying(false)
@@ -153,7 +156,7 @@ function Simulation({ shape }: { shape: SimulationShape }) {
 		}
 		frame.current = requestAnimationFrame(step)
 		return () => cancelAnimationFrame(frame.current)
-	}, [playing, summary.flight])
+	}, [playing, summary.flight, editor])
 
 	// One scale for both axes, so the arc keeps its true shape.
 	const worldW = Math.max(summary.range, 1)

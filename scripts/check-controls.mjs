@@ -15,8 +15,8 @@
  *
  * Set CHECK_CONTROLS_SCREENSHOT to a file path to save the test board as a PNG.
  *
- * Exits with 1 when any hard rule fails. Known gaps are printed as GAP lines
- * and do not fail the check.
+ * Exits with 1 when any hard rule fails. Known gaps, when there are any, are
+ * printed as GAP lines and do not fail the check.
  */
 import { execSync } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -160,6 +160,8 @@ function installHelpers() {
 		for (const r of allRules()) {
 			const selectors = r.selectorText.split(',').map((s) => s.trim())
 			if (!selectors.includes(selector)) continue
+			// The rule as it applies normally: a reduced-motion override is checked on its own.
+			if (r.parentRule?.media && /prefers-reduced-motion/.test(r.parentRule.media.mediaText)) continue
 			const names = [...Array.from({ length: r.style.length }, (_, i) => r.style[i]), ...SHORTHANDS]
 			for (const name of names) {
 				const value = r.style.getPropertyValue(name).trim()
@@ -267,6 +269,7 @@ async function main() {
 		await checkDisabledAndSurfaces(page)
 		await checkProgress(page)
 		await probePanAndZoom(page)
+		await checkLoopOn(page)
 	} catch (error) {
 		fail('the check ran to the end', String(error?.stack || error))
 	} finally {
@@ -450,7 +453,7 @@ async function checkSliders(page) {
 		if (hover.box && hover.box.w < hover.box.h - 1) clipped.push(`${label} (${hover.box.w} of ${hover.box.h} px wide on hover)`)
 	}
 
-	if (clipped.length) gap('a grown thumb is clipped at the ends of the track', clipped.join('; '))
+	check(clipped.length === 0, 'a grown thumb is not clipped at the ends of the track', clipped.join('; ') || 'whole at both ends')
 
 	// Under reduced motion the thumb should not animate. Chromium drops a rule whose
 	// selector list names another engine's pseudo-element, so look for a rule it kept.
@@ -466,8 +469,7 @@ async function checkSliders(page) {
 		for (const sheet of document.styleSheets) walk(sheet.cssRules, false)
 		return found
 	})
-	if (reduced.length) pass('the thumb holds still under reduced motion', reduced.join(', '))
-	else gap('the thumb holds still under reduced motion', 'no reduced-motion rule for the WebKit thumb reaches Chromium')
+	check(reduced.length > 0 && reduced.every((t) => /none|^0s/.test(t)), 'the thumb holds still under reduced motion', reduced.join(', ') || 'no reduced-motion rule for the WebKit thumb reaches Chromium')
 
 	// A press near the top edge of the hit area moves a graph parameter.
 	const first = page.locator(SLIDERS[0][1]).first()
@@ -571,7 +573,7 @@ async function checkFocus(page) {
 			const px = await sliderPixels(page, el, { target: ink, tolerance: 20 })
 			const ringSize = SPEC.slider.thumb + 2 * (f.width + f.offset)
 			check(px.box && near(px.box.h, ringSize, 1), `${label}: the ring renders around the thumb`, px.box ? `${px.box.h} px of ink, up and down` : 'no ink found')
-			if (px.box && px.box.w < px.box.h - 1) gap(`${label}: the focus ring is clipped at the end of the track`, `${px.box.w} of ${px.box.h} px wide`)
+			check(px.box && px.box.w >= px.box.h - 1, `${label}: the focus ring is not clipped at the end of the track`, px.box ? `${px.box.w} of ${px.box.h} px wide` : 'no ink found')
 		}
 		await page.evaluate(() => document.activeElement?.blur())
 	}
@@ -595,7 +597,7 @@ async function checkStateLayers(page) {
 		await page.keyboard.press('Escape')
 		const stacked = (l) => l.translucent.length > 1 || l.faded.length > 0
 		check(!stacked(hover) && !stacked(pressed), `${label}: hover and press stack no translucent layers`, [...hover.translucent, ...pressed.translucent, ...hover.faded].join('; ') || 'opaque')
-		if (hover.translucent.length === 1) gap(`${label}: hover is a translucent film, not an opaque replacement`, hover.translucent[0])
+		check(hover.translucent.length === 0, `${label}: hover is an opaque replacement, not a film`, hover.translucent[0] || 'opaque')
 	}
 	// Leave the players stopped and the value field closed.
 	await page.mouse.move(5, 5)
@@ -790,24 +792,81 @@ function hexOf(c) {
 	return '#' + [c.r, c.g, c.b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
 }
 
-/** Known gap: animated previews keep running while the user pans and zooms. Reported, not enforced. */
+/** A playing preview holds its time while the user pans and zooms, and keeps playing. */
 async function probePanAndZoom(page) {
 	const readTime = () => page.locator(`[data-shape-id="${IDS.scene}"] .player-time`).innerText()
 	await page.locator(`[data-shape-id="${IDS.scene}"] button[aria-label="Play"]`).click()
 	await page.waitForTimeout(100)
-	const before = await readTime()
-	await page.evaluate(async () => {
+	// Read the time once the camera is moving and again as it stops, in the page,
+	// so the time it legitimately plays before the first move does not count.
+	const { before, after } = await page.evaluate(async (id) => {
 		const editor = window.editor
+		const read = () => document.querySelector(`[data-shape-id="${id}"] .player-time`).innerText
+		let before = ''
 		for (let i = 0; i < 20; i++) {
 			editor.setCamera({ x: -i * 4, y: 0, z: 1 - i * 0.005 })
 			await new Promise((r) => setTimeout(r, 30))
+			if (i === 1) before = read()
+		}
+		const after = read()
+		editor.setCamera({ x: 0, y: 0, z: 1 })
+		return { before, after }
+	}, IDS.scene)
+	const stillPlaying = await page.locator(`[data-shape-id="${IDS.scene}"] button[aria-label="Pause"]`).count()
+	check(before === after, 'animated previews pause during pan and zoom', `scene time ${before} before and ${after} after the camera moved`)
+	check(stillPlaying === 1, 'a held preview stays playing, and plays on once the camera stops', stillPlaying ? 'still playing' : 'it stopped')
+	await page.waitForTimeout(400)
+	const later = await readTime()
+	check(later !== after, 'a held preview resumes from the same time', `${after} then ${later}`)
+	await pauseIfPlaying(page, IDS.scene)
+
+	// The animation holds its video the same way.
+	// Only where a real video loaded: the reference board's stand-in has no file.
+	const video = page.locator(`[data-shape-id="${IDS.video}"] video`)
+	if ((await video.count()) === 0 || (await video.evaluate((el) => el.readyState)) < 2) return
+	await page.locator(`[data-shape-id="${IDS.video}"] button[aria-label="Play"]`).click()
+	await page.waitForTimeout(300)
+	const moved = await page.evaluate(async (id) => {
+		const editor = window.editor
+		const el = document.querySelector(`[data-shape-id="${id}"] video`)
+		const times = []
+		for (let i = 0; i < 20; i++) {
+			editor.setCamera({ x: -i * 4, y: 0, z: 1 - i * 0.005 })
+			await new Promise((r) => setTimeout(r, 30))
+			if (i >= 3) times.push(el.currentTime)
 		}
 		editor.setCamera({ x: 0, y: 0, z: 1 })
+		const playing = !!document.querySelector(`[data-shape-id="${id}"] button[aria-label="Pause"]`)
+		return { spread: Math.max(...times) - Math.min(...times), playing }
+	}, IDS.video)
+	check(moved.spread < 0.05, 'the animation holds its video during pan and zoom', `the video ran ${moved.spread.toFixed(2)} s while the camera moved`)
+	check(moved.playing, 'the held animation still reads as playing', moved.playing ? 'Pause shown' : 'Play shown')
+	await page.waitForTimeout(500)
+	await pauseIfPlaying(page, IDS.video)
+}
+
+/** Loop on is a named state: the accent on an opaque fill, never a coloured film. */
+async function checkLoopOn(page) {
+	const loop = page.locator(`[data-shape-id="${IDS.video}"] button[aria-label="Loop"]`)
+	if ((await loop.count()) === 0) return fail('animation loop: the player has a loop toggle')
+	// The hover and press check may have left it on; start from off.
+	if ((await loop.getAttribute('aria-pressed')) === 'true') await loop.click()
+	await loop.click()
+	await page.mouse.move(5, 5)
+	await page.waitForTimeout(250)
+	const facts = await loop.evaluate((el) => {
+		const style = getComputedStyle(el)
+		return { pressed: el.getAttribute('aria-pressed'), color: __cc.hex(__cc.parseColor(style.color)), bg: __cc.parseColor(style.backgroundColor) }
 	})
-	const after = await readTime()
-	await pauseIfPlaying(page, IDS.scene)
-	if (before !== after) gap('animated previews pause during pan and zoom', `scene time ran from ${before} to ${after} while the camera moved`)
-	else pass('animated previews pause during pan and zoom')
+	const accent = SPEC.tokens['--paper-accent']
+	check(facts.pressed === 'true' && sameHex(facts.color, accent, 1), 'animation loop: "on" is the accent', `${facts.color}, pressed ${facts.pressed}`)
+	check(facts.bg.a === 1, 'animation loop: "on" sits on an opaque fill', `${__cc_hex(facts.bg)}/${facts.bg.a}`)
+	await loop.click()
+	await page.mouse.move(5, 5)
+}
+
+function __cc_hex(c) {
+	return '#' + [c.r, c.g, c.b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
 }
 
 main()

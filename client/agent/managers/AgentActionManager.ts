@@ -81,6 +81,12 @@ export class AgentActionManager extends BaseAgentManager {
 	/** Where the agent is working on the board during this request, and on what. */
 	private $work = atom<AgentWork | null>('agent work', null)
 
+	/**
+	 * Plain notes for the user about the current request, such as user text the
+	 * agent was stopped from removing. Kept until the next user request.
+	 */
+	private $notices = atom<string[]>('agent notices', [])
+
 	constructor(agent: TldrawAgent) {
 		super(agent)
 		this.agentActionUtils = getAgentActionUtilsRecordForMode(
@@ -106,6 +112,7 @@ export class AgentActionManager extends BaseAgentManager {
 		if (source !== 'self') {
 			this.rejectionPasses = 0
 			this.$work.set(null)
+			this.$notices.set([])
 		}
 	}
 
@@ -117,6 +124,16 @@ export class AgentActionManager extends BaseAgentManager {
 	getWork(): AgentWork | null {
 		if (!this.agent.requests.isGenerating()) return null
 		return this.$work.get()
+	}
+
+	/** Notes for the user about the latest request, for the answer card. */
+	getNotices(): string[] {
+		return this.$notices.get()
+	}
+
+	/** Add a note for the user about this request, once. */
+	addNotice(text: string) {
+		this.$notices.update((notices) => (notices.includes(text) ? notices : [...notices, text]))
 	}
 
 	/** The board work of the latest request, kept after it ends until the next one starts. */
@@ -345,6 +362,7 @@ export class AgentActionManager extends BaseAgentManager {
 				const result = this.agent.commands.execute('agent', action._type, apply, {
 					baseRev,
 					allowedShapeIds: this.agent.getAllowedShapeIds(),
+					userText: this.agent.getRequestUserText(),
 					...this.agent.getPassIds(),
 				})
 				diff = result.changes
@@ -428,11 +446,14 @@ export class AgentActionManager extends BaseAgentManager {
 		const recordIds = result.reason === 'stale' ? result.staleRecordIds : result.protectedRecordIds
 		const ids = recordIds.map((id) => id.replace(/^(shape|binding):/, ''))
 		const message =
-			result.reason === 'stale'
+			result.reason === 'user-text'
+				? `Your "${type}" action was rejected and nothing from it was applied, because it would delete or rewrite the user's own words in ${ids.join(', ')}, and their message did not ask for that. Keep every word the user wrote, exactly as it is. You may add to their shapes, or put new text and shapes beside or inside them, but never empty, replace, or delete their text unless they ask. Redo the action without touching their text. In your message, tell the user plainly that you left their text as it was.`
+				: result.reason === 'stale'
 				? `Your "${type}" action was rejected and nothing from it was applied, because the user changed these shapes after you read the board: ${ids.join(', ')}. Keep the user's changes. Look at the current board before you change those shapes again, and redo the action only if it is still needed. If you already told the user this change was made, correct that in a message now.`
 				: `Your "${type}" action was rejected and nothing from it was applied, because it would change, move, or cover the user's own work: ${ids.join(', ')}. Shapes the user made, and frames they drew with everything inside, are theirs. Leave them as they are, and put your work in clear space that does not overlap them. Change the user's work only when they select it or ask you to. If the user's message does ask for this change, send a \`claim_user_shapes\` action with those shape IDs and their exact words, then redo the action. If you already told the user this change was made, correct that in a message now.`
 		console.warn(`Rejected ${result.reason} agent command "${type}":`, ids)
-		if (result.reason === 'protected') this.flashProtected(recordIds as TLShapeId[])
+		if (result.reason !== 'stale') this.flashProtected(recordIds as TLShapeId[])
+		if (result.reason === 'user-text') this.noteKeptText(recordIds as TLShapeId[])
 
 		if (!this.rejectionNoticePending) {
 			if (this.rejectionPasses >= MAX_REJECTION_PASSES) {
@@ -443,6 +464,22 @@ export class AgentActionManager extends BaseAgentManager {
 			this.rejectionNoticePending = true
 		}
 		this.agent.schedule({ agentMessages: [message], source: 'self' })
+	}
+
+	/** Tell the user, in the answer card, which of their words the agent was stopped from changing. */
+	private noteKeptText(ids: TLShapeId[]) {
+		const { editor } = this.agent
+		for (const id of ids) {
+			const shape = editor.getShape(id)
+			if (!shape) continue
+			const text = this.agent.commands.getShapeText(shape).replace(/\s+/g, ' ').trim()
+			const quoted = text.length > 40 ? `${text.slice(0, 38)}...` : text
+			this.addNotice(
+				quoted
+					? `I kept your text "${quoted}" as you wrote it. My edit would have removed it, so it was not applied.`
+					: 'I kept your text as you wrote it. My edit would have removed it, so it was not applied.'
+			)
+		}
 	}
 
 	private flashProtected(ids: TLShapeId[]) {

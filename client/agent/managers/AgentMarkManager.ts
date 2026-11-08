@@ -458,6 +458,9 @@ export class AgentMarkManager extends BaseAgentManager {
 		// of view, the camera glides to show the mark and the note together.
 		const noteBox = editor.getShapePageBounds(threadId)
 		if (noteBox) getCameraFollow(editor).revealWithAnchor(noteBox, markBounds, { justAsked: true })
+		// The question is asked, so the mark is done: the next drag selects or
+		// moves, as it would anywhere else, instead of making another mark.
+		if (editor.getCurrentToolId() === 'mark') editor.setCurrentTool('select')
 		this.send({ ...draft, targetIds, text: intent, threadId, history: [] }, question)
 	}
 

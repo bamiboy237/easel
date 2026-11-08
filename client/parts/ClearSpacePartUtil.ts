@@ -1,7 +1,7 @@
 import { Box, clamp, TLShapeId } from 'tldraw'
 import { ClearSpacePart } from '../../shared/schema/PromptPartDefinitions'
 import { AgentRequest } from '../../shared/types/AgentRequest'
-import { findClearSpaceBeside, findClearSpaceInView, findNoteSpot } from '../agent/findClearSpace'
+import { findClearSpaceBeside, findClearSpaceForNewWork, findNoteSpot } from '../agent/findClearSpace'
 import { AgentHelpers } from '../AgentHelpers'
 import { PromptPartUtil, registerPromptPartUtil } from './PromptPartUtil'
 
@@ -46,7 +46,7 @@ export const ClearSpacePartUtil = registerPromptPartUtil(
 				const size = small ? ANSWER_SIZE : { w: clamp(subject.w, 400, 900), h: clamp(subject.h, 300, 800) }
 				space = (small ? findNoteSpot(editor, subject, size) : null) ?? findClearSpaceBeside(editor, subject, size)
 			} else {
-				space = findClearSpaceInView(editor, DEFAULT_SIZE)
+				space = findClearSpaceForNewWork(editor, DEFAULT_SIZE)
 			}
 			return {
 				type: 'clearSpace',

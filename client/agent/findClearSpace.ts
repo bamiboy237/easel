@@ -18,8 +18,8 @@ function getObstacles(editor: Editor): Box[] {
 		.filter((bounds): bounds is Box => !!bounds)
 }
 
-function isClear(box: Box, obstacles: Box[]) {
-	const padded = box.clone().expandBy(MARGIN)
+function isClear(box: Box, obstacles: Box[], margin = MARGIN) {
+	const padded = box.clone().expandBy(margin)
 	return obstacles.every((obstacle) => !padded.collides(obstacle))
 }
 
@@ -44,18 +44,40 @@ export function findClearSpaceBeside(editor: Editor, subject: Box, size: { w: nu
 	return null
 }
 
-/** Clear space inside the part of the user's view the menu and toolbar leave free, scanning from the top left. */
-export function findClearSpaceInView(editor: Editor, size: { w: number; h: number }): Box | null {
+/**
+ * Clear space inside the part of the user's view the menu and toolbar leave
+ * free, scanning from the top left. `margin` is the room kept from other
+ * shapes: new work unrelated to them keeps a wider gap, so it never reads as
+ * part of them, such as a timeline landing under another diagram's legend.
+ */
+export function findClearSpaceInView(editor: Editor, size: { w: number; h: number }, margin = MARGIN): Box | null {
 	const view = getUsableViewBounds(editor)
 	const obstacles = getObstacles(editor)
 	const step = Math.max(40, Math.min(size.w, size.h) / 4)
-	for (let y = view.y + MARGIN; y + size.h <= view.maxY - MARGIN; y += step) {
-		for (let x = view.x + MARGIN; x + size.w <= view.maxX - MARGIN; x += step) {
+	for (let y = view.y + margin; y + size.h <= view.maxY - margin; y += step) {
+		for (let x = view.x + margin; x + size.w <= view.maxX - margin; x += step) {
 			const candidate = new Box(x, y, size.w, size.h)
-			if (isClear(candidate, obstacles)) return candidate
+			if (isClear(candidate, obstacles, margin)) return candidate
 		}
 	}
 	return null
+}
+
+/** Room kept between new, unrelated work and what is already on the board. */
+export const UNRELATED_MARGIN = 160
+
+/**
+ * Clear space for new work that relates to nothing on the board: in the view
+ * when it fits there with a wide gap, otherwise right of everything on the
+ * page, level with the top of the view. The camera then follows it there.
+ */
+export function findClearSpaceForNewWork(editor: Editor, size: { w: number; h: number }): Box {
+	const inView = findClearSpaceInView(editor, size, UNRELATED_MARGIN)
+	if (inView) return inView
+	const view = getUsableViewBounds(editor)
+	const content = editor.getCurrentPageBounds()
+	const x = content ? Math.max(content.maxX + UNRELATED_MARGIN, view.x + MARGIN) : view.x + MARGIN
+	return new Box(x, view.y + MARGIN, size.w, size.h)
 }
 
 /**
@@ -186,14 +208,18 @@ function measureChrome(editor: Editor): { top: number; bottom: number } {
 	const toolbar = container.querySelector('.tlui-main-toolbar')?.getBoundingClientRect()
 	// The voice pill shares the toolbar's row and grows taller while it talks.
 	const voice = container.querySelector('.voice-control')?.getBoundingClientRect()
-	const bottomTop = Math.min(toolbar?.top ?? Infinity, voice && voice.height > 0 ? voice.top : Infinity)
+	// The answer card and composer float over the bottom of the board, beside
+	// the toolbar. New work shown under it would be hidden, so it counts too.
+	const sheet = document.querySelector('.chat-panel--floating .chat-sheet')?.getBoundingClientRect()
+	const sheetTop = sheet && sheet.height > 0 && sheet.top > frame.top + frame.height / 2 ? sheet.top : Infinity
+	const bottomTop = Math.min(toolbar?.top ?? Infinity, voice && voice.height > 0 ? voice.top : Infinity, sheetTop)
 	return {
 		top: menu ? menu.bottom - frame.top + CHROME_AIR : FALLBACK_TOP_CHROME,
 		bottom: Number.isFinite(bottomTop) ? frame.bottom - bottomTop + CHROME_AIR : FALLBACK_BOTTOM_CHROME,
 	}
 }
 
-/** The part of the view a note can be seen in: the viewport, less the menu and toolbar strips. */
+/** The part of the view a note can be seen in: the viewport, less the menu strip and the strip the toolbar and answer card take. */
 export function getUsableViewBounds(editor: Editor): Box {
 	const view = editor.getViewportPageBounds()
 	const zoom = editor.getZoomLevel()

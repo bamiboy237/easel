@@ -329,8 +329,9 @@ def layout_problems(scene):
                     problems.append(f'text "{_name(a)}" overlaps text "{_name(b)}"')
     for t in texts:
         x0, y0, x1, y1 = _box(t)
-        # Grow the box a little: a line that touches a label counts, as it does to the eye.
-        px, py = -0.03, -0.03
+        # Grow the box a little: a line that touches a label, or runs just under it, as an
+        # outline does under a label set on an object, counts, as it does to the eye.
+        px, py = -0.06, -0.06
         x0, x1, y0, y1 = x0 + px, x1 - px, y0 + py, y1 - py
         for s in strokes:
             pts = _samples(s)

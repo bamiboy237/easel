@@ -77,14 +77,75 @@ export function describeGraph(props: GraphShapeProps): string {
 	return `Graph of ${fns || 'nothing yet'}, x from ${props.xMin} to ${props.xMax}, y from ${props.yMin} to ${props.yMax}.${axes}${params ? ` Parameters: ${params}.` : ''}${marks ? ` Marked points: ${marks}.` : ''}`
 }
 
+/** A round number near a value, for a suggested axis end. */
+function niceEnd(value: number, up: boolean) {
+	if (value === 0) return 0
+	const power = Math.pow(10, Math.floor(Math.log10(Math.abs(value))) - 1)
+	return (up ? Math.ceil(value / power) : Math.floor(value / power)) * power
+}
+
+/**
+ * Problems a reader would see in a graph's ranges: curves squeezed into a
+ * small band of a much taller y range, even with every slider at either end.
+ * Each problem names the range that would fit, so the agent can set it.
+ */
+export function checkGraph(props: GraphShapeProps): { key: string; text: string }[] {
+	const { xMin, xMax, yMin, yMax, parameters } = props
+	if (!(xMax > xMin) || !(yMax > yMin)) return []
+	const fns = props.functions.map((f) => {
+		try {
+			return compileExpression(f.expression)
+		} catch {
+			return null
+		}
+	})
+	if (!fns.some(Boolean)) return []
+	// The curves as they are, and with each slider at its ends: the range must hold them all.
+	const base = parameterScope(parameters)
+	const scopes = [base, ...parameters.flatMap((p) => [{ ...base, [p.name]: p.min }, { ...base, [p.name]: p.max }])]
+	let lo = Infinity
+	let hi = -Infinity
+	for (const scope of scopes) {
+		for (const fn of fns) {
+			if (!fn) continue
+			for (let i = 0; i <= 120; i++) {
+				const x = xMin + ((xMax - xMin) * i) / 120
+				const y = fn({ ...scope, x })
+				if (!Number.isFinite(y)) continue
+				lo = Math.min(lo, y)
+				hi = Math.max(hi, y)
+			}
+		}
+	}
+	if (!Number.isFinite(lo) || !Number.isFinite(hi)) return []
+	// Marked points must stay in view too.
+	for (const p of props.points ?? []) {
+		lo = Math.min(lo, p.y)
+		hi = Math.max(hi, p.y)
+	}
+	const span = Math.max(hi - lo, 1e-9)
+	const share = span / (yMax - yMin)
+	if (share >= 0.45 || lo < yMin || hi > yMax) return []
+	const margin = span * 0.15
+	const fitMin = yMin <= 0 && lo >= 0 ? Math.min(0, niceEnd(lo - margin, false)) : niceEnd(lo - margin, false)
+	const fitMax = niceEnd(hi + margin, true)
+	return [
+		{
+			key: 'graph:y-range',
+			text: `its curves fill only ${Math.round(share * 100)} percent of the y range ${yMin} to ${yMax}, even with every slider at its ends, so the curves look flat and the space is empty: set yMin ${fitMin} and yMax ${fitMax}`,
+		},
+	]
+}
+
 /**
  * The space between grid lines for a range drawn across so many pixels: a
  * round 1, 2, or 5 times a power of ten. Labels are at least 60 pixels apart,
  * and further for long numbers, so they never run into each other.
  */
-export function gridStep(range: number, pixels: number, largest = 0): number {
+export function gridStep(range: number, pixels: number, largest = 0, vertical = false): number {
 	const chars = Math.max(2, formatTick(largest || range, range / 10).length)
-	const gap = Math.max(60, chars * 8 + 20)
+	// Numbers stacked up an axis need only their height and a gap; numbers side by side need their width.
+	const gap = vertical ? 36 : Math.max(60, chars * 8 + 20)
 	const raw = (range * gap) / Math.max(pixels, 1)
 	const power = Math.pow(10, Math.floor(Math.log10(raw)))
 	return ([1, 2, 5, 10].map((m) => m * power).find((step) => step >= raw) ?? 10 * power)
@@ -201,7 +262,7 @@ function Graph({ shape }: { shape: GraphShape }) {
 	)
 	const scope = parameterScope(parameters)
 	const xStep = gridStep(xMax - xMin, w, Math.max(Math.abs(xMin), Math.abs(xMax)))
-	const yStep = gridStep(yMax - yMin, plotHeight, Math.max(Math.abs(yMin), Math.abs(yMax)))
+	const yStep = gridStep(yMax - yMin, plotHeight, Math.max(Math.abs(yMin), Math.abs(yMax)), true)
 	const errors = compiled.filter((c) => c.error).map((c) => c.error)
 
 	return (
@@ -363,9 +424,31 @@ export interface GraphLabel {
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number }
 
-/** A label's box, from a width estimate for the board's serif. */
+let measureContext: CanvasRenderingContext2D | null | undefined
+
+/**
+ * How wide a label is drawn, in px: measured in the board's serif where a
+ * canvas exists, and never less than a generous estimate, since the serif may
+ * still be loading and a fallback face runs narrower. An estimate alone ran
+ * short, so a curve could pass through a label's last letter.
+ */
+function labelWidth(text: string, size: number): number {
+	const estimate = text.length * size * 0.56
+	if (measureContext === undefined) {
+		try {
+			measureContext = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d')
+		} catch {
+			measureContext = null
+		}
+	}
+	if (!measureContext) return estimate
+	measureContext.font = `italic 500 ${size}px 'Source Serif 4 Variable', Georgia, serif`
+	return Math.max(estimate, measureContext.measureText(text).width * 1.06)
+}
+
+/** A label's box, with room for its halo. */
 function labelBox(text: string, size: number, x: number, y: number): Rect {
-	return { minX: x, minY: y, maxX: x + text.length * size * 0.52 + 4, maxY: y + size * 1.3 }
+	return { minX: x, minY: y, maxX: x + labelWidth(text, size) + 6, maxY: y + size * 1.3 }
 }
 
 function collides(a: Rect, b: Rect, pad = 3) {
@@ -425,7 +508,8 @@ export function graphLabels(input: {
 		r.minY >= 2 &&
 		r.maxY <= h - 2 &&
 		!taken.some((t) => collides(t, r)) &&
-		!allPoints.some((p) => p.x > r.minX - 3 && p.x < r.maxX + 3 && p.y > r.minY - 3 && p.y < r.maxY + 3)
+		// A clear gap from every curve, so a line never seems to touch a word.
+		!allPoints.some((p) => p.x > r.minX - 6 && p.x < r.maxX + 6 && p.y > r.minY - 6 && p.y < r.maxY + 6)
 	/** The first clear spot among the candidates, each tried as given and then stepped up and down. */
 	const place = (text: string, size: number, candidates: [number, number][], stepX = 0) => {
 		const box = labelBox(text, size, 0, 0)
@@ -457,8 +541,17 @@ export function graphLabels(input: {
 	if (xLabel) {
 		const bw = labelBox(xLabel, AXIS_TITLE_SIZE, 0, 0).maxX
 		const bh = AXIS_TITLE_SIZE * 1.3
-		// Above the axis's right end, or below it past the tick numbers, sliding left if a curve is there.
-		titles.push({ text: xLabel, stepX: -24, candidates: () => [[w - bw - 8, axisY - bh - 4], [w - bw - 8, axisY + 24]] })
+		// Above the axis's right end, or below it past the tick numbers, sliding left if a curve is
+		// there; else in the bottom right corner, under everything, rather than afloat in the plot.
+		titles.push({
+			text: xLabel,
+			stepX: -24,
+			candidates: () => [
+				[w - bw - 8, axisY - bh - 4],
+				[w - bw - 8, axisY + 24],
+				[w - bw - 8, h - bh - 4],
+			],
+		})
 	}
 	if (yLabel) {
 		const bw = labelBox(yLabel, AXIS_TITLE_SIZE, 0, 0).maxX

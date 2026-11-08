@@ -238,6 +238,7 @@ export class VoiceManager {
 	/** The user presses to talk. Anything the AI was saying or about to do stops. */
 	pressStart() {
 		if (!this.transport || this.pushing) return
+		this.holdingSilence = false
 		if (this.releaseTimer) {
 			clearTimeout(this.releaseTimer)
 			this.releaseTimer = null
@@ -299,7 +300,9 @@ export class VoiceManager {
 	private handleEvent(event: any) {
 		switch (event.type) {
 			case 'input_audio_buffer.speech_started':
-				// The server heard the user start a turn: stop and listen.
+				// The server heard the user start a turn: stop and listen. Their new
+				// words end a "stop": the answer to them may start again.
+				this.holdingSilence = false
 				this.heardSpeechAt ??= performance.now()
 				this.interrupt('vad')
 				this.syncBoard()
@@ -316,9 +319,23 @@ export class VoiceManager {
 					this.userText = text
 					this.addLine({ speaker: 'user', text, ts: Date.now() })
 				}
+				// "Stop", "hold on", "wait": the AI says nothing more until spoken to.
+				// The answer the server already started to that turn is cancelled.
+				if (isStopRequest(text)) {
+					this.holdingSilence = true
+					this.interrupt('stop-word')
+					if (this.$mode.get() === 'handsfree') this.$status.set('listening')
+				} else if (text) this.holdingSilence = false
 				break
 			}
 			case 'response.created':
+				// After "stop", only the user's next words start a new answer.
+				if (this.holdingSilence) {
+					this.cancelledResponses.add(event.response.id)
+					this.transport?.discardResponse(event.response.id)
+					this.transport?.send({ type: 'response.cancel' })
+					break
+				}
 				this.activeResponse = event.response.id
 				this.metrics.turns.push({
 					responseId: event.response.id,
@@ -375,7 +392,11 @@ export class VoiceManager {
 					void this.runDelegate(call)
 				} else this.sendToolOutput(call, this.runTool(call))
 			}
-			if (!waits) this.createResponse()
+			// Pointing is silent and needs no answer. When the response already
+			// spoke along with its cues, another response would only repeat it.
+			const spoke = (response.output ?? []).some((item: { type?: string }) => item.type === 'message')
+			const onlyPointed = calls.every((call) => call.name === 'point')
+			if (!waits && !(spoke && onlyPointed)) this.createResponse()
 		} else if (cancelled) {
 			for (const call of calls) this.metrics.toolCalls.push({ name: call.name, args: call.args, output: '', responseId: id, cancelled: true })
 		}
@@ -685,7 +706,10 @@ export class VoiceManager {
 		this.$status.set(this.transport ? (this.$mode.get() === 'handsfree' ? 'listening' : 'ready') : 'off')
 		// Highlights stay a moment after the voice stops, then fade.
 		this.later(() => {
-			if (!this.transport?.isPlaying()) this.fadeMarks()
+			if (this.transport?.isPlaying()) return
+			this.fadeMarks()
+			// The cursor leaves with the highlights, so it does not stay parked on what it pointed at.
+			this.$cursor.set(null)
 		}, 2500, false)
 	}
 
@@ -771,6 +795,9 @@ export class VoiceManager {
 	// ==================== Transcript and revert ====================
 
 	private changedTurns = new Set<string>()
+
+	/** After the user says "stop", no answer starts until they speak again. */
+	private holdingSilence = false
 
 	private markTurnChanged(passId: string) {
 		this.changedTurns.add(passId)
@@ -912,4 +939,15 @@ function voiceFailureReason(error: unknown): string | null {
 		if (error.name === 'NotReadableError') return 'Microphone in use'
 	}
 	return null
+}
+
+/**
+ * Whether the user's words only ask the AI to stop talking: "Stop", "Hold on.
+ * Stop.", "Wait a second", "OK, be quiet". A longer turn that goes on to ask
+ * something else is not a stop.
+ */
+export function isStopRequest(text: string): boolean {
+	const t = text.trim().toLowerCase().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim()
+	if (!t || t.length > 40) return false
+	return /^(?:(?:ok|okay|um|uh|hey|easel|no|please|just)\s)*(?:hold on|stop|wait|pause|be quiet|quiet|shh+|hang on|one sec(?:ond)?|never ?mind|enough)(?:\s(?:a (?:sec|second|moment|minute)|please|now|stop|wait|hold on|talking|for a (?:sec|second|moment)))*$/.test(t)
 }

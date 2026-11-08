@@ -123,12 +123,12 @@ export function getThreadOpenAt(thread: ThreadShape): ThreadOpenAt | undefined {
 /** A folded thread's pin, in page units. */
 export const PIN_SIZE = 26
 
-/** The note's ruled layout: every line of text sits on a 24 px rule. */
+/** The note's layout: every line of text sits on a 24 px rhythm. */
 export const THREAD_WIDTH = 280
 const RULE = 24
 const PAD_TOP = 14
 const PAD_BOTTOM = 14
-const PAD_LEFT = 30
+const PAD_LEFT = 16
 const PAD_RIGHT = 14
 const TEXT_WIDTH = THREAD_WIDTH - PAD_LEFT - PAD_RIGHT
 
@@ -153,7 +153,7 @@ export function measureThreadHeight(editor: Editor, entries: ThreadEntry[]): num
 }
 
 /**
- * A thread: a mark's question and its answers, on a ruled sticky note beside
+ * A thread: a mark's question and its answers, on a quiet paper note beside
  * the mark. Selecting it opens a line for a follow-up question.
  */
 export class ThreadShapeUtil extends ShapeUtil<ThreadShape> {
@@ -252,7 +252,7 @@ function OpenThreadNote({ shape }: { shape: ThreadShape }) {
 	const detached = useValue('thread detached', () => isDetached(editor, shape.id, shape.props.targetIds), [editor, shape.id, shape.props.targetIds])
 
 	// One sheet of paper: the thinking line, a follow-up, or the detached note is
-	// the last ruled line on the note itself, never a separate slip.
+	// the last line on the note itself, never a separate slip.
 	const extra = isThinking ? 'thinking' : isSelected && !busy ? 'follow-up' : detached ? 'detached' : null
 
 	return (
@@ -281,14 +281,15 @@ function OpenThreadNote({ shape }: { shape: ThreadShape }) {
 					)
 				)}
 				{extra === 'thinking' && (
-					<p className="thread-entry thread-entry--quiet" aria-label="Thinking">
+					// A div, not a p: the progress bar is a div, and a div cannot sit in a p.
+					<div className="thread-entry thread-entry--quiet" aria-label="Thinking">
 						<span className="thread-thinking" aria-hidden>
 							<span />
 							<span />
 							<span />
 						</span>
 						{agentOf(editor) && <RequestProgress agent={agentOf(editor)} label="Answering" className="thread-progress" />}
-					</p>
+					</div>
 				)}
 				{extra === 'detached' && <p className="thread-entry thread-entry--quiet">Its shape was deleted</p>}
 				{extra === 'follow-up' && (

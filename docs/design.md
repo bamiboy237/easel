@@ -26,9 +26,9 @@ The AI acts when the user addresses it by voice or text. It may also act after t
 
 ## Board layout
 
-One board per topic or project. The AI judges the scope and form of each request: one diagram, a step-by-step flow, a sketch, a mockup, or a map. Nothing in code forces a form. When the form is open and the choice changes the work, the AI asks the user one short question with a few choices, then waits for the answer. A focused question gets one focused visual beside related work. When the work has several connected parts, such as a lesson or a project plan, the AI first places a map: a row of empty tldraw frames, one per part, each with a title and a one-line description of what it will hold. For Fourier transforms that might be intuition, the math, a worked example, and applications. For a mockup it might be goals, user flow, screens, and open decisions. The AI then fills the frames one at a time, so the user can start working in the first frame while later ones are still being generated. The user can cancel or retry generation per frame.
+One board per topic or project. The AI judges the scope and form of each request: one diagram, a step-by-step flow, a sketch, a mockup, or a map. Nothing in code forces a form. When the form is open and the choice changes the work, the AI asks the user one short question with a few choices, then waits for the answer. A focused question gets one focused visual beside related work. When the work has several connected parts, such as a lesson or a project plan, the AI first places a map: a row of empty tldraw frames, one per part, each with a title and a one-line description of what it will hold. For Fourier transforms that might be intuition, the math, a worked example, and applications. For a mockup it might be goals, user flow, screens, and open decisions. The AI then fills the frames one at a time, so the user can start working in the first frame while later ones are still being generated. The user can cancel or retry generation per frame: under each frame's lower right corner, a part being filled or waiting offers Stop this part, a part whose fill never finished is marked Unfinished with Fill this part and Redo this part, and a finished part offers Redo this part while its frame is selected. Redo removes the agent's shapes in the frame and keeps the user's.
 
-The area to the left of the map is the user's space for scratch work, drawings, and their own notes. Protected regions are enforced in code: agent commands that target them are rejected unless the user asked for that change. A shape the user created is protected, and a frame the user draws marks a region: everything inside it is protected too. The user asks for a change to protected work by selecting it, adding it as context, or naming it. Protection stays invisible until the agent bumps into it, when the board outlines the user's work faintly for a moment. New AI content goes next to the frame it relates to, inside the part of the view the menu, toolbar, and voice control leave free, and the camera follows the agent as it creates: when a step lands out of view, the camera glides just far enough to show it, unless the user is working. The answer card names the work in the agent's own first sentence, and offers Show, which glides there, when the camera could not follow.
+The area to the left of the map is the user's space for scratch work, drawings, and their own notes. Protected regions are enforced in code: agent commands that target them are rejected unless the user asked for that change. A shape the user created is protected, and a frame the user draws marks a region: everything inside it is protected too. The user asks for a change to protected work by selecting it, adding it as context, or naming it. Protection stays invisible until the agent bumps into it, when the board outlines the user's work faintly for a moment. New AI content goes next to the frame it relates to, inside the part of the view the menu, toolbar, and voice control leave free, and the camera follows the agent as it creates: when a step lands out of view, the camera glides just far enough to show it, unless the user is working. The answer card names the work in the agent's own first sentence, and offers Show, which glides there, when the camera could not follow. New work that relates to nothing on the board keeps a wide gap from what is there, and the camera never zooms out below a reading zoom (0.7, or the user's own zoom when that is lower) to follow it; Show gives the overview.
 
 The user can ask the AI to add a frame, split one into smaller parts, or go deeper on one part. Each of those runs the same skeleton-then-fill process on a smaller scope.
 
@@ -63,7 +63,7 @@ The Swift shell handles the hotkey and screen capture and hosts the web app. The
 
 ## Canvas and shapes
 
-The canvas is the current tldraw SDK (5.6.0 on npm as of November 2) in a React app, starting from the tldraw agent starter kit at the matching version. Reuse the starter's context collection, validated actions, streaming, and cancellation, and extend its shape schemas so the agent can read and edit custom parameters. tldraw is free on localhost. Shipping it, including inside a desktop app, requires a tldraw license key.
+The canvas is the current tldraw SDK (5.6.0 on npm as of November 2) in a React app, starting from the tldraw agent starter kit at the matching version. Reuse the starter's context collection, validated actions, streaming, and cancellation, and extend its shape schemas so the agent can read and edit custom parameters. tldraw is free on localhost. Shipping it, including inside a desktop app, requires a tldraw license key. Until one is set, every view shows tldraw's "Get a license for production" badge in the corner. A production key, passed as the `licenseKey` prop of `<Tldraw>` in `client/App.tsx` (for example from a `VITE_TLDRAW_LICENSE_KEY` build variable), removes it. No key is configured yet, so the code does not read one.
 
 Built-in tldraw shapes cover notes, text, arrows, frames, highlights, and freehand strokes. Interactive content uses custom shapes that host React components:
 
@@ -92,7 +92,7 @@ Each rule is one of two kinds, as in Toolcraft's decision contract:
 - **Hard.** It cannot be broken. `npm run check:controls` fails when it is.
 - **Default.** The normal choice. Break it only for a reason, and write the reason here.
 
-A **known gap** is a rule the code does not meet yet. The check prints it as a `GAP` line and does not fail on it. Fix the gap, then make the check enforce it.
+A **known gap** is a rule the code does not meet yet. The check prints it as a `GAP` line and does not fail on it. Fix the gap, then make the check enforce it. The gaps listed here up to November 2026 (the clipped thumb, the reduced-motion thumb in Chromium, the hover film on play and loop, the blue loop, and previews that ran during pan and zoom) are closed and enforced as hard rules. The one left is the scene drag handles, below.
 
 The check needs a running dev server: `npm run check:controls -- http://127.0.0.1:5192`, or set `EASEL_URL`. It adds a graph, a scene, and an animation to the reference board, which is never saved, and measures them in Chromium. For the progress bar it runs a stand-in animation job and widget job through the app's job records, with no model calls.
 
@@ -106,8 +106,10 @@ One slider, `.paper-range`, serves every range: parameters, scene and simulation
 - Hard: hover and drag scale the thumb by 1.4, and drag turns it the accent. Scale takes 200 ms and color 150 ms, both on `--ease-out`.
 - Default: a parameter row is 28 px: the name (serif italic, data), the slider, and the value (ink, tabular numbers). A click on the value opens a field for a typed number.
 - Default: a press or keyboard focus on a slider starts its own undo step.
-- Known gap: at either end of the track, the input clips the grown thumb and the focus ring on the outer side.
-- Known gap: under reduced motion the thumb still animates. The reduced-motion rule lists the WebKit and Firefox thumbs in one selector, so Chromium drops the rule.
+- Hard: at either end of the track, the grown thumb and the focus ring are whole. The input keeps 4 px of padding at each end for them.
+- Hard: under reduced motion the thumb does not animate. Each engine's thumb has its own reduced-motion rule, since Chromium drops a selector list that names another engine's pseudo-element.
+- Default: a parameter may carry a unit, printed after its value ("9 m/s", "45°"). The name "th" reads as θ.
+- Default: while a value is typed, its range shows beside the field. A typed value outside the range is brought into it, and the range shows for a moment, so the change is never silent.
 
 ### Shade scale
 
@@ -129,10 +131,9 @@ The scale is opaque mixes of `--paper-ink` (#1f1e1b) into `--paper-card` (#fffff
 - Hard: the tokens resolve to these values, within one step per channel.
 - Hard: the three border tokens are the only translucent paints.
 - Hard: a state replaces paint. Hover, press, and drag never stack translucent layers, and no control fades its group for a state. The one exception is a scene the agent is still writing, whose controls fade to 50% as a whole.
-- Default: hover takes an opaque replacement, such as `--paper-hover` or `--paper-viz-grid`, and press takes `--paper-pressed`.
-- Default: `--paper-accent` (#344c41) is the one accent, for a named state only: a dragged thumb, a listening mic, hands-free on, and selection.
-- Known gap: play, pause, and loop buttons hover with a 45% film of `--paper-rule`. It is one layer, so it meets the hard rule, but it is not a replacement.
-- Known gap: the animation's loop button shows "on" in blue (#2f5d8c) on a 10% blue film, not in the accent.
+- Hard: hover takes an opaque replacement, such as `--paper-hover` or `--paper-viz-grid`, never a film, and press takes `--paper-pressed`.
+- Default: `--paper-accent` (#344c41) is the one accent, for a named state only: a dragged thumb, a listening mic, hands-free on, loop on, and selection.
+- Hard: the animation's loop button shows "on" in the accent on an opaque `--paper-viz-grid` fill.
 
 ### Ink budget
 
@@ -151,13 +152,16 @@ The scale is opaque mixes of `--paper-ink` (#1f1e1b) into `--paper-card` (#fffff
 
 - Hard: one transport per player. A scene with a clock, a simulation, and an animation each have exactly one play button and one scrubber, in the bottom row of the shape. Nothing else plays it: no second button, menu item, or chat control. A shape without time has no transport.
 - Default: the row is play (24 by 22 px), the scrubber, the time in data ink, then toggles such as loop. Dragging the scrubber of a scene or simulation pauses it. Play at the end starts again from 0.
-- Default: playback is each viewer's own. A finished animation plays once when it lands.
+- Default: playback is each viewer's own. A finished animation plays once when it lands. At rest it shows its finished picture, the video's last frame, which is also its poster, with the time at its end, so the picture and the time agree; Play starts it again from 0. The heading is in the player's title bar only: the video's own title band holds the one-line situation.
 
 ### Floating surfaces
 
 - Hard: a floating surface is one card layer, at least 98% opaque, never a stack of films.
 - Default: the voice pill and a render's status pill are fully rounded, with a `--paper-viz-border` hairline. The voice pill is the card at 98% with the small shadow, and opens with no transition. The status pill is 24 px and opaque, and Stop is a separate pill on the same surface.
 - Default: the answer card is the top of one floating sheet with the composer: an opaque card, a 1 px `--paper-rule` border, a 22 px radius, and a soft shadow. It opens in 200 ms on `--ease-out`.
+- Default: the answer card says what is true now, in one complete sentence of up to two lines. In order: a failure in plain words with Retry; "Stopped" after Stop, with the number of unfinished parts; background work (a widget or an animation being made, ready, or failed with Retry); the agent's first sentence; otherwise what was added ("Added an equation and 3 notes"), never a shape count. Notes for the user, such as text the agent was stopped from removing, sit under it.
+- Default: the card counts as chrome when the agent places and reveals work, and it folds into the ball, with a dot, when new work still lands under it. A failure, a note, or a question keeps it open.
+- Default: the style panel stays closed until the user asks for it with the Style pill, and offers only the paper inks, without the opacity slider.
 
 ### Progress
 
@@ -172,25 +176,24 @@ One bar, `ProgressBar` (`client/components/ProgressBar.tsx`, styled as `.paper-p
 - Default: a percent shows only while real frames drive the bar. An estimate shows no number.
 - Default: when a request ends, its bar fills and stays for 450 ms, then goes. Under reduced motion it goes at once.
 
-The expected durations are measured on the plan model, in November 2026.
+The expected durations are measured on the plan model, in November 2026. The animation rows were measured again on November 8, after the writer's prompt was cut to one reference scene, the check deadline to 15 s, and the final video to 1280 by 720 (the same unit-circle scene renders in 17.6 s instead of 28.2 s).
 
 | Work | Expected | Measured |
 | --- | --- | --- |
 | Agent request, typed or delegated | 15 s | 12 s and 18 s |
 | Widget code | 35 s | 29 s and 40 s |
-| Animation: writing, then the whole scene's sketch | 35 s, to 50% of the bar | 30, 37, and 39 s |
-| Animation: checking the sketch | 10 s, to 65% | 4, 9, and 11 s |
-| Animation: a fix, its sketch and video | 12 s, real frames to 100% | 8, 11, and 13 s |
-| Animation: the final video | 15 s, real frames to 100% | Not reached: all three reviews fixed the scene |
-| Animation: the whole job | | 42, 60, and 62 s (the Phase 12 gate saw 64 to 89 s) |
+| Animation: writing, then the whole scene's sketch | 40 s, to 70% of the bar | 39 and 43 s (earlier: 30, 37, and 39 s) |
+| Animation: checking the sketch | 10 s, to 85% | 9 s, and 15 s when dropped at the deadline |
+| Animation: a fix, its sketch and video | 10 s, real frames to 100% | 8 s |
+| Animation: the final video | 10 s, real frames to 100% | Under 1 s left after the check: the video renders during it |
+| Animation: the whole job | | 48 and 56 s; 66, 69, and 72 s from the ask to the video on the Phase 12 gate (before: 64 to 89 s, and 104 s for one unit-circle animation) |
 
 The animation's phases and their stretches of the bar are in `client/shapes/video/progress.ts`. The other durations are `EXPECTED_MS` in `ProgressBar.tsx`.
 
 ### Animated previews, pan, and zoom
 
-- Hard: a playing scene, simulation, or animation pauses its frame work while the user pans, zooms, or drags the canvas, and resumes from the same time without changing play or pause.
+- Hard: a playing scene, simulation, or animation pauses its frame work while the user pans, zooms, or drags the canvas, and resumes from the same time without changing play or pause. The canvas counts as moving until its camera has been still for 180 ms (`client/shapes/playback.ts`): a scene's or simulation's clock holds, and an animation's video is held and goes on.
 - Default: motion is short and on `--ease-out`. Things move only by transform and opacity, and a color change fades in 150 ms or less. Motion stops under reduced motion.
-- Known gap: previews keep running during pan and zoom.
 
 ## Agent and canvas tools
 
@@ -200,6 +203,7 @@ The agent backend is a local TypeScript process that shares shape schemas and th
 - Dragging and other direct manipulation apply locally and immediately. The command is recorded after the fact.
 - Agent commands carry the board revision they were based on. A command whose target changed since then is rejected as stale.
 - Commands into protected user regions are rejected.
+- Agent and voice commands add to the user's words but never delete or rewrite text in a shape the user made, even a selected one, unless the user's request asks for a text change (rename, reword, fix, delete, and similar). Such a command is rejected with reason `user-text`, and the answer card tells the user which text was kept.
 - Cancel stops future agent work. Revert is a separate action, and reverting agent work never removes newer human work.
 
 The agent's tools are commands:
@@ -264,7 +268,10 @@ A screenshot catches layout problems, not wrong physics. So:
 - Numbers come from the evaluator, never from the model's prose. The agent reads a scene as computed values, and quotes them.
 - Each scene carries checks the agent writes, such as `range == v0^2*sin(2*theta)/g` or "energy drift under 1 percent". Failures come back to the agent in its next pass.
 - Automatic lints catch values that break at a parameter's minimum, middle, or maximum, objects outside the view, zero-length vectors, and degree and radian or unit mixups.
-- A "show formulas" toggle lets the learner see what is drawn.
+- A state reads as words, never as a code: a readout writes `{test ? In : Miss}`, and a readout or label that shows a yes or no as 1 or 0 comes back to the agent as a scene problem.
+- The same kind of check covers the other visuals: a graph whose curves fill less than 45 percent of its y range, even with every slider at its ends, comes back with the range that fits; a concept map holding a cycle comes back for each part that receives but leads nowhere, such as groundwater with no way back to the oceans.
+- Arrows in a scene share one scale that keeps every arrow starting in view inside the view, so a large force still reads, and their lengths still compare.
+- A "show formulas" toggle lets the learner see what is drawn. It and "Save as template" show on a selected scene only, so the learner's view holds the picture and its controls.
 - Templates keep their checks, with a note of the session each was verified on.
 
 ### Generated code
@@ -285,10 +292,10 @@ A browser lets a sandboxed frame navigate itself, and no CSP directive stops tha
 `render_animation` places an `animation` shape as a placeholder, then a background job makes the video. tldraw already has a `video` shape for dropped files, so the Manim video has its own type.
 
 - **Render service.** The Worker cannot start processes, so a small local service runs Manim, like the ChatGPT plan helper (`render/server.ts`). The Mac shell runs it in the product. Each job runs in its own process group and folder, with a stripped environment, a wall-clock limit, and size caps. A static check refuses source that imports anything beyond Manim, the helpers, numpy, and math, or names files, processes, or the interpreter. An audit hook blocks sockets and other programs at run time, and on Linux the job also runs in a network namespace with no network.
-- **Steps.** The writer model writes one scene. While it writes, the part written so far renders as a sketch: each animation's end state as a frame at low resolution, with no video. The placeholder shows the newest sketch, so the scene appears within seconds. The finished scene sketches in full, and Manim errors go back to the writer once. The final video starts rendering at once, split into up to three parts that render in parallel and are joined. Meanwhile the writer checks the sketch's frames and an automatic layout check (text on text, text on lines, text off screen or too small) for layout, and its own source for content. It fixes the scene once with small edits. A fix replaces the first render only if it renders and the layout check finds no more problems in it.
+- **Steps.** The writer model writes one scene. While it writes, the part written so far renders as a sketch: each animation's end state as a frame at low resolution, with no video. The placeholder shows the newest sketch, so the scene appears within seconds. The finished scene sketches in full, and Manim errors go back to the writer once. The final video, at 1280 by 720 (sharp at twice the size the player shows), starts rendering at once, split into up to three parts that render in parallel and are joined. The writer's prompt holds the rules and only the one reference scene closest to the brief, and the check holds no reference scene, which keeps both calls short. A check that runs past 15 s is dropped, and the first version stands. Meanwhile the writer checks the sketch's frames and an automatic layout check (text on text, text on or resting against lines and outlines, text off screen or too small) for layout, and its own source for content. It fixes the scene once with small edits. A fix replaces the first render only if it renders and the layout check finds no more problems in it.
 - **Cache.** Renders are cached by a hash of their source, scene, quality, and the helpers. The same title and brief asked for again reuse the first source, so they come from the cache without a model call.
 - **Records.** The shape holds the title, brief, status, source, render key, and duration, so commands, stale checks, and revert treat it like any shape. The render service keeps each finished render with its source, frames, and poster, keyed by the render key. This replaces the `renders` table for now.
-- **Look.** Scenes subclass `EaselScene` from a small helper library (`render/py/easel.py`): the paper background and inks, the board's serif, a title band, a caption band, and builders that keep labels readable and on screen. Manim's bright default colours are mapped to the paper inks.
+- **Look.** Scenes subclass `EaselScene` from a small helper library (`render/py/easel.py`): the paper background and inks, the board's serif, a title band that holds the one-line situation (the heading is in the player's title bar, so the video does not repeat it), a caption band, and builders that keep labels readable and on screen. Manim's bright default colours are mapped to the paper inks.
 
 ### Agent actions and context
 
@@ -351,6 +358,8 @@ Every board change from a voice tool is a command with origin `voice`, the board
 
 **Pointing.** Shapes and parts are addressed by ID. Part IDs come from what a shape already stores: `g1.curve` and `g1.curve2` for a graph's functions, `g1.point1` for its marked points, `g1.<parameter>` for a slider row, a scene's object IDs such as `scene1.ball`, and an equation's top-level terms `eq3.term1` to `eq3.termN` with `eq3.lhs` and `eq3.rhs`, measured from the typeset KaTeX. A speech-to-speech model has no text-to-speech step to strip tags from: tags written into its output are spoken, partly, as "G1.1" and the like. So pointing is a tool call. Before it speaks, the model calls `point` with one cue per thing, in order, each with a target and the first words of its sentence. The app splits the spoken transcript into sentences and matches cues to them in order by shared words, with the target's label; the first sentence takes the first cue. A cue fires when its sentence starts playing, estimated from the sentence's place in the transcript (68 ms per character) from when the item's audio started. The cursor flies along a curved path in about 650 ms, then a plain point pulses, and a highlight lays a yellow marker stroke over the part, along the curve itself for a graph's function. Pointing and highlights are overlays, not commands, so they never change the board. In a voice conversation the camera follows: a cue at a part out of view, work a `delegate` pass places out of view, and a note or parameter change the voice makes out of view glide the camera just far enough to show it, zooming out to no less than about half the user's zoom. It never moves while the user is pressing, dragging, scrolling, typing, or editing, or within 2.5 seconds of their last input.
 
+**Stop.** When the user's turn only asks the AI to stop ("stop", "hold on", "wait", "never mind"), the app cancels the answer the server started to it, and no answer starts until the user speaks again.
+
 **Interruption.** When the user starts talking (a press in push-to-talk, the microphone level over the AI's voice for 100 ms in hands-free, or the server's speech start), the app stops playback at once, truncates the item to what was heard, cancels the response being generated with its tool calls, drops cues not yet shown, and cancels a running delegate pass through the agent's cancel. Work already on the board stays; revert is a separate action. Over WebRTC the app mutes the remote audio and clears the server's output buffer, which truncates the item on the server.
 
 **Transcripts.** Each user and AI line is stored in the `transcripts` table of the board store. An AI line is stored once its speech has played. When the user cuts the AI off, the line is stored as far as it was heard, estimated from the time played, and ends in an ellipsis.
@@ -390,6 +399,8 @@ Everything is local, in one SQLite database. The database is the SQLite storage 
 | `renders` | `render_id`, `board_id`, `status`, `video_path`, `manim_source` |
 
 Commands persist incrementally as they happen, and a full tldraw snapshot is saved periodically: every 25 commands, or 2 minutes after the last snapshot, and never while an agent is mid-pass, because its previews are not commands. A board loads as its latest snapshot plus the commands after it, and the whole log comes back with it. The command log is the source for undo, revert, and replay. Manim output files live in the app's support directory, referenced by path.
+
+**Undo after a reload.** Undo and Redo walk tldraw's history of the page as it is open, and that history starts empty when the board loads; the board, the conversation, and the command log come back, but Undo has nothing to step back over until the user acts again. This is a decision, not a gap. Rebuilding the undo stack from the log would replay agent passes, voice turns, and user edits as one interleaved stack, so one Undo after a reload could reach back into another person's or the agent's work from an earlier session, which the command model keeps separate. Work from before a reload is taken back with revert, which acts on whole agent passes or voice turns, keeps newer human work, and survives reloads because it reads the log.
 
 ## Build phases
 
