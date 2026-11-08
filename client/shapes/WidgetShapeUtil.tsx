@@ -16,7 +16,7 @@ import { parametersHeight } from './GraphShapeUtil'
 import { clampParameter, describeParameters, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
 import { MAX_DROPPED, MAX_STATE_CHARS, RateLimiter, readWidgetMessage } from './widget/bridge'
 import { EXPECTED_MS, ProgressBar } from '../components/ProgressBar'
-import { isWidgetJobRunning, runningWidgetJobs, widgetPreviews } from './widget/jobs'
+import { freshWidgets, isWidgetJobRunning, runningWidgetJobs, widgetPreviews } from './widget/jobs'
 import { buildWidgetDocument } from './widget/sandbox'
 
 export const WIDGET_TYPE = 'widget'
@@ -300,8 +300,10 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 
 	// The document is built only when the code changes or the user restarts it,
 	// never on a value change, so the frame keeps running as values arrive.
+	// A widget restored from the saved board holds its clocks until the user touches it.
+	const [held, setHeld] = useState(false)
 	const built = useMemo(
-		() => buildWidgetDocument({ html, css, js }, valuesRef.current),
+		() => buildWidgetDocument({ html, css, js }, valuesRef.current, { holdClocks: !freshWidgets.has(shape.id) }),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[html, css, js, restarts]
 	)
@@ -463,6 +465,12 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 					break
 				case 'smoke':
 					break
+				case 'held':
+					setHeld(true)
+					break
+				case 'resumed':
+					setHeld(false)
+					break
 				case 'snapshot': {
 					const resolve = pendingSnapshots.current.get(message.id)
 					pendingSnapshots.current.delete(message.id)
@@ -562,6 +570,7 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 					onPointerDown={(e) => e.stopPropagation()}
 					onClick={() => {
 						setScriptError(null)
+						freshWidgets.add(shape.id)
 						setPhase({ kind: 'starting' })
 						setRestarts((n) => n + 1)
 					}}
@@ -592,6 +601,7 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 					if (loads.current > 1) stop('It tried to leave its own page.')
 				}}
 			/>
+			{held && <div className="widget-held">Paused since the board loaded. Click inside to go on.</div>}
 			{scriptError && <div className="widget-error">{scriptError}</div>}
 		</>
 	)

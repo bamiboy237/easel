@@ -2018,6 +2018,23 @@ input.shape-parameter-value:focus-visible {
 	pointer-events: none;
 }
 
+/* A restored widget whose clocks wait for the user's first touch. */
+.widget-held {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	height: 24px;
+	padding: 0 10px;
+	display: inline-flex;
+	align-items: center;
+	border: 1px solid var(--paper-viz-border);
+	border-radius: 12px;
+	background: var(--paper-card);
+	font: 500 12px 'Inter', sans-serif;
+	color: var(--paper-viz-data);
+	pointer-events: none;
+}
+
 /* A widget's layout shown while its script is still being written. */
 .widget-writing-badge {
 	position: absolute;

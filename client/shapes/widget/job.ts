@@ -2,7 +2,7 @@ import { TLShapeId } from 'tldraw'
 import type { TldrawAgent } from '../../agent/TldrawAgent'
 import { WIDGET_TYPE, widgetChromeHeight, WidgetShape } from '../WidgetShapeUtil'
 import { closedWidgetBlocks, parseWidgetCode, WIDGET_STREAM_ERROR } from '../../../shared/widgetCode'
-import { runningWidgetJobs, setWidgetPreview } from './jobs'
+import { freshWidgets, runningWidgetJobs, setWidgetPreview } from './jobs'
 import { guardLoops } from './sandbox'
 import { smokeTestWidget } from './smoke'
 
@@ -140,6 +140,7 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 		'error' in outcome
 			? { status: 'failed' as const, error: outcome.error }
 			: { html: outcome.html, css: outcome.css, js: outcome.js, status: 'ready' as const, error: outcome.note ?? '' }
+	freshWidgets.add(id)
 	const result = agent.commands.execute('agent', 'widget', () => editor.updateShape<WidgetShape>({ id, type: WIDGET_TYPE, props }), options)
 	if (result.status === 'applied') return
 	// The user changed the widget meanwhile, or put it inside their own work. The

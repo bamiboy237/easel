@@ -33,6 +33,7 @@ import {
 } from '../shapes/SimulationShapeUtil'
 import { describeWidget, WIDGET_TYPE, widgetChromeHeight, WidgetShape } from '../shapes/WidgetShapeUtil'
 import { runWidgetJob } from '../shapes/widget/job'
+import { freshWidgets } from '../shapes/widget/jobs'
 import { BUILT_IN_WIDGET_TEMPLATES, getWidgetTemplate } from '../shapes/widget/widgetTemplates'
 import { describeVideo, VIDEO_TYPE, videoHeightForWidth, VideoShape } from '../shapes/VideoShapeUtil'
 import { runVideoJob } from '../shapes/video/job'
@@ -688,6 +689,7 @@ export const WidgetTemplateActionUtil = registerActionUtil(
 			const id = `shape:${helpers.ensureShapeIdIsUnique(String(action.shapeId || template.id) as Parameters<AgentHelpers['ensureShapeIdIsUnique']>[0])}` as TLShapeId
 			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
 			const params = {}
+			freshWidgets.add(id)
 			editor.createShape<WidgetShape>({
 				id,
 				type: WIDGET_TYPE,

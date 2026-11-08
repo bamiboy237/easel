@@ -176,6 +176,12 @@ export interface WidgetValues {
 export interface WidgetDocumentOptions {
 	/** Build the document for the smoke test: it drives every control and reports what changed nothing. */
 	smoke?: boolean
+	/**
+	 * Hold the widget's clocks: its timers and animation frames wait for the
+	 * user's first press or key in the frame. For a widget restored from a saved
+	 * board, so a game or a countdown does not restart by itself after a reload.
+	 */
+	holdClocks?: boolean
 }
 
 /** The board's serif, embedded, since the frame cannot load fonts. */
@@ -203,7 +209,7 @@ export function buildWidgetDocument(source: WidgetSource, values: WidgetValues, 
 	const doc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>${FONT_FACES}html,body{margin:0;padding:0;overflow:hidden}${sanitizeWidgetCss(kitCss)}</style>
 <style>${sanitizeWidgetCss(source.css)}</style>
-<script nonce="${nonce}">${scriptSafe(runtimeScript(values, !!options.smoke))}</script>
+<script nonce="${nonce}">${scriptSafe(runtimeScript(values, !!options.smoke, !!options.holdClocks))}</script>
 <script nonce="${nonce}">${HIDE_NONCE}${scriptSafe(kitJs)}</script>
 </head><body>${sanitizeWidgetHtml(source.html)}
 <script nonce="${nonce}">${HIDE_NONCE}(() => {
@@ -224,7 +230,7 @@ ${scriptSafe(guarded.code)}
  */
 const HIDE_NONCE = "document.currentScript.removeAttribute('nonce');document.currentScript.nonce='';"
 
-function runtimeScript(values: WidgetValues, smoke: boolean): string {
+function runtimeScript(values: WidgetValues, smoke: boolean, holdClocks: boolean): string {
 	return `${HIDE_NONCE}(() => {
 'use strict';
 // The guard keeps its own copies, so the widget cannot change the clock it reads.
@@ -410,6 +416,43 @@ window.addEventListener('message', async (event) => {
 });
 setInterval(() => post({ type: 'heartbeat' }), 500);
 window.addEventListener('DOMContentLoaded', () => post({ type: 'ready' }));
+// After a reload, the widget's clocks wait for the user: its timers and
+// animation frames are queued until the first press or key in the frame, or
+// until the widget calls easel.resume() because it should run at once.
+const HOLD = ${holdClocks ? 'true' : 'false'};
+let holding = HOLD, toldHeld = false, nextFake = 1;
+const real = { st: setTimeout.bind(window), si: setInterval.bind(window), raf: requestAnimationFrame.bind(window), ct: clearTimeout.bind(window), ci: clearInterval.bind(window), caf: cancelAnimationFrame.bind(window) };
+const queued = new Map();
+const ids = new Map();
+const hold = (kind, fn, delay, args) => {
+	if (!holding) return null;
+	if (!toldHeld) { toldHeld = true; post({ type: 'held' }) }
+	const id = 1e9 + nextFake++;
+	queued.set(id, { kind, fn, delay, args });
+	return id;
+};
+const release = () => {
+	if (!holding) return;
+	holding = false;
+	post({ type: 'resumed' });
+	for (const [id, q] of queued) {
+		if (q.kind === 'raf') ids.set(id, real.raf(q.fn));
+		else if (q.kind === 'interval') ids.set(id, real.si(q.fn, q.delay, ...q.args));
+		else ids.set(id, real.st(q.fn, q.delay, ...q.args));
+	}
+	queued.clear();
+};
+if (HOLD) {
+	window.setTimeout = (fn, delay, ...args) => hold('timeout', fn, delay, args) ?? real.st(fn, delay, ...args);
+	window.setInterval = (fn, delay, ...args) => hold('interval', fn, delay, args) ?? real.si(fn, delay, ...args);
+	window.requestAnimationFrame = (fn) => hold('raf', fn, 0, []) ?? real.raf(fn);
+	const clear = (fallback) => (id) => { if (queued.delete(id)) return; if (ids.has(id)) { const r = ids.get(id); ids.delete(id); real.ct(r); real.ci(r); real.caf(r); return } fallback(id) };
+	window.clearTimeout = clear(real.ct);
+	window.clearInterval = clear(real.ci);
+	window.cancelAnimationFrame = clear(real.caf);
+	for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, (e) => { if (e.isTrusted) release() }, true);
+}
+lock(easel, 'resume', { value: release, writable: false });
 })();`
 }
 
