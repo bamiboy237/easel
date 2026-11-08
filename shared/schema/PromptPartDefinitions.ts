@@ -235,6 +235,15 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 			messages.push(lines.join('\n'))
 		}
 
+		const diagramLints = lints.filter((l) => l.type === 'diagram-problem')
+		if (diagramLints.length > 0) {
+			const lines = [
+				'Diagram problems: found in the structure of your diagrams, and a learner would read them as facts. Fix each by sending the diagram action again with the same diagramId and the missing links or concepts.',
+				...diagramLints.flatMap((lint) => (lint.texts ?? []).map((t) => `  - ${t}`)),
+			]
+			messages.push(lines.join('\n'))
+		}
+
 		const graphLints = lints.filter((l) => l.type === 'graph-problem')
 		if (graphLints.length > 0) {
 			const lines = [
