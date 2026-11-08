@@ -451,7 +451,23 @@ export function fitVectorScale(
 	const x1 = view.x[1] - margin
 	const y0 = view.y[0] + margin
 	const y1 = view.y[1] - margin
+	// A handle on an arrow's tip is where the user grabs it, so it must stay on the
+	// tip: a scene with one keeps its true lengths, and its handle keeps it in view.
+	const handles = visible
+		.filter(([, o]) => o.type === 'point' && o.drag)
+		.map(([id]) => values.points[id])
+		.filter((p): p is [number, number] => !!p && Number.isFinite(p[0]) && Number.isFinite(p[1]))
 	let scale = 1
+	for (const [, o] of visible) {
+		if (o.type !== 'vector') continue
+		try {
+			const tail = resolveRef(o.from, values)
+			const tip = [tail[0] + evaluateIn(o.dx, values.scope), tail[1] + evaluateIn(o.dy, values.scope)]
+			if (handles.some((h) => Math.hypot(h[0] - tip[0], h[1] - tip[1]) < 4 * unitsPerPixel)) return 1
+		} catch {
+			continue
+		}
+	}
 	for (const [, o] of visible) {
 		if (o.type !== 'vector') continue
 		try {

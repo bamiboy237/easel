@@ -1625,6 +1625,12 @@
 	display: none;
 }
 
+/* Tick numbers in data ink, a step darker than Mafs's faded default, so the scale reads at a glance. */
+.graph-plot .graph-axis-labels text {
+	fill: var(--paper-viz-data);
+	fill-opacity: 1;
+}
+
 .graph-plot .graph-axis-labels .mafs-shadow {
 	stroke: var(--paper-card);
 	stroke-width: 4px;

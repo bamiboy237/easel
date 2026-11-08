@@ -684,7 +684,7 @@ export function checkScene(props: SceneProps): SceneProblem[] {
 			return !/^[A-Za-z_]\w*$/.test(name) || (def?.type === 'let' && /[<>]|==|!=|\b(and|or|not)\b|\bif\(/.test(def.expr))
 		})
 		if (coded || isFlag) {
-			add(`${id}:yes-no`, `${o.type} ${id} ("${o.text}") shows a yes or no as 1 or 0; say it in words with {test ? In : Miss}, and give the measure that decides it, such as "{abs(dh) < 0.12 ? In : Miss}, {round(100*dh)} cm from the rim"`)
+			add(`${id}:yes-no`, `${o.type} ${id} ("${o.text}") shows a yes or no as 1 or 0; say it in words with {test ? In : Miss}, and give the measure that decides it, such as "{abs(dh) < 0.12 ? In : Miss}: {round(100*abs(dh))} cm {dh > 0 ? above : below} rim height at the hoop"`)
 		}
 	}
 
