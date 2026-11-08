@@ -508,7 +508,8 @@ export function graphLabels(input: {
 		r.minY >= 2 &&
 		r.maxY <= h - 2 &&
 		!taken.some((t) => collides(t, r)) &&
-		!allPoints.some((p) => p.x > r.minX - 3 && p.x < r.maxX + 3 && p.y > r.minY - 3 && p.y < r.maxY + 3)
+		// A clear gap from every curve, so a line never seems to touch a word.
+		!allPoints.some((p) => p.x > r.minX - 6 && p.x < r.maxX + 6 && p.y > r.minY - 6 && p.y < r.maxY + 6)
 	/** The first clear spot among the candidates, each tried as given and then stepped up and down. */
 	const place = (text: string, size: number, candidates: [number, number][], stepX = 0) => {
 		const box = labelBox(text, size, 0, 0)
