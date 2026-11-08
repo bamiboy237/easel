@@ -163,6 +163,7 @@ export class AgentFrameFillManager extends BaseAgentManager {
 			{
 				baseRev: this.agent.getLastBaseRev(),
 				allowedShapeIds: this.agent.getAllowedShapeIds(),
+				userText: this.agent.getRequestUserText(),
 				...this.agent.getPassIds(),
 			}
 		)
