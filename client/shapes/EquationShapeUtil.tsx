@@ -36,6 +36,40 @@ export type EquationShape = TLShape<typeof EQUATION_TYPE>
 const PAD = 8
 export const DEFAULT_EQUATION_SIZE = 24
 
+/**
+ * The KaTeX faces a typical equation uses. A face loads only once text uses
+ * it, so an equation measured before then is measured in a fallback face, and
+ * its box and the place of its equals sign come out wrong once the real face
+ * arrives. They start loading when the board starts.
+ */
+const KATEX_FACES = [
+	'400 1em KaTeX_Main',
+	'italic 400 1em KaTeX_Main',
+	'700 1em KaTeX_Main',
+	'italic 400 1em KaTeX_Math',
+	'400 1em KaTeX_AMS',
+	'400 1em KaTeX_Size1',
+	'400 1em KaTeX_Size2',
+	'400 1em KaTeX_Size3',
+	'400 1em KaTeX_Size4',
+]
+
+/** Resolves once the KaTeX faces have loaded, or failed to. */
+export const katexFontsReady: Promise<void> =
+	typeof document !== 'undefined' && document.fonts
+		? Promise.all(KATEX_FACES.map((face) => document.fonts.load(face).catch(() => []))).then(() => undefined)
+		: Promise.resolve()
+
+/** Whether the KaTeX faces are loaded, so a measurement now is final. */
+export function katexFontsLoaded(): boolean {
+	if (typeof document === 'undefined' || !document.fonts) return true
+	try {
+		return KATEX_FACES.slice(0, 4).every((face) => document.fonts.check(face))
+	} catch {
+		return true
+	}
+}
+
 /** The equation typeset with KaTeX, or null with the reason when the LaTeX does not parse. */
 export function renderEquation(latex: string): { html: string; error: null } | { html: null; error: string } {
 	try {

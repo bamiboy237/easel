@@ -31,6 +31,12 @@ export interface ExecuteOptions {
 	 * added as context, or named in the request. Shapes inside them count too.
 	 */
 	allowedShapeIds?: ReadonlySet<string>
+	/**
+	 * The user's own words in the request an AI command serves. They decide
+	 * whether the command may delete or rewrite text in the user's shapes: only
+	 * when the words ask for that, such as "rename" or "fix the typo".
+	 */
+	userText?: string
 	/** The agent pass the command came from, one per model request. */
 	passId?: string
 	/** The user request the pass belongs to, shared by its follow-up passes. */
@@ -67,7 +73,7 @@ export type BoardCommandResult =
 	  }
 	| {
 			status: 'rejected'
-			reason: 'protected'
+			reason: 'protected' | 'user-text'
 			changes: RecordsDiff<TLRecord>
 			protectedRecordIds: string[]
 	  }
@@ -319,6 +325,7 @@ export class BoardCommandManager {
 			requestId,
 			revertedCommandIds,
 			keptRecordIds,
+			userText = '',
 		}: ExecuteOptions = {}
 	): BoardCommandResult {
 		CommandOriginSchema.parse(origin)
@@ -361,6 +368,21 @@ export class BoardCommandManager {
 				protectedRecordIds,
 			})
 			return { status: 'rejected', reason: 'protected', changes: emptyChanges(), protectedRecordIds }
+		}
+
+		// Even where the request allows changes to the user's shapes, the AI adds to
+		// their words and never removes or rewrites them unasked.
+		const textRecordIds = checksProtection ? this.getUserTextViolations(changes, userText) : []
+		if (textRecordIds.length > 0) {
+			rollBack()
+			this.record(origin, type, changes, {
+				baseRev,
+				passId,
+				requestId,
+				reason: 'user-text',
+				protectedRecordIds: textRecordIds,
+			})
+			return { status: 'rejected', reason: 'user-text', changes: emptyChanges(), protectedRecordIds: textRecordIds }
 		}
 
 		const commandId = this.record(origin, type, changes, {
@@ -695,6 +717,43 @@ export class BoardCommandManager {
 		return [...violations]
 	}
 
+	/**
+	 * The user's shapes whose text an AI command would delete or rewrite without
+	 * being asked: a change that drops any of the user's words, or deleting a
+	 * shape of theirs that holds text. Adding words around theirs is fine.
+	 */
+	private getUserTextViolations(changes: RecordsDiff<TLRecord>, userText: string): string[] {
+		const violations: string[] = []
+		const editsText = asksToEditText(userText)
+		const deletes = asksToDelete(userText)
+		for (const [prev, next] of Object.values(changes.updated)) {
+			if (prev.typeName !== 'shape' || next.typeName !== 'shape') continue
+			if (getShapeCreator(prev as TLShape) !== 'user' || editsText) continue
+			const before = normalizeText(this.getShapeText(prev as TLShape))
+			if (!before) continue
+			const after = normalizeText(this.getShapeText(next as TLShape))
+			if (!after.includes(before)) violations.push(prev.id)
+		}
+		for (const record of Object.values(changes.removed)) {
+			if (record.typeName !== 'shape' || getShapeCreator(record as TLShape) !== 'user' || deletes) continue
+			if (normalizeText(this.getShapeText(record as TLShape))) violations.push(record.id)
+		}
+		return violations
+	}
+
+	/** The words a shape shows: its label or text, or a frame's name. */
+	getShapeText(shape: TLShape): string {
+		const props = shape.props as { name?: unknown; text?: unknown }
+		if (shape.type === 'frame') return typeof props.name === 'string' ? props.name : ''
+		try {
+			const text = this.editor.getShapeUtil(shape).getText(shape)
+			if (typeof text === 'string') return text
+		} catch {
+			// A shape type without text.
+		}
+		return typeof props.text === 'string' ? props.text : ''
+	}
+
 	private collect(changes: RecordsDiff<TLRecord>) {
 		this.pendingUserChanges = squashRecordDiffs([this.pendingUserChanges, changes])
 	}
@@ -757,7 +816,7 @@ export class BoardCommandManager {
 			baseRev?: number
 			passId?: string
 			requestId?: string
-			reason?: 'stale' | 'protected'
+			reason?: 'stale' | 'protected' | 'user-text'
 			staleRecordIds?: string[]
 			protectedRecordIds?: string[]
 			revertedCommandIds?: string[]
@@ -826,4 +885,23 @@ function onlyMovedOrResized(prev: TLShape, next: TLShape): boolean {
 	const a = prevProps as Record<string, unknown>
 	const b = nextProps as Record<string, unknown>
 	return Object.keys({ ...a, ...b }).every((key) => RESIZE_PROPS.has(key) || JSON.stringify(a[key]) === JSON.stringify(b[key]))
+}
+
+function normalizeText(text: string): string {
+	return text.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+/** Words that ask for a change to existing text, not only additions. */
+const EDIT_TEXT_WORDS =
+	/\b(re-?name|re-?title|re-?label|re-?word|re-?write|re-?phrase|replace|edit|fix|correct|typos?|spelling|shorten|simplify|translate|reformat|capitali[sz]e|clearer|delete|remove|erase|clear|change (?:the |its |this |that |my |their )?(?:text|label|title|name|wording|words|caption|heading)s?|update (?:the |its |this |that |my )?(?:text|label|title|name|wording|caption|heading)s?)\b/i
+
+/** Words that ask to delete a shape. */
+const DELETE_WORDS = /\b(delete|remove|erase|clear|get rid of|throw away|drop)\b/i
+
+export function asksToEditText(userText: string): boolean {
+	return EDIT_TEXT_WORDS.test(userText)
+}
+
+export function asksToDelete(userText: string): boolean {
+	return DELETE_WORDS.test(userText)
 }

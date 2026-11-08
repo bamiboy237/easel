@@ -23,6 +23,7 @@ import { ChatPanelFallback } from './components/ChatPanelFallback'
 import { ContextualStylePanel } from './components/ContextualStylePanel'
 import { CustomHelperButtons } from './components/CustomHelperButtons'
 import { MarkChip, MarkComposer } from './components/MarkComposer'
+import { PartControls } from './components/PartControls'
 import { VoiceControl } from './components/VoiceControl'
 import { isReferenceBoard, ReferenceBoardLoader } from './components/ReferenceBoard'
 import { paperTheme } from './theme/paperTheme'
@@ -121,6 +122,7 @@ function App() {
 					<TldrawAgentAppContextProvider app={app}>
 						<MarkComposer />
 						<MarkChip />
+						<PartControls />
 						<VoiceControl />
 					</TldrawAgentAppContextProvider>
 				),

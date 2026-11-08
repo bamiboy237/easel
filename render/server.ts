@@ -53,7 +53,9 @@ export type Quality = 'sketch' | 'preview' | 'final'
 const QUALITIES: Record<Quality, { width: number; height: number; fps: number; timeoutSeconds: number }> = {
 	sketch: { width: 854, height: 480, fps: 5, timeoutSeconds: 30 },
 	preview: { width: 854, height: 480, fps: 10, timeoutSeconds: 60 },
-	final: { width: 1600, height: 900, fps: 24, timeoutSeconds: 150 },
+	// 1280 by 720 is sharp at twice the size the player shows on the board, and renders
+	// in about two thirds of the time of 1600 by 900.
+	final: { width: 1280, height: 720, fps: 24, timeoutSeconds: 150 },
 }
 
 type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'

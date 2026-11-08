@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type React from 'react'
 import { T, TLShape, useEditor } from 'tldraw'
 
@@ -27,7 +27,8 @@ const SUBSCRIPT = '₀₁₂₃₄₅₆₇₈₉'
 export function displayName(name: string) {
 	const m = /^([a-zA-Z]+)(\d?)$/.exec(name)
 	if (!m) return name
-	const base = GREEK[m[1]] ?? m[1]
+	// "th" is the usual short name for an angle θ.
+	const base = GREEK[m[1]] ?? (m[1] === 'th' ? 'θ' : m[1])
 	return base + (m[2] ? SUBSCRIPT[Number(m[2])] : '')
 }
 
@@ -37,6 +38,8 @@ export interface ShapeParameter {
 	min: number
 	max: number
 	step: number
+	/** The unit the value is in, as printed after it, such as "m/s", "N", or "°". Optional. */
+	unit?: string
 }
 
 export const shapeParameterValidator = T.object({
@@ -45,7 +48,14 @@ export const shapeParameterValidator = T.object({
 	min: T.number,
 	max: T.number,
 	step: T.number,
+	unit: T.string.optional(),
 })
+
+/** A value with its unit, as the board prints it: "45°", "9 m/s", "2". */
+export function withUnit(value: number | string, unit?: string): string {
+	if (!unit) return String(value)
+	return unit === '°' || unit === '%' ? `${value}${unit}` : `${value} ${unit}`
+}
 
 /** The parameters as a scope for expressions: { a: 2, b: 0.5 }. */
 export function parameterScope(parameters: ShapeParameter[]): Record<string, number> {
@@ -54,7 +64,9 @@ export function parameterScope(parameters: ShapeParameter[]): Record<string, num
 
 /** A short line the agent reads: "a = 2 (0 to 5), b = 0.5 (0 to 1)". */
 export function describeParameters(parameters: ShapeParameter[]): string {
-	return parameters.map((p) => `${p.name} = ${round(p.value)} (${round(p.min)} to ${round(p.max)})`).join(', ')
+	return parameters
+		.map((p) => `${p.name} = ${withUnit(round(p.value), p.unit)} (${withUnit(round(p.min), p.unit)} to ${withUnit(round(p.max), p.unit)})`)
+		.join(', ')
 }
 
 /** Keep a value inside its range and on its step. */
@@ -142,46 +154,71 @@ export function SliderRows({
  */
 function ParameterValue({ parameter, onSet }: { parameter: ShapeParameter; onSet: (value: number) => void }) {
 	const [draft, setDraft] = useState<string | null>(null)
+	// After a typed value was out of range, the range shows for a moment, so the
+	// change to the nearest allowed value is never silent.
+	const [clamped, setClamped] = useState<{ typed: string; at: number } | null>(null)
+	useEffect(() => {
+		if (!clamped) return
+		const timer = setTimeout(() => setClamped(null), RANGE_NOTE_MS)
+		return () => clearTimeout(timer)
+	}, [clamped])
+	const range = `${withUnit(round(parameter.min), parameter.unit)} to ${withUnit(round(parameter.max), parameter.unit)}`
 	if (draft === null) {
 		return (
-			<button
-				type="button"
-				className="shape-parameter-value"
-				title="Type a value"
-				onPointerDown={(e) => e.stopPropagation()}
-				onClick={(e) => {
-					e.preventDefault()
-					setDraft(String(round(parameter.value)))
-				}}
-			>
-				{round(parameter.value)}
-			</button>
+			<span className="shape-parameter-value-wrap">
+				{clamped && (
+					<span className="shape-parameter-range shape-parameter-range--note" role="status">
+						{clamped.typed} is outside {range}, so it is {withUnit(round(parameter.value), parameter.unit)}
+					</span>
+				)}
+				<button
+					type="button"
+					className="shape-parameter-value"
+					title={`Type a value, ${range}`}
+					onPointerDown={(e) => e.stopPropagation()}
+					onClick={(e) => {
+						e.preventDefault()
+						setDraft(String(round(parameter.value)))
+					}}
+				>
+					{withUnit(round(parameter.value), parameter.unit)}
+				</button>
+			</span>
 		)
 	}
 	const commit = () => {
-		const value = Number(draft.replace(',', '.'))
-		if (draft.trim() !== '' && Number.isFinite(value)) onSet(value)
+		const value = Number(draft.replace(',', '.').replace('\u2212', '-'))
+		if (draft.trim() !== '' && Number.isFinite(value)) {
+			if (value < parameter.min || value > parameter.max) setClamped({ typed: draft.trim(), at: Date.now() })
+			onSet(value)
+		}
 		setDraft(null)
 	}
 	return (
-		<input
-			className="shape-parameter-value"
-			inputMode="decimal"
-			aria-label={`${parameter.name} value`}
-			autoFocus
-			value={draft}
-			onFocus={(e) => e.currentTarget.select()}
-			onPointerDown={(e) => e.stopPropagation()}
-			onChange={(e) => setDraft(e.currentTarget.value)}
-			onBlur={commit}
-			onKeyDown={(e) => {
-				e.stopPropagation()
-				if (e.key === 'Enter') commit()
-				if (e.key === 'Escape') setDraft(null)
-			}}
-		/>
+		<span className="shape-parameter-value-wrap">
+			<span className="shape-parameter-range">{range}</span>
+			<input
+				className="shape-parameter-value"
+				inputMode="decimal"
+				aria-label={`${parameter.name} value, ${range}`}
+				autoFocus
+				value={draft}
+				onFocus={(e) => e.currentTarget.select()}
+				onPointerDown={(e) => e.stopPropagation()}
+				onChange={(e) => setDraft(e.currentTarget.value)}
+				onBlur={commit}
+				onKeyDown={(e) => {
+					e.stopPropagation()
+					if (e.key === 'Enter') commit()
+					if (e.key === 'Escape') setDraft(null)
+				}}
+			/>
+		</span>
 	)
 }
+
+/** How long the allowed range shows after a typed value was brought into it. */
+const RANGE_NOTE_MS = 4000
 
 /** How far along its track a slider is, for the ink fill of a `.paper-range`. */
 export function rangeFill(value: number, min: number, max: number): React.CSSProperties {

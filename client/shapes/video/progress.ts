@@ -16,14 +16,17 @@ import type { AnimationPhase } from './pipeline'
  */
 export const ANIMATION_PHASES: Record<AnimationPhase, { end: number; expectedMs: number }> = {
 	// The writer writes the scene, then the whole scene sketches. The first
-	// sketch shows during it. Measured 29 and 39 s, about half of the job.
-	writing: { end: 0.5, expectedMs: 35000 },
-	// The writer's check of the sketch, which is dropped after 22 s. Measured 3 and 9 s.
-	checking: { end: 0.65, expectedMs: 10000 },
-	// A fix: its sketch and its final video, side by side. Measured 8 and 11 s.
-	fixing: { end: 0.85, expectedMs: 12000 },
-	// The final video, with real progress from its frames.
-	rendering: { end: 1, expectedMs: 15000 },
+	// sketch shows during it. Measured 39 and 43 s on the Phase 12 gate
+	// (November 8, 2026), about 70 percent of the job.
+	writing: { end: 0.7, expectedMs: 40000 },
+	// The writer's check of the sketch, which is dropped after 15 s. Measured 9 s,
+	// and 15 s for one that was dropped.
+	checking: { end: 0.85, expectedMs: 10000 },
+	// A fix: its sketch and its final video, side by side. Measured 8 s.
+	fixing: { end: 0.95, expectedMs: 10000 },
+	// The final video, with real progress from its frames. It usually ends
+	// during the check: measured under 1 s left after it.
+	rendering: { end: 1, expectedMs: 10000 },
 }
 
 /** The phase the job is in, when it started, where the bar stood then, and the furthest it has shown. */

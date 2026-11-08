@@ -1,3 +1,4 @@
+import { typesetText } from '../../shared/format/typesetText'
 import { TLShapeId } from 'tldraw'
 import { ReplyInThreadAction } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
@@ -42,7 +43,7 @@ export const ReplyInThreadActionUtil = registerActionUtil(
 			const id = thread.id
 			// The answer streams onto the note as it is written. Each partial version
 			// replaces the last; only the finished answer is recorded.
-			const entries = [...thread.props.entries, { author: 'agent' as const, text: action.complete ? action.text.trim() : action.text }]
+			const entries = [...thread.props.entries, { author: 'agent' as const, text: typesetText(action.complete ? action.text.trim() : action.text) }]
 			if (!action.complete) {
 				editor.updateShape<ThreadShape>({ id, type: THREAD_TYPE, props: { entries } })
 				return

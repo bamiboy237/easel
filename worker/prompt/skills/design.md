@@ -65,6 +65,7 @@ Adapted from the sp-new-ui-mock skill (super-prototyping, Apache-2.0).
 - **Same inset everywhere.** An element that appears on several screens sits at the same inset and size on each.
 - **Options to compare.** When the user wants options, make three whole screens in one row, each a genuinely different approach rather than three spacing values, with a one-line rationale in body text under each.
 - **One clear primary action per screen**, in the primary color; everything else is quieter.
+- **Controls and icons are built from shapes, and read at a glance.** A control is a hit area (a rounded `geo` rectangle or circle at least 44 tall) with its glyph inside, never bare strokes on the screen. Build each glyph from geo shapes and straight lines, not freehand: pause is two filled bars inside a round button; play a filled triangle; close an × of two lines in a circle; a menu three short bars; settings a gear (a circle with a smaller circle inside). An object keeps its real silhouette: a basketball hoop is a backboard rectangle with a small square on it, a flat rim (a thin ellipse wider than tall) under the square, and a net of a few slanted lines narrowing below the rim, never a single curve, which reads as a bowl. Label a control's purpose with a short caption under it when the glyph alone could be mistaken.
 
 ### Know when to stop
 

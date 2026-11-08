@@ -19,7 +19,8 @@ import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
 import { compileExpression } from '../shapes/math/expression'
 import { clampParameter, ShapeParameter } from '../shapes/math/parameters'
-import { EQUATION_TYPE, EquationShape, measureEquation } from '../shapes/EquationShapeUtil'
+import { EQUATION_TYPE, EquationShape, katexFontsLoaded, katexFontsReady, measureEquation } from '../shapes/EquationShapeUtil'
+import type { TldrawAgent } from '../agent/TldrawAgent'
 import { describeSceneShape, SCENE_TYPE, sceneChromeHeight, SceneShape } from '../shapes/SceneShapeUtil'
 import { checkSceneObjectId, SceneObject, sanitizeSceneObject } from '../shapes/scene/sceneModel'
 import { getAllTemplates } from '../shapes/scene/templates'
@@ -78,7 +79,8 @@ function sanitizeParameters(parameters: Partial<ShapeParameter>[] | undefined): 
 		let max = Number.isFinite(p.max) ? p.max! : 10
 		if (max <= min) [min, max] = [Math.min(min, max), Math.max(min, max, min + 1)]
 		const step = Number.isFinite(p.step) && p.step! > 0 ? p.step! : (max - min) / 100
-		const parameter = { name, min, max, step, value: Number.isFinite(p.value) ? p.value! : min }
+		const unit = typeof p.unit === 'string' && p.unit.trim() && p.unit.trim().length <= 8 ? p.unit.trim() : undefined
+		const parameter = { name, min, max, step, value: Number.isFinite(p.value) ? p.value! : min, ...(unit ? { unit } : {}) }
 		out.push({ ...parameter, value: clampParameter(parameter, parameter.value) })
 	}
 	return out
@@ -111,9 +113,39 @@ export const EquationActionUtil = registerActionUtil(
 			alignStep(this.agent, id)
 			const step = editor.getShape(id)
 			if (step) attachStepNotes(this.agent, step.parentId, id)
+			// Measured before the KaTeX faces loaded: measure again once they have,
+			// and line the step and its note up again on the real widths.
+			if (!katexFontsLoaded()) {
+				const baseRev = this.agent.commands.getRev()
+				void katexFontsReady.then(() => remeasureStep(this.agent, id, baseRev))
+			}
 		}
 	}
 )
+
+/**
+ * Measure an equation again in the real KaTeX faces, as an agent command of
+ * its own, and realign it. Only a shape the agent still owns as it made it
+ * changes: a stale command is rejected like any other.
+ */
+function remeasureStep(agent: TldrawAgent, id: TLShapeId, baseRev: number) {
+	const { editor } = agent
+	const shape = editor.getShape<EquationShape>(id)
+	if (!shape || shape.type !== EQUATION_TYPE) return
+	const size = measureEquation(shape.props.latex, shape.props.size)
+	if (Math.abs(size.w - shape.props.w) < 2 && Math.abs(size.h - shape.props.h) < 2) return
+	agent.commands.execute(
+		'agent',
+		'equation-measure',
+		() => {
+			editor.updateShape<EquationShape>({ id, type: EQUATION_TYPE, props: size })
+			alignStep(agent, id)
+			const step = editor.getShape(id)
+			if (step) attachStepNotes(agent, step.parentId, id)
+		},
+		{ baseRev }
+	)
+}
 
 /** The inks of one-curve graphs in order: blue, red pencil, forest, charcoal (indices into PLOT_INKS). */
 const SINGLE_CURVE_INKS = [2, 1, 3, 0]
