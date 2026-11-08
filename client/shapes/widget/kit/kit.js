@@ -129,14 +129,16 @@
 				for (let x = Math.ceil(v.xMin / every) * every; x <= v.xMax - every / 2; x += every) {
 					if (Math.abs(x) < every / 2 || X(x) < 12 || X(x) > W - 12) continue
 					const text = fmt(x, 2)
-					el('text', { x: X(x), y: Y(0) + 15, 'text-anchor': 'middle', class: 'paper-tick' }, gridLayer).textContent = text
-					placed.push({ x: X(x) - text.length * 3.5, y: Y(0) + 4, w: text.length * 7, h: 13 })
+					const node = el('text', { x: X(x), y: Y(0) + 15, 'text-anchor': 'middle', class: 'paper-tick' }, gridLayer)
+					node.textContent = text
+					ticks.push({ x: X(x) - text.length * 3.5, y: Y(0) + 4, w: text.length * 7, h: 13, node })
 				}
 				for (let y = Math.ceil(v.yMin / every) * every; y <= v.yMax - every / 2; y += every) {
 					if (Math.abs(y) < every / 2 || Y(y) < 12 || Y(y) > H - 12) continue
 					const text = fmt(y, 2)
-					el('text', { x: X(0) - 6, y: Y(y) + 4, 'text-anchor': 'end', class: 'paper-tick' }, gridLayer).textContent = text
-					placed.push({ x: X(0) - 6 - text.length * 7, y: Y(y) - 7, w: text.length * 7, h: 13 })
+					const node = el('text', { x: X(0) - 6, y: Y(y) + 4, 'text-anchor': 'end', class: 'paper-tick' }, gridLayer)
+					node.textContent = text
+					ticks.push({ x: X(0) - 6 - text.length * 7, y: Y(y) - 7, w: text.length * 7, h: 13, node })
 				}
 				if (opts.xLabel) el('text', { x: W - 6, y: Y(0) - 6, 'text-anchor': 'end', class: 'paper-tick', 'font-style': 'italic' }, gridLayer).textContent = opts.xLabel
 				if (opts.yLabel) el('text', { x: X(0) + 6, y: 14, class: 'paper-tick', 'font-style': 'italic' }, gridLayer).textContent = opts.yLabel
@@ -149,6 +151,8 @@
 		// Lines drawn this render, in screen pixels, so labels keep off them too.
 		let segs = []
 		let queue = []
+		// Tick labels: other labels keep off them when they can.
+		let ticks = []
 		const hitsSegment = (b) => {
 			const x0 = b.x - 1, y0 = b.y - 1, x1 = b.x + b.w + 1, y1 = b.y + b.h + 1
 			for (const [ax, ay, bx, by] of segs) {
@@ -175,10 +179,16 @@
 			const jobs = queue
 			queue = []
 			for (const [px, py, text, o] of jobs) layoutLabel(px, py, text, o)
+			// A tick number crowding a label would read as part of it, so it goes.
+			for (const t of ticks) {
+				if (placed.some((b) => t.x < b.x + b.w + 6 && t.x + t.w > b.x - 6 && t.y < b.y + b.h + 3 && t.y + t.h > b.y - 3)) t.node.remove()
+			}
 		}
 		function layoutLabel(px, py, text, o) {
 			const size = o.size || 15
-			const t = el('text', { 'font-size': size, fill: ink(o.color), 'font-style': o.italic === false ? 'normal' : 'italic', 'font-weight': o.bold ? 600 : 400, 'paint-order': 'stroke', stroke: 'var(--paper-card)', 'stroke-width': 4, 'stroke-linejoin': 'round' }, labelLayer)
+			// Each label sits on a small patch of paper, so a grid line or tick under it never cuts through the text.
+			const patch = el('rect', { fill: 'var(--paper-card)', rx: 2 }, labelLayer)
+			const t = el('text', { 'font-size': size, fill: ink(o.color), 'font-style': o.italic === false ? 'normal' : 'italic', 'font-weight': o.bold ? 600 : 400 }, labelLayer)
 			// "proj_b a" writes b as a subscript.
 			const parts = minus(text).split(/_([A-Za-z0-9])/)
 			parts.forEach((part, i) => {
@@ -194,25 +204,42 @@
 				// away: a screen direction; the label moves that way until it clears its anchor, then further if it must.
 				const [nx, ny] = o.away
 				const d = gap + Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2
-				for (const extra of [0, 8, 16, 26, 38]) spots.push([nx * (d + extra) - w / 2, ny * (d + extra) + h * 0.35])
+				for (const extra of [0, 8, 16, 26]) spots.push([nx * (d + extra) - w / 2, ny * (d + extra) + h * 0.35])
 				for (const along of [-24, 24, -48, 48]) spots.push([nx * d + ny * along - w / 2, ny * d - nx * along + h * 0.35])
 			} else if (o.center) {
 				spots.push([-w / 2, h * 0.35])
 				for (const r of [12, 22, 34]) for (const [cx, cy] of [[0, -1], [1, 0], [0, 1], [-1, 0], [0.7, -0.7], [-0.7, -0.7], [0.7, 0.7], [-0.7, 0.7]]) spots.push([cx * (r + w / 2) - w / 2, cy * (r + h / 2) + h * 0.35])
 			} else if (o.dx !== undefined || o.dy !== undefined) spots.push([o.dx || 0, o.dy || 0])
-			for (const k of [1, 2, 3]) {
+			for (const k of o.away ? [] : [1, 2, 3]) {
 				const g2 = gap * k
 				spots.push([g2, -g2], [g2, g2 + h * 0.7], [-g2 - w, -g2], [-g2 - w, g2 + h * 0.7], [-w / 2, -g2 - 2], [-w / 2, h + g2])
 			}
 			const boxAt = ([dx, dy]) => ({ x: px + dx, y: py + dy - h * 0.78, w, h })
 			let chosen = null
-			// First clear of labels and lines, then clear of labels only.
-			for (const strict of [true, false]) {
+			// First clear of labels, ticks, and lines; then of labels and lines; then of labels only.
+			// A label tied to a line (away) ignores ticks: its paper patch covers them.
+			const tickHit = (b) => ticks.some((o) => b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y)
+			for (const level of o.away ? [1, 0] : [2, 1, 0]) {
 				for (const spot of spots) {
 					const box = boxAt(spot)
-					if (inside(box) && !overlaps(box) && (!strict || !hitsSegment(box))) { chosen = [spot[0], spot[1], box]; break }
+					if (!inside(box) || overlaps(box)) continue
+					if (level >= 1 && hitsSegment(box)) continue
+					if (level >= 2 && tickHit(box)) continue
+					chosen = [spot[0], spot[1], box]
+					break
 				}
 				if (chosen) break
+			}
+			// Still nothing: search outward in a spiral for any spot clear of other labels.
+			if (!chosen) {
+				search: for (let r = 18; r <= 140; r += 14) {
+					for (let k = 0; k < 12; k++) {
+						const ang = (k / 12) * Math.PI * 2
+						const spot = [Math.cos(ang) * (r + w / 2) - w / 2, Math.sin(ang) * (r + h / 2) + h * 0.35]
+						const box = boxAt(spot)
+						if (inside(box) && !overlaps(box) && !tickHit(box)) { chosen = [spot[0], spot[1], box]; break search }
+					}
+				}
 			}
 			if (!chosen) {
 				const [dx, dy] = spots[0]
@@ -221,6 +248,11 @@
 			}
 			t.setAttribute('x', px + chosen[0])
 			t.setAttribute('y', py + chosen[1])
+			const tb = t.getBBox()
+			patch.setAttribute('x', tb.x - 2)
+			patch.setAttribute('y', tb.y)
+			patch.setAttribute('width', tb.width + 4)
+			patch.setAttribute('height', tb.height)
 			placed.push(chosen[2])
 			return t
 		}
@@ -428,6 +460,7 @@
 				placed = []
 				segs = []
 				queue = []
+				ticks = []
 				drawGrid()
 				drawLayer.textContent = ''
 				labelLayer.textContent = ''
@@ -437,8 +470,6 @@
 					placed.push({ x: x - 9, y: y - 9, w: 18, h: 18 })
 				}
 				if (painter) painter(g)
-				// Axes count as lines for labels.
-				segs.push([0, Y(0), W, Y(0)], [X(0), 0, X(0), H])
 				flushLabels()
 				for (const h of handles) h.place()
 			},
@@ -589,7 +620,7 @@
 					fill(html('div', 'paper-readout-name', grid), row.name)
 					const v = fill(html('div', 'paper-readout-value', grid), row.value)
 					if (row.color !== undefined) v.style.color = ink(row.color)
-					if (row.note) html('div', 'paper-readout-note', grid, minus(row.note))
+					if (row.note) fill(html('div', 'paper-readout-note', grid), row.note)
 				}
 			},
 		}

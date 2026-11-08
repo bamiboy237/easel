@@ -2,10 +2,11 @@
 	<div class="paper-main"><div id="plot"></div></div>
 	<div class="paper-side">
 		<div id="presets"></div>
-		<p class="paper-note lead">To project <var>a</var> onto <var>b</var>, drop a perpendicular from the tip of <var>a</var> to the line of <var>b</var>. It meets the line at <var>p</var>. The arrow from the origin to <var>p</var> is the projection, proj<sub>b</sub> <var>a</var>, and its signed length is comp<sub>b</sub> <var>a</var>.</p>
+		<p class="paper-note lead">Drop a perpendicular from the tip of <var>a</var> to the line of <var>b</var>; it meets the line at <var>p</var>. The arrow from the origin to <var>p</var> is the projection proj<sub>b</sub> <var>a</var>, and its signed length, positive along <var>b</var> and negative against it, is comp<sub>b</sub> <var>a</var>.</p>
 		<p id="coords" class="paper-note coords"></p>
 		<div id="readout"></div>
 		<p id="meaning" class="paper-note"></p>
-		<p class="paper-note paper-quiet hint">Try it: keep <var>b</var> still and drag <var>a</var> across the dotted line. Arrow keys nudge a tip you clicked.</p>
+		<label class="legs"><input type="checkbox" id="legs" /> Show the right triangle behind the length of <var>a</var></label>
+		<p class="paper-note paper-quiet hint">Try it: drag <var>a</var> across the dotted line, then drag <var>b</var> longer along its own line: the projection does not change. Arrow keys move a clicked tip by 0.1 (Shift: 1).</p>
 	</div>
 </div>

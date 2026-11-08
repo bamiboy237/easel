@@ -4,7 +4,7 @@
 }
 
 .paper-side {
-	width: 380px;
+	width: 412px;
 	gap: 10px;
 }
 
@@ -31,4 +31,22 @@
 
 .hint {
 	font-size: 14px;
+}
+
+#presets .paper-presets {
+	flex-wrap: nowrap;
+	gap: 5px;
+}
+
+#presets .paper-button {
+	padding: 0 7px;
+	font-size: 12.5px;
+}
+
+.legs {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font: 14px var(--serif);
+	color: var(--paper-ink);
 }

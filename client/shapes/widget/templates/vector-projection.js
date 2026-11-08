@@ -18,6 +18,8 @@ const A = 0
 const B = '#747471'
 const PROJ = '#344c41'
 const QUIET = '#9a9a97'
+// Text that changes, such as the angle, is darker than the construction lines.
+const ANGLE = '#5c5c59'
 
 const view = { xMin: -6, xMax: 6, yMin: -4.5, yMax: 4.5 }
 const plot = paper.plot('#plot', { ...view, label: 'Vectors a and b on a grid', xLabel: 'x', yLabel: 'y' })
@@ -64,6 +66,8 @@ const presets = paper.presets('#presets', Object.keys(PRESETS), (name) => {
 	easel.setState('by', by)
 })
 const readout = paper.readout('#readout', [])
+const legs = document.getElementById('legs')
+legs.addEventListener('change', () => render())
 const coords = document.getElementById('coords')
 const meaning = document.getElementById('meaning')
 
@@ -102,8 +106,17 @@ function render() {
 			g.fullLine(o, b, { color: 'var(--paper-viz-line)', label: 'line of b' })
 			g.fullLine(o, [-c.by, c.bx], { color: 'var(--paper-viz-line)', dash: '2 4', label: 'perpendicular to b: a·b = 0' })
 		}
+		if (legs.checked && !c.zeroA) {
+			// The right triangle behind ‖a‖: legs along the axes, hypotenuse a.
+			g.line(o, [c.ax, 0], { color: QUIET, dash: '2 3', width: 1.25 })
+			g.line([c.ax, 0], a, { color: QUIET, dash: '2 3', width: 1.25 })
+			if (Math.abs(c.ax) > 1e-9 && Math.abs(c.ay) > 1e-9) g.rightAngle([c.ax, 0], [-c.ax, 0], [0, c.ay], { size: 9, color: QUIET })
+			if (Math.abs(c.ax) > 1e-9) g.tag(o, [c.ax, 0], `${fmt(Math.abs(c.ax))}`, { color: ANGLE, size: 13, italic: false, side: (c.ax > 0) === (c.ay > 0) ? -1 : 1 })
+			if (Math.abs(c.ay) > 1e-9) g.tag([c.ax, 0], a, `${fmt(Math.abs(c.ay))}`, { color: ANGLE, size: 13, italic: false, side: (c.ax > 0) === (c.ay > 0) ? -1 : 1 })
+		}
 		const special = c.theta === null || c.theta < 1e-6 || Math.abs(c.theta - Math.PI) < 1e-6 || Math.abs(c.theta - Math.PI / 2) < 1e-9
-		if (!special) g.angle(o, b, a, { color: QUIET, r: 40, label: `θ ${eq(deg(c.theta), 1)}°` })
+		if (!special) g.angle(o, b, a, { color: QUIET, labelColor: ANGLE, r: 40, label: `θ ${eq(deg(c.theta), 1)}°` })
+		else if (c.theta !== null) g.label(o, `θ = ${fmt(deg(c.theta), 1)}°`, { color: ANGLE, size: 14, dx: 10, dy: 22 })
 		const p = c.proj
 		const hasProj = p && Math.hypot(...p) > 1e-6
 		if (p) {
@@ -121,7 +134,8 @@ function render() {
 		if (hasProj) {
 			g.arrow(o, p, { color: PROJ, width: 4.5, head: 15 })
 			// Its label goes on the side away from a, clear of the angle.
-			g.tag(o, p, 'proj_b a', { color: PROJ, size: 16, side: p[0] * c.ay - p[1] * c.ax > 0 ? -1 : 1, gap: 8, at: 0.5 })
+			const same = !c.zeroA && Math.abs(c.cross) < 1e-9
+			g.tag(o, p, same ? 'proj_b a = a' : 'proj_b a', { color: PROJ, size: 16, side: p[0] * c.ay - p[1] * c.ax > 0 ? -1 : 1, gap: 8, at: 0.5 })
 		}
 		if (p) g.point(p, { color: PROJ, r: 3.5 })
 		if (p && !c.zeroA) g.label(p, 'p', { color: PROJ, size: 15, center: true })
@@ -146,16 +160,16 @@ function render() {
 	} else {
 		rows.push({
 			name: { html: 'comp<sub>b</sub> a' },
-			value: eq(c.comp),
+			value: `${eq(c.comp)}, the signed length`,
 			color: PROJ,
-			note: `a·b / ‖b‖ = ${fmt(c.dot, 4)} / ${root(c.sb)}: the signed length of the projection${c.zeroA ? '' : ', also ‖a‖ cos θ'}`,
+			note: `a·b / ‖b‖ = ${fmt(c.dot, 4)} / ${root(c.sb)}${c.zeroA ? '' : ', also ‖a‖ cos θ'}`,
 		})
 		const exact = paper.isExact(c.proj[0]) && paper.isExact(c.proj[1])
 		rows.push({
 			name: { html: 'proj<sub>b</sub> a' },
 			value: `${exact ? '=' : '≈'} ${vec(c.proj)}`,
 			color: PROJ,
-			note: `(a·b / ‖b‖²) b = (${fmt(c.dot, 4)} / ${fmt(c.sb, 4)}) ${vec(b)}`,
+			note: { html: paper.minus(`comp<sub>b</sub> a · b / ‖b‖ = (a·b / ‖b‖²) b = (${fmt(c.dot, 4)} / ${fmt(c.sb, 4)}) ${vec(b)}`) },
 		})
 	}
 	readout.set(rows)
@@ -166,7 +180,7 @@ function render() {
 	else if (Math.abs(c.dot) < 1e-9) text = 'Now a·b = 0: a lies on the perpendicular to b, so the perpendicular from its tip lands at the origin. p is the origin, and the projection is the zero vector.'
 	else if (Math.abs(c.cross) < 1e-9) text = c.dot > 0 ? 'Now a lies along b, so p is the tip of a: the projection is a itself, and θ = 0°.' : 'Now a points against b, so p is the tip of a: the projection is a itself, its signed length is negative, and θ = 180°.'
 	else if (c.dot > 0) text = 'Now a·b > 0: θ is under 90°, a is on the same side of the dotted line as b, and the projection points along b.'
-	else text = 'Now a·b < 0: θ is over 90°, a has crossed the dotted line, and the projection points against b, so its signed length is negative.'
+	else text = 'Now a·b < 0: θ is over 90°, the tip of a is on the other side of the dotted line from b, and the projection points against b, so its signed length is negative.'
 	meaning.textContent = paper.minus(text)
 }
 

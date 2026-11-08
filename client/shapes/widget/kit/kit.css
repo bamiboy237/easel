@@ -5,13 +5,14 @@
  * for prose and labels, a quiet sans for controls, and one muted green accent.
  */
 :root {
-	--paper-card: #fffffd;
+	/* The widget sits on the board's warm paper, a shade lighter than the canvas. */
+	--paper-card: #fdfcf8;
 	--paper-hover: #f2f0eb;
 	--paper-pressed: #e7e4dc;
 	--paper-rule: #e6e2d9;
 	--paper-ink: #1f1e1b;
 	--paper-accent: #344c41;
-	--paper-viz-grid: #efefed;
+	--paper-viz-grid: #efede7;
 	--paper-viz-fill-dim: #e0dfdd;
 	--paper-viz-fill: #d2d2d0;
 	--paper-viz-line: #bcbcb9;
@@ -358,7 +359,7 @@ label {
 }
 
 .paper-tick {
-	font: 12px var(--serif);
+	font: 13px var(--serif);
 	fill: var(--paper-viz-data);
 	font-variant-numeric: tabular-nums;
 }
