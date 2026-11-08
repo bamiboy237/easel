@@ -83,8 +83,12 @@ export function resolveTarget(editor: Editor, ref: string): BoardTarget | null {
 }
 
 /** The cursor's tip lands a little inside the top left of a shape, as a hand points at it. */
+/**
+ * Where the cursor rests for a whole shape: just outside its lower right
+ * corner, pointing in at it, so the arrow never sits on its label or content.
+ */
 function shapeAnchor(bounds: Box): VecModel {
-	return { x: bounds.x + Math.min(bounds.w * 0.35, 60), y: bounds.y + Math.min(bounds.h * 0.4, 40) }
+	return { x: bounds.maxX + 4, y: bounds.maxY + 4 }
 }
 
 /** The named parts of a shape. */

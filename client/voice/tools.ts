@@ -33,6 +33,7 @@ function allowedFor(agent: TldrawAgent, turn: VoiceTurn, shapeId: TLShapeId | nu
 
 function rejection(result: Extract<BoardCommandResult, { status: 'rejected' }>): string {
 	const ids = (result.reason === 'stale' ? result.staleRecordIds : result.protectedRecordIds).map((id) => id.replace(/^shape:/, ''))
+	if (result.reason === 'user-text') return `Rejected, nothing changed: it would remove or rewrite the user's own words in ${ids.join(', ')}. Add your words beside theirs instead, and tell the user you left their text as it was.`
 	return result.reason === 'stale'
 		? `Rejected, nothing changed: the user changed ${ids.join(', ')} after you read the board. Read the board again before you try again.`
 		: `Rejected, nothing changed: ${ids.join(', ')} is the user's own work. Change it only when they ask, with their words as user_words.`
@@ -74,7 +75,7 @@ export function setParameter(agent: TldrawAgent, turn: VoiceTurn, args: { shape:
 				undefined as never
 			)
 		},
-		{ baseRev: turn.baseRev, allowedShapeIds: allowedFor(agent, turn, shape.id, args.user_words), passId: turn.passId, requestId: turn.requestId }
+		{ baseRev: turn.baseRev, allowedShapeIds: allowedFor(agent, turn, shape.id, args.user_words), passId: turn.passId, requestId: turn.requestId, userText: turn.userText() }
 	)
 	if (result.status === 'rejected') return { ok: false, output: rejection(result) }
 	const now = parameterValue(editor.getShape(shape.id) as typeof typed, name)
@@ -111,7 +112,7 @@ function placeText(
 				meta: { ...meta, voiceTarget: near },
 			})
 		},
-		{ baseRev: turn.baseRev, allowedShapeIds: allowedFor(agent, turn, null), passId: turn.passId, requestId: turn.requestId }
+		{ baseRev: turn.baseRev, allowedShapeIds: allowedFor(agent, turn, null), passId: turn.passId, requestId: turn.requestId, userText: turn.userText() }
 	)
 	if (result.status === 'rejected') return { ok: false, output: rejection(result) }
 	return { ok: true, output: `Placed ${id.replace(/^shape:/, '')}${target ? ` beside ${near}` : ''}.`, commandId: result.commandId, shapeId: id }

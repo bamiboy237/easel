@@ -18,6 +18,7 @@ import { BaseAgentManager } from './BaseAgentManager'
 import { checkGraph, GRAPH_TYPE, GraphShape } from '../../shapes/GraphShapeUtil'
 import { SCENE_TYPE, SceneShape } from '../../shapes/SceneShapeUtil'
 import { checkScene } from '../../shapes/scene/sceneModel'
+import { findQuotedLiveValues, getLiveParameters, getShapeWords } from '../boardFacts'
 
 /**
  * Generate a unique key for a lint based on its type and shape IDs.
@@ -228,6 +229,22 @@ export class AgentLintManager extends BaseAgentManager {
 					texts: [problem.text],
 					problemKey: problem.key,
 				})
+			}
+		}
+
+		// Notes that quote a slider's current value go stale when the user drags it.
+		const live = getLiveParameters(this.agent.editor)
+		if (live.length > 0) {
+			for (const shape of shapes) {
+				if (!['text', 'note', 'geo', 'thread'].includes(shape.type)) continue
+				for (const hit of findQuotedLiveValues(getShapeWords(this.agent.editor, shape), live)) {
+					lints.push({
+						type: 'live-value',
+						shapeIds: [convertTldrawIdToSimpleId(shape.id)],
+						texts: [`"${hit.phrase}" quotes the slider ${hit.parameter.shapeId}.${hit.parameter.name}`],
+						problemKey: `${hit.parameter.shapeId}.${hit.parameter.name}`,
+					})
+				}
 			}
 		}
 

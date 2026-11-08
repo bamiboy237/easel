@@ -24,8 +24,46 @@ export interface VideoJobContext {
 	before?: VideoShape | null
 }
 
+/**
+ * The newest sketch frame of each animation made in this page, kept after its
+ * job ends, so a failed animation still shows how far it got.
+ */
+export const lastVideoFrames = new Map<TLShapeId, string>()
+
+/** The context each animation's job started with, so Retry lands in the same agent pass. */
+const jobContexts = new Map<TLShapeId, VideoJobContext>()
+
+/**
+ * Make a failed or stopped animation again, from its title and brief. The user
+ * asks for it with Retry; the video still lands as the agent's work.
+ */
+export function retryVideoJob(agent: TldrawAgent, id: TLShapeId): void {
+	const previous = jobContexts.get(id)
+	void runVideoJob(agent, id, {
+		passId: previous?.passId,
+		requestId: previous?.requestId,
+		allowedShapeIds: previous?.allowedShapeIds ?? new Set(),
+		renderTimeoutSeconds: previous?.renderTimeoutSeconds,
+	})
+}
+
+/**
+ * Plain words for why an animation could not finish. The raw error stays in
+ * the shape for the agent; people see this.
+ */
+export function describeAnimationError(error: string): string {
+	if (/render service|Failed to fetch|NetworkError|lost the job|\b50[234]\b|ECONNREFUSED/i.test(error)) {
+		return 'The service that draws animations stopped answering. Try again in a moment.'
+	}
+	if (/writer/i.test(error)) return 'The scene could not be written this time. Try again.'
+	if (/time|timed out|deadline/i.test(error)) return 'It took too long to draw. Try again, or ask for a simpler animation.'
+	if (/changed while|user's own work/i.test(error)) return error
+	return 'Something went wrong while it was being drawn. Try again.'
+}
+
 export async function runVideoJob(agent: TldrawAgent, id: TLShapeId, context: VideoJobContext): Promise<void> {
 	const { editor } = agent
+	jobContexts.set(id, context)
 	const shape = editor.getShape<VideoShape>(id)
 	if (!shape || shape.type !== VIDEO_TYPE) return
 	// A newer job for the same animation replaces this one.
@@ -44,7 +82,10 @@ export async function runVideoJob(agent: TldrawAgent, id: TLShapeId, context: Vi
 			signal: controller.signal,
 			source: context.source,
 			renderTimeoutSeconds: context.renderTimeoutSeconds,
-			onProgress: (progress) => reportVideoJob(id, controller, progress),
+			onProgress: (progress) => {
+				if (progress.frame) lastVideoFrames.set(id, progress.frame)
+				reportVideoJob(id, controller, progress)
+			},
 			onLog: (event, detail) => console.debug(`[animation ${id}] ${event}`, detail ?? ''),
 		})
 		props = { status: 'ready', error: '', renderKey: result.key, source: result.source, duration: Math.round(result.duration * 10) / 10 }

@@ -12,4 +12,4 @@ export interface AgentCanvasLint {
 	problemKey?: string
 }
 
-export type AgentCanvasLintType = 'growY-on-shape' | 'overlapping-text' | 'friendless-arrow' | 'scene-problem' | 'graph-problem' | 'diagram-problem'
+export type AgentCanvasLintType = 'growY-on-shape' | 'overlapping-text' | 'friendless-arrow' | 'scene-problem' | 'graph-problem' | 'diagram-problem' | 'live-value'

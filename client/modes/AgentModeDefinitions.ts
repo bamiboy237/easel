@@ -53,6 +53,7 @@ import { PeripheralShapesPartUtil } from '../parts/PeripheralShapesPartUtil'
 import { ScreenshotPartUtil } from '../parts/ScreenshotPartUtil'
 import { SelectedShapesPartUtil } from '../parts/SelectedShapesPartUtil'
 import { TimePartUtil } from '../parts/TimePartUtil'
+import { BoardFactsPartUtil } from '../parts/BoardFactsPartUtil'
 import { SceneTemplatesPartUtil } from '../parts/SceneTemplatesPartUtil'
 import { TodoListPartUtil } from '../parts/TodoListPartUtil'
 import { UserActionHistoryPartUtil } from '../parts/UserActionHistoryPartUtil'
@@ -142,6 +143,9 @@ export const AGENT_MODE_DEFINITIONS = [
 
 			// Lints
 			CanvasLintsPartUtil.type,
+
+			// What the board settles: values, units, names, and live sliders
+			BoardFactsPartUtil.type,
 
 			// Metadata
 			SceneTemplatesPartUtil.type,

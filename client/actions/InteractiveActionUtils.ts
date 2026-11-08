@@ -79,7 +79,8 @@ function sanitizeParameters(parameters: Partial<ShapeParameter>[] | undefined): 
 		let max = Number.isFinite(p.max) ? p.max! : 10
 		if (max <= min) [min, max] = [Math.min(min, max), Math.max(min, max, min + 1)]
 		const step = Number.isFinite(p.step) && p.step! > 0 ? p.step! : (max - min) / 100
-		const parameter = { name, min, max, step, value: Number.isFinite(p.value) ? p.value! : min }
+		const unit = typeof p.unit === 'string' && p.unit.trim() && p.unit.trim().length <= 8 ? p.unit.trim() : undefined
+		const parameter = { name, min, max, step, value: Number.isFinite(p.value) ? p.value! : min, ...(unit ? { unit } : {}) }
 		out.push({ ...parameter, value: clampParameter(parameter, parameter.value) })
 	}
 	return out

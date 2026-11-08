@@ -3,6 +3,11 @@ import { AgentInput } from '../../../shared/types/AgentInput'
 import { AgentRequest } from '../../../shared/types/AgentRequest'
 import type { TldrawAgent } from '../TldrawAgent'
 import { BaseAgentManager } from './BaseAgentManager'
+import { getAiCursor } from '../aiCursor'
+import { getVoiceManager } from '../../voice/VoiceManager'
+
+/** How long the AI cursor stays beside the last change after a request ends. */
+const CURSOR_LEAVES_MS = 1200
 
 /**
  * Manages request lifecycle for an agent.
@@ -76,6 +81,12 @@ export class AgentRequestManager extends BaseAgentManager {
 	setIsPrompting(value: boolean) {
 		if (value && !this.$isPrompting.get()) this.$startedAt.set(Date.now())
 		if (!value) this.$startedAt.set(null)
+		// When the request ends, the AI cursor leaves soon after, unless a voice
+		// conversation is steering it.
+		if (!value && this.$isPrompting.get()) {
+			const voice = getVoiceManager(this.agent.editor)
+			if (!voice || voice.$status.get() === 'off') getAiCursor(this.agent.editor).hideAfter(CURSOR_LEAVES_MS)
+		}
 		this.$isPrompting.set(value)
 	}
 

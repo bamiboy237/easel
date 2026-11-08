@@ -1,7 +1,7 @@
 import type { OpenAIReasoningEffort } from '../../shared/models'
-import { cancelWidgetJobs } from '../shapes/widget/jobs'
-import { cancelVideoJobs } from '../shapes/video/jobs'
-import { Editor, RecordsDiff, reverseRecordsDiff, structuredClone, TLRecord, TLShapeId } from 'tldraw'
+import { cancelWidgetJobs, runningWidgetJobs } from '../shapes/widget/jobs'
+import { cancelVideoJobs, runningVideoJobs } from '../shapes/video/jobs'
+import { atom, Editor, RecordsDiff, reverseRecordsDiff, structuredClone, TLRecord, TLShapeId } from 'tldraw'
 import { convertTldrawShapeToFocusedShape } from '../../shared/format/convertTldrawShapeToFocusedShape'
 import { AgentModelName } from '../../shared/models'
 import { parseAgentAction } from '../../shared/schema/parseAgentAction'
@@ -48,6 +48,31 @@ export interface PersistedAgentState {
 	contextItems?: ContextItem[]
 	modelName?: AgentModelName
 	debugFlags?: AgentDebugFlags
+}
+
+/**
+ * How the latest user request ended, for the answer card. Null while it runs,
+ * and when it finished normally.
+ * - failed: the agent could not finish, such as when the model could not be
+ *   reached. `landed` says whether any of its work is on the board.
+ * - stopped: the user pressed Stop.
+ */
+export type RequestOutcome =
+	| { status: 'failed'; message: string; landed: boolean; request: string }
+	| { status: 'stopped'; landed: boolean }
+
+/** The plain words for an error that ended a request, never the raw error text. */
+export function describeRequestError(error: unknown, landed: boolean): string {
+	const text = error instanceof Error ? `${error.name} ${error.message}` : String(error)
+	const unreachable = /network|fetch|connection|ECONNREFUSED|socket|Load failed|\((?:502|503|504)\)|TypeError/i.test(text)
+	if (unreachable) {
+		return landed
+			? 'I lost the connection to the model partway through. What I drew so far is still on the board.'
+			: 'I could not reach the model, so nothing changed on the board.'
+	}
+	return landed
+		? 'Something went wrong partway through. What I drew so far is still on the board.'
+		: 'Something went wrong, so nothing changed on the board.'
 }
 
 export interface TldrawAgentOptions {
@@ -268,6 +293,44 @@ export class TldrawAgent {
 	/** The board revision that the most recent request read. */
 	private lastBaseRev = 0
 
+	/** How the latest user request ended, for the answer card. */
+	private $outcome = atom<RequestOutcome | null>('request outcome', null)
+
+	/** The latest request the user made, so a failed one can be tried again. */
+	private lastUserRequest: AgentRequest | null = null
+
+	/** How the latest user request ended, or null while it runs or when it finished normally. */
+	getOutcome(): RequestOutcome | null {
+		return this.$outcome.get()
+	}
+
+	/** Forget how the last request ended, as when the user closes its card. */
+	clearOutcome() {
+		this.$outcome.set(null)
+	}
+
+	/**
+	 * Try the latest user request again after it failed or was stopped. When
+	 * some of its work already landed, the agent continues from the board
+	 * instead of starting over, so nothing is drawn twice.
+	 */
+	retry() {
+		const request = this.lastUserRequest
+		const outcome = this.getOutcome()
+		if (!request || this.requests.isGenerating()) return
+		this.$outcome.set(null)
+		const landed = outcome?.landed ?? false
+		const note = landed
+			? '\n\n(Your previous attempt at this request stopped partway. Its finished work is on the board: keep it, do not redo it, and finish the rest.)'
+			: ''
+		this.prompt({
+			...request,
+			agentMessages: request.agentMessages.map((m, i) => (i === request.agentMessages.length - 1 ? m + note : m)),
+			bounds: request.bounds,
+			source: 'user',
+		})
+	}
+
 	/** Get the board revision that the most recent request read. */
 	getLastBaseRev(): number {
 		return this.lastBaseRev
@@ -442,6 +505,10 @@ export class TldrawAgent {
 			await this.request(request)
 		} catch (e) {
 			console.error('Error data:', e)
+			const landed = this.actions.getLastWork() !== null
+			const asked = this.lastUserRequest ? [...this.lastUserRequest.userMessages, ...this.lastUserRequest.agentMessages][0] ?? '' : ''
+			const quoted = asked.length > 90 ? `${asked.slice(0, 88)}...` : asked
+			this.$outcome.set({ status: 'failed', message: describeRequestError(e, landed), landed, request: quoted ? `Your request: "${quoted}"` : '' })
 			this.requests.setIsPrompting(false)
 			this.requests.setCancelFn(null)
 			return
@@ -668,9 +735,11 @@ export class TldrawAgent {
 	 * calls cancel instead, which leaves background work running.
 	 */
 	stop() {
+		const working = this.requests.isGenerating() || runningWidgetJobs.get().size > 0 || runningVideoJobs.get().size > 0
 		this.cancel()
 		cancelWidgetJobs()
 		cancelVideoJobs()
+		if (working) this.$outcome.set({ status: 'stopped', landed: this.actions.getLastWork() !== null })
 	}
 
 	/**
@@ -725,6 +794,8 @@ export class TldrawAgent {
 				: requestedShapeIds
 		if (request.source !== 'self') {
 			this.requestUserText = [...request.agentMessages, ...request.userMessages].join('\n')
+			if (request.source === 'user') this.lastUserRequest = request
+			this.$outcome.set(null)
 		}
 		this.actions.onRequestStart(request.source)
 		this.marks.onRequestStart(request.source, request.agentMessages)
