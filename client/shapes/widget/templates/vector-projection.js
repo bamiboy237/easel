@@ -3,7 +3,11 @@
 // of b, the line perpendicular to b where a·b = 0, and the projection of a onto
 // b with the dropped perpendicular and its right-angle mark. The side column
 // gives each result with its exact working.
-const { fmt, num, eq, vec } = paper
+const { fmt, eq } = paper
+// Working shows every digit the values have (up to eight), so a substitution is never rounded.
+const num = (x) => paper.num(x, 8)
+const vec = (v, d = 8) => paper.vec(v, d)
+const exactText = (x) => fmt(x, 8)
 
 const PRESETS = {
 	Reset: [2, 3, 4, 1],
@@ -33,7 +37,7 @@ const get = () => {
 // Exact text for a square root: √13, or 5 when it is a whole square.
 const root = (s) => {
 	const r = Math.sqrt(s)
-	return paper.isExact(r, 2) ? fmt(r) : `√${fmt(s, 4)}`
+	return paper.isExact(r, 2) ? fmt(r) : `√${exactText(s)}`
 }
 
 function compute(v) {
@@ -66,6 +70,26 @@ const presets = paper.presets('#presets', Object.keys(PRESETS), (name) => {
 	easel.setState('by', by)
 })
 const readout = paper.readout('#readout', [])
+// Stretch b along its own line, so the learner can see the projection does not
+// depend on b's length. It lengthens b by 1.5, or halves it when longer would
+// leave the view, and never turns it. The projection before the stretch stays
+// as a faint outline for comparison, until the next change.
+const stretch = document.getElementById('stretch')
+let before = null
+const stretchFactor = () => {
+	const { bx, by } = get()
+	const v = plot.visible()
+	const fits = (k) => Math.abs(bx * k) < Math.min(-v.xMin, v.xMax) - 0.3 && Math.abs(by * k) < Math.min(-v.yMin, v.yMax) - 0.3
+	return fits(1.5) ? 1.5 : 0.5
+}
+stretch.addEventListener('click', () => {
+	const c = compute(get())
+	if (c.zeroB) return
+	const k = stretchFactor()
+	before = { proj: c.proj, b: [c.bx, c.by] }
+	easel.setState('bx', c.bx * k)
+	easel.setState('by', c.by * k)
+})
 const legs = document.getElementById('legs')
 legs.addEventListener('change', () => render())
 const coords = document.getElementById('coords')
@@ -99,12 +123,18 @@ function render() {
 	const a = [c.ax, c.ay], b = [c.bx, c.by], o = [0, 0]
 	const name = Object.keys(PRESETS).find((n) => PRESETS[n].every((v, i) => Math.abs(v - [c.ax, c.ay, c.bx, c.by][i]) < 1e-9))
 	presets.mark(name || '')
+	// The stretch comparison holds only while b keeps its direction and a stays put.
+	const stretched = before && c.proj && Math.abs(before.b[0] * c.by - before.b[1] * c.bx) < 1e-9 && Math.abs(c.proj[0] - before.proj[0]) < 1e-9 && Math.abs(c.proj[1] - before.proj[1]) < 1e-9 && Math.hypot(c.bx - before.b[0], c.by - before.b[1]) > 1e-9
+	if (!stretched) before = null
+	const k = c.zeroB ? 1 : stretchFactor()
+	stretch.innerHTML = k > 1 ? 'Lengthen <var>b</var> ×1.5' : 'Halve <var>b</var>'
+	stretch.disabled = c.zeroB
 
 	plot.draw((g) => {
 		if (!c.zeroB) {
 			// The line of b, and the line through the origin perpendicular to b, where a·b = 0.
 			g.fullLine(o, b, { color: 'var(--paper-viz-line)', label: 'line of b' })
-			g.fullLine(o, [-c.by, c.bx], { color: 'var(--paper-viz-line)', dash: '2 4', label: 'perpendicular to b: a·b = 0' })
+			g.fullLine(o, [-c.by, c.bx], { color: 'var(--paper-viz-line)', dash: '2 4', label: 'a·b = 0 on this line' })
 		}
 		if (legs.checked && !c.zeroA) {
 			// The right triangle behind ‖a‖: legs along the axes, hypotenuse a.
@@ -127,12 +157,15 @@ function render() {
 				g.rightAngle(p, hasProj ? [-p[0], -p[1]] : b, perp, { size: 11, color: QUIET })
 			}
 		}
+		// Where the tip of b was before the stretch, to compare with.
+		if (stretched) g.point(before.b, { color: QUIET, r: 5, hollow: true, label: 'b before', labelSize: 13 })
+		// The projection, the result, is a broad band with a and b drawn thin over it, so all
+		// three stay visible when they share a line.
+		if (hasProj) g.arrow(o, p, { color: PROJ, width: 7, head: 17 })
 		if (!c.zeroB) g.arrow(o, b, { color: B, width: 2, label: 'b', bold: true, labelSize: 18 })
 		else g.point(o, { color: B, r: 4, label: 'b = 0' })
-		if (!c.zeroA) g.arrow(o, a, { color: A, width: 2.25, label: 'a', bold: true, labelSize: 18 })
-		// The projection, the result, goes on top.
+		if (!c.zeroA) g.arrow(o, a, { color: A, width: 2, label: 'a', bold: true, labelSize: 18 })
 		if (hasProj) {
-			g.arrow(o, p, { color: PROJ, width: 4.5, head: 15 })
 			// Its label goes on the side away from a, clear of the angle.
 			const same = !c.zeroA && Math.abs(c.cross) < 1e-9
 			g.tag(o, p, same ? 'proj_b a = a' : 'proj_b a', { color: PROJ, size: 16, side: p[0] * c.ay - p[1] * c.ax > 0 ? -1 : 1, gap: 8, at: 0.5 })
@@ -153,7 +186,7 @@ function render() {
 		{ name: 'a·b', value: eq(c.dot), note: `${num(c.ax)}·${num(c.bx)} + ${num(c.ay)}·${num(c.by)}` },
 	]
 	if (c.theta === null) rows.push({ name: 'θ', value: 'undefined', note: 'a zero vector has no direction' })
-	else rows.push({ name: 'θ', value: `${eq(deg(c.theta), 1)}°`, note: `cos θ = a·b / (‖a‖ ‖b‖) = ${fmt(c.dot, 4)} / (${root(c.sa)} · ${root(c.sb)})` })
+	else rows.push({ name: 'θ', value: `${eq(deg(c.theta), 1)}°`, note: `cos θ = a·b / (‖a‖ ‖b‖) = ${exactText(c.dot)} / (${root(c.sa)} · ${root(c.sb)})` })
 	if (c.zeroB) {
 		rows.push({ name: { html: 'comp<sub>b</sub> a' }, value: 'undefined', note: 'b is the zero vector, so it has no direction' })
 		rows.push({ name: { html: 'proj<sub>b</sub> a' }, value: 'undefined' })
@@ -162,14 +195,14 @@ function render() {
 			name: { html: 'comp<sub>b</sub> a' },
 			value: `${eq(c.comp)}, the signed length`,
 			color: PROJ,
-			note: `a·b / ‖b‖ = ${fmt(c.dot, 4)} / ${root(c.sb)}${c.zeroA ? '' : ', also ‖a‖ cos θ'}`,
+			note: `a·b / ‖b‖ = ${exactText(c.dot)} / ${root(c.sb)}${c.zeroA ? '' : ', also ‖a‖ cos θ'}`,
 		})
 		const exact = paper.isExact(c.proj[0]) && paper.isExact(c.proj[1])
 		rows.push({
 			name: { html: 'proj<sub>b</sub> a' },
-			value: `${exact ? '=' : '≈'} ${vec(c.proj)}`,
+			value: `${exact ? '=' : '≈'} ${vec(c.proj, 2)}`,
 			color: PROJ,
-			note: { html: paper.minus(`comp<sub>b</sub> a · b / ‖b‖ = (a·b / ‖b‖²) b = (${fmt(c.dot, 4)} / ${fmt(c.sb, 4)}) ${vec(b)}`) },
+			note: { html: paper.minus(`(comp<sub>b</sub> a)(b / ‖b‖): the signed length times the unit vector along b, so (a·b / ‖b‖²) b = (${exactText(c.dot)} / ${exactText(c.sb)}) ${vec(b)}`) },
 		})
 	}
 	readout.set(rows)
@@ -181,7 +214,8 @@ function render() {
 	else if (Math.abs(c.cross) < 1e-9) text = c.dot > 0 ? 'Now a lies along b, so p is the tip of a: the projection is a itself, and θ = 0°.' : 'Now a points against b, so p is the tip of a: the projection is a itself, its signed length is negative, and θ = 180°.'
 	else if (c.dot > 0) text = 'Now a·b > 0: θ is under 90°, a is on the same side of the dotted line as b, and the projection points along b.'
 	else text = 'Now a·b < 0: θ is over 90°, the tip of a is on the other side of the dotted line from b, and the projection points against b, so its signed length is negative.'
-	meaning.textContent = paper.minus(text)
+	if (stretched) text = `b changed length but not direction (the hollow dot marks its old tip), and with a unchanged, proj_b a is still ${paper.isExact(c.proj[0]) && paper.isExact(c.proj[1]) ? '' : 'about '}${vec(c.proj, 2)}: for a fixed a, the projection depends only on the direction of b, not its length. comp_b a is unchanged too.`
+	meaning.innerHTML = paper.minus(text).replace(/(proj|comp)_b a/g, '$1<sub>b</sub> a')
 }
 
 easel.onChange(render)

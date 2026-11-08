@@ -303,6 +303,7 @@ const fromUser = () => {
 // what it just set. A durable change stays until the board confirms it; a
 // transient one until the board's value for that key changes.
 const overlay = { params: {}, state: {} };
+let lastEvent = null, seq = 0;
 let notifyQueued = false, notifyDepth = 0;
 const notify = () => {
 	if (notifyQueued) return;
@@ -325,7 +326,13 @@ const setLocal = (kind, key, value) => {
 	const current = Object.hasOwn(overlay[kind], key) ? overlay[kind][key].value : (values[kind] || {})[key];
 	const changed = !same(current, value);
 	overlay[kind][key] = { value, durable: user, at: clock() };
-	if (user) post(kind === 'params' ? { type: 'set-param', name: key, value, user: true } : { type: 'set-state', key, value, user: true });
+	if (user) {
+		// A click or a key is its own undo step; a drag or a slider's stream of moves is one step together.
+		const ev = window.event;
+		if (ev !== lastEvent) { lastEvent = ev; seq++ }
+		const discrete = !/move$|^input$|^wheel$/.test(ev.type);
+		post(kind === 'params' ? { type: 'set-param', name: key, value, user: true, seq, discrete } : { type: 'set-state', key, value, user: true, seq, discrete });
+	}
 	if (changed) notify();
 };
 const receive = (next) => {

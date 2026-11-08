@@ -26,8 +26,9 @@ export const WidgetMessage = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('ready') }),
 	z.object({ type: z.literal('heartbeat') }),
 	// A durable change, which the runtime sends only from the user's own input.
-	z.object({ type: z.literal('set-param'), name: Name, value: z.number().finite(), user: z.literal(true) }),
-	z.object({ type: z.literal('set-state'), key: Name, value: z.json(), user: z.literal(true) }),
+	// seq numbers the input event; a discrete one (a click or a key) starts its own undo step.
+	z.object({ type: z.literal('set-param'), name: Name, value: z.number().finite(), user: z.literal(true), seq: z.number().int(), discrete: z.boolean() }),
+	z.object({ type: z.literal('set-state'), key: Name, value: z.json(), user: z.literal(true), seq: z.number().int(), discrete: z.boolean() }),
 	// Board keys pressed inside the frame, which the board handles as its own.
 	z.object({
 		type: z.literal('key'),

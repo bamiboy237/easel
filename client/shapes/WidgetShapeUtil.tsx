@@ -377,6 +377,19 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 		let firstPendingAt = 0
 		// A change that comes after a pause in the user's input starts a new undo step.
 		let newStep = false
+		let lastSeq = -1
+		// Before a change joins the batch: a new click or key lands what came
+		// before as its own step, then starts a new one.
+		const startInput = (message: { seq: number; discrete: boolean }) => {
+			if (message.discrete && message.seq !== lastSeq) {
+				if (flushTimer) {
+					clearTimeout(flushTimer)
+					flush()
+				}
+				newStep = true
+			}
+			lastSeq = message.seq
+		}
 		const scheduleFlush = () => {
 			const now = performance.now()
 			if (now - lastEditAt.current > UNDO_GAP_MS) newStep = true
@@ -445,11 +458,13 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 					break
 				case 'set-param':
 					if (!userAtFrame()) return
+					startInput(message)
 					pending.params[message.name] = message.value
 					scheduleFlush()
 					break
 				case 'set-state':
 					if (!userAtFrame()) return
+					startInput(message)
 					pending.state[message.key] = message.value
 					scheduleFlush()
 					break
