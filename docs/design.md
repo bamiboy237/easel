@@ -181,7 +181,7 @@ The expected durations are measured on the plan model, in November 2026. The ani
 | Work | Expected | Measured |
 | --- | --- | --- |
 | Agent request, typed or delegated | 15 s | 12 s and 18 s |
-| Widget code | 35 s | 29 s and 40 s |
+| Widget code, with its smoke test | 47 s | 36, 40, 46, 49, 55, and 56 s (November 8; low reasoning effort was no faster, at 46 s) |
 | Animation: writing, then the whole scene's sketch | 40 s, to 70% of the bar | 39 and 43 s (earlier: 30, 37, and 39 s) |
 | Animation: checking the sketch | 10 s, to 85% | 9 s, and 15 s when dropped at the deadline |
 | Animation: a fix, its sketch and video | 10 s, real frames to 100% | 8 s |

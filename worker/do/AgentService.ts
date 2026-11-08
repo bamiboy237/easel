@@ -33,7 +33,7 @@ import { ActionStream } from './ActionStream'
 const MAX_OUTPUT_TOKENS = 16384
 
 /** How hard an OpenAI model reasons while writing a widget's code. */
-const WIDGET_WRITER_EFFORT: OpenAIReasoningEffort = 'low'
+const WIDGET_WRITER_EFFORT: OpenAIReasoningEffort = 'medium'
 
 /** How hard an OpenAI model reasons while writing, and while checking, an animation. */
 const ANIMATION_WRITER_EFFORT: OpenAIReasoningEffort = 'medium'
