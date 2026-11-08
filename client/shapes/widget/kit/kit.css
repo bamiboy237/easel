@@ -105,6 +105,11 @@ var {
 	overflow: hidden;
 }
 
+/* Side items keep their height; the column never squeezes one text onto the next. */
+.paper-side > * {
+	flex-shrink: 0;
+}
+
 .paper-stack {
 	display: flex;
 	flex-direction: column;

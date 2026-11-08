@@ -37,7 +37,7 @@ export const BUILT_IN_WIDGET_TEMPLATES: WidgetTemplate[] = [
 			'Two draggable vectors a and b from the origin on a fixed grid. It shows ‖a‖, ‖b‖, a·b, the angle θ between them, the scalar projection comp_b a and the vector projection proj_b a with exact working, and draws the angle, the line of b, the line where a·b = 0, the projection of a onto b, and the right angle at its foot. Presets: Reset, Parallel, Perpendicular, Obtuse, Opposite.',
 		verified: 'vector norms and projections ask, 2026-11-08',
 		width: 1000,
-		height: 680,
+		height: 720,
 		state: { ax: 2, ay: 3, bx: 4, by: 1 },
 		html: vectorProjectionHtml,
 		css: vectorProjectionCss,

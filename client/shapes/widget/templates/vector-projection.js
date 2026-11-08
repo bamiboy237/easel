@@ -86,7 +86,7 @@ stretch.addEventListener('click', () => {
 	const c = compute(get())
 	if (c.zeroB) return
 	const k = stretchFactor()
-	before = { proj: c.proj, b: [c.bx, c.by] }
+	before = { proj: c.proj, a: [c.ax, c.ay], b: [c.bx, c.by] }
 	easel.setState('bx', c.bx * k)
 	easel.setState('by', c.by * k)
 })
@@ -124,7 +124,7 @@ function render() {
 	const name = Object.keys(PRESETS).find((n) => PRESETS[n].every((v, i) => Math.abs(v - [c.ax, c.ay, c.bx, c.by][i]) < 1e-9))
 	presets.mark(name || '')
 	// The stretch comparison holds only while b keeps its direction and a stays put.
-	const stretched = before && c.proj && Math.abs(before.b[0] * c.by - before.b[1] * c.bx) < 1e-9 && Math.abs(c.proj[0] - before.proj[0]) < 1e-9 && Math.abs(c.proj[1] - before.proj[1]) < 1e-9 && Math.hypot(c.bx - before.b[0], c.by - before.b[1]) > 1e-9
+	const stretched = before && c.proj && before.a[0] === c.ax && before.a[1] === c.ay && before.b[0] * c.bx + before.b[1] * c.by > 0 && Math.abs(before.b[0] * c.by - before.b[1] * c.bx) < 1e-9 && Math.abs(c.proj[0] - before.proj[0]) < 1e-9 && Math.abs(c.proj[1] - before.proj[1]) < 1e-9 && Math.hypot(c.bx - before.b[0], c.by - before.b[1]) > 1e-9
 	if (!stretched) before = null
 	const k = c.zeroB ? 1 : stretchFactor()
 	stretch.innerHTML = k > 1 ? 'Lengthen <var>b</var> ×1.5' : 'Halve <var>b</var>'
@@ -214,7 +214,7 @@ function render() {
 	else if (Math.abs(c.cross) < 1e-9) text = c.dot > 0 ? 'Now a lies along b, so p is the tip of a: the projection is a itself, and θ = 0°.' : 'Now a points against b, so p is the tip of a: the projection is a itself, its signed length is negative, and θ = 180°.'
 	else if (c.dot > 0) text = 'Now a·b > 0: θ is under 90°, a is on the same side of the dotted line as b, and the projection points along b.'
 	else text = 'Now a·b < 0: θ is over 90°, the tip of a is on the other side of the dotted line from b, and the projection points against b, so its signed length is negative.'
-	if (stretched) text = `b changed length but not direction (the hollow dot marks its old tip), and with a unchanged, proj_b a is still ${paper.isExact(c.proj[0]) && paper.isExact(c.proj[1]) ? '' : 'about '}${vec(c.proj, 2)}: for a fixed a, the projection depends only on the direction of b, not its length. comp_b a is unchanged too.`
+	if (stretched) text = `b changed length, not direction (the hollow dot marks its old tip). With a fixed, proj_b a is still ${paper.isExact(c.proj[0]) && paper.isExact(c.proj[1]) ? '' : 'about '}${vec(c.proj, 2)}: only the direction of b matters.`
 	meaning.innerHTML = paper.minus(text).replace(/(proj|comp)_b a/g, '$1<sub>b</sub> a')
 }
 
