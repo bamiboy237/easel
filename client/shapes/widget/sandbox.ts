@@ -518,6 +518,21 @@ const run = async () => {
 	const problems = [];
 	const startErrors = hook.errors.length;
 	if (startErrors) problems.push('The script threw an error as it started: ' + hook.errors[0]);
+	// Everything must fit the frame: text cut off at an edge cannot be read.
+	const fits = () => {
+		const W = innerWidth, H = innerHeight;
+		const cut = [];
+		for (const el of document.body.querySelectorAll('p, span, div, label, li, button, h2, h3, td, th, svg, canvas')) {
+			if (!shown(el)) continue;
+			if (el.tagName !== 'svg' && el.tagName !== 'CANVAS' && !el.childNodes.length) continue;
+			if ([...el.childNodes].some((n) => n.nodeType === 1 && n.tagName !== 'BR' && n.tagName !== 'SUB' && n.tagName !== 'SUP' && n.tagName !== 'VAR' && n.tagName !== 'B' && n.tagName !== 'I' && n.tagName !== 'STRONG' && n.tagName !== 'EM')) continue;
+			const r = el.getBoundingClientRect();
+			if (r.bottom > H + 2 || r.right > W + 2) cut.push(Math.round(Math.max(r.bottom - H, r.right - W)) + ' px: "' + (el.textContent || el.tagName).trim().slice(0, 40) + '"');
+		}
+		return cut;
+	};
+	const cut = fits();
+	if (cut.length) problems.push('Content runs past the edge of the frame and is cut off, so make the layout fit the given size: ' + cut.slice(0, 3).join('; ') + '.');
 	const buttons = [...document.querySelectorAll('button, [role=button], input[type=button], input[type=submit], input[type=checkbox], input[type=radio]')].filter((b) => shown(b) && !b.disabled);
 	const ranges = [...document.querySelectorAll('input[type=range]')].filter((r) => shown(r) && !r.disabled);
 	const numbers = [...document.querySelectorAll('input[type=number]')].filter((r) => shown(r) && !r.disabled);

@@ -97,45 +97,56 @@
 			W = Math.max(40, r.width || opts.width || 400)
 			H = Math.max(40, r.height || opts.height || 300)
 			svg.setAttribute('viewBox', `0 0 ${W} ${H}`)
-			// Equal scale on both axes, centred.
+			// Equal scale on both axes, centred, for geometry. A graph of a function
+			// (equal: false) fills the box, with its own scale on each axis.
 			const sx = (W - 2 * pad) / (view.xMax - view.xMin)
 			const sy = (H - 2 * pad) / (view.yMax - view.yMin)
 			scale = Math.min(sx, sy)
-			ox = (W - scale * (view.xMax - view.xMin)) / 2 - scale * view.xMin
-			oy = (H + scale * (view.yMax - view.yMin)) / 2 + scale * view.yMin
+			scaleX = opts.equal === false ? sx : scale
+			scaleY = opts.equal === false ? sy : scale
+			ox = (W - scaleX * (view.xMax - view.xMin)) / 2 - scaleX * view.xMin
+			oy = (H + scaleY * (view.yMax - view.yMin)) / 2 + scaleY * view.yMin
 		}
-		const X = (x) => ox + scale * x
-		const Y = (y) => oy - scale * y
+		let scaleX = 1, scaleY = 1
+		const X = (x) => ox + scaleX * x
+		const Y = (y) => oy - scaleY * y
 		const P = (p) => [X(p[0]), Y(p[1])]
 		/** The visible math region, a little wider than the view when the box is wider. */
-		const visible = () => ({ xMin: (0 - ox) / scale, xMax: (W - ox) / scale, yMin: (oy - H) / scale, yMax: oy / scale })
+		const visible = () => ({ xMin: (0 - ox) / scaleX, xMax: (W - ox) / scaleX, yMin: (oy - H) / scaleY, yMax: oy / scaleY })
 
 		const drawGrid = () => {
 			gridLayer.textContent = ''
 			if (opts.grid === false && opts.axes === false) return
 			const v = visible()
 			const step = opts.gridStep || niceStep((v.xMax - v.xMin) / 10)
+			const stepY = opts.gridStepY || (opts.equal === false ? niceStep((v.yMax - v.yMin) / 8) : step)
 			if (opts.grid !== false) {
 				for (let x = Math.ceil(v.xMin / step) * step; x <= v.xMax; x += step)
 					el('line', { x1: X(x), y1: 0, x2: X(x), y2: H, stroke: 'var(--paper-viz-grid)', 'stroke-width': 1 }, gridLayer)
-				for (let y = Math.ceil(v.yMin / step) * step; y <= v.yMax; y += step)
+				for (let y = Math.ceil(v.yMin / stepY) * stepY; y <= v.yMax; y += stepY)
 					el('line', { x1: 0, y1: Y(y), x2: W, y2: Y(y), stroke: 'var(--paper-viz-grid)', 'stroke-width': 1 }, gridLayer)
 			}
 			if (opts.axes !== false) {
 				el('line', { x1: 0, y1: Y(0), x2: W, y2: Y(0), stroke: 'var(--paper-viz-line-strong)', 'stroke-width': 1 }, gridLayer)
 				el('line', { x1: X(0), y1: 0, x2: X(0), y2: H, stroke: 'var(--paper-viz-line-strong)', 'stroke-width': 1 }, gridLayer)
-				const every = opts.tickEvery || step * (scale * step < 28 ? 2 : 1)
+				const every = opts.tickEvery || step * (scaleX * step < 28 ? 2 : 1)
+				const everyY = opts.tickEveryY || (opts.equal === false ? stepY * (scaleY * stepY < 22 ? 2 : 1) : every)
+				// Ticks: every grid step, or the widget's own list of values or {value, label}, such as π.
+				const list = (custom, lo, hi, e) => {
+					if (custom) return custom.map((t) => (typeof t === 'number' ? { value: t, label: fmt(t, 2) } : t)).filter((t) => t.value !== 0)
+					const out = []
+					for (let k = Math.ceil(lo / e) * e; k <= hi - e / 2; k += e) if (Math.abs(k) >= e / 2) out.push({ value: k, label: fmt(k, 2) })
+					return out
+				}
 				// Tick labels stay clear of the edges, and other labels keep clear of them.
-				for (let x = Math.ceil(v.xMin / every) * every; x <= v.xMax - every / 2; x += every) {
-					if (Math.abs(x) < every / 2 || X(x) < 12 || X(x) > W - 12) continue
-					const text = fmt(x, 2)
+				for (const { value: x, label: text } of list(opts.xTicks, v.xMin, v.xMax, every)) {
+					if (X(x) < 12 || X(x) > W - 12) continue
 					const node = el('text', { x: X(x), y: Y(0) + 15, 'text-anchor': 'middle', class: 'paper-tick' }, gridLayer)
 					node.textContent = text
 					ticks.push({ x: X(x) - text.length * 3.5, y: Y(0) + 4, w: text.length * 7, h: 13, node })
 				}
-				for (let y = Math.ceil(v.yMin / every) * every; y <= v.yMax - every / 2; y += every) {
-					if (Math.abs(y) < every / 2 || Y(y) < 12 || Y(y) > H - 12) continue
-					const text = fmt(y, 2)
+				for (const { value: y, label: text } of list(opts.yTicks, v.yMin, v.yMax, everyY)) {
+					if (Y(y) < 12 || Y(y) > H - 12) continue
 					const node = el('text', { x: X(0) - 6, y: Y(y) + 4, 'text-anchor': 'end', class: 'paper-tick' }, gridLayer)
 					node.textContent = text
 					ticks.push({ x: X(0) - 6 - text.length * 7, y: Y(y) - 7, w: text.length * 7, h: 13, node })
@@ -413,7 +424,7 @@
 			y: Y,
 			px: P,
 			/** Screen pixels in the plot to math coordinates. */
-			toMath(px, py) { return [(px - ox) / scale, (oy - py) / scale] },
+			toMath(px, py) { return [(px - ox) / scaleX, (oy - py) / scaleY] },
 			/** The visible math region. */
 			visible,
 			/** Set the view. Ignored while a handle is being dragged. */
