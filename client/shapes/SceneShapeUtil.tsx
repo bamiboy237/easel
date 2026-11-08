@@ -1,6 +1,7 @@
 import { Circle, Coordinates, Line, Mafs, MovablePoint, Plot, Point, Polygon, Polyline, Text, Vector } from 'mafs'
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
+	Editor,
 	Geometry2d,
 	HTMLContainer,
 	Rectangle2d,
@@ -12,6 +13,7 @@ import {
 	useValue,
 } from 'tldraw'
 import { axisLabels, gridStep, parametersHeight } from './GraphShapeUtil'
+import { playbackStep } from './playback'
 import { newTemplateId, saveTemplate, SceneTemplate } from './scene/templates'
 import { Box, LabelRequest, Obstacles, placeLabels, sampleStroke, textWidthPx, Vec } from './scene/labels'
 import { clampParameter, rangeFill, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
@@ -124,7 +126,7 @@ function Scene({ shape }: { shape: SceneShape }) {
 	const preview = shape.meta.scenePreview === true
 	const parameters = sceneParameters(shape.props)
 	const plotHeight = Math.max(60, h - sceneChromeHeight(shape.props))
-	const [t, setT] = usePlayback(duration)
+	const [t, setT] = usePlayback(duration, editor)
 	// When the agent pins a time, every viewer stops on it.
 	const { pinnedTime, pinCount } = shape.props
 	useEffect(() => {
@@ -317,7 +319,7 @@ function Scene({ shape }: { shape: SceneShape }) {
 }
 
 /** Local playback: time runs from 0 to the duration, and stops there. */
-function usePlayback(duration: number) {
+function usePlayback(duration: number, editor: Editor) {
 	const [state, setState] = useState({ time: 0, playing: false })
 	const frame = useRef(0)
 	useEffect(() => setState((s) => ({ ...s, time: Math.min(s.time, duration) })), [duration])
@@ -325,9 +327,11 @@ function usePlayback(duration: number) {
 		if (!state.playing) return
 		let last = performance.now()
 		const step = (now: number) => {
-			const dt = (now - last) / 1000
+			// The clock holds while the canvas pans or zooms.
+			const dt = playbackStep(editor, (now - last) / 1000)
 			last = now
-			setState((s) => {
+			// No frame work while it holds: nothing changes, so nothing renders.
+			if (dt > 0) setState((s) => {
 				const time = s.time + dt
 				return time >= duration ? { time: duration, playing: false } : { ...s, time }
 			})
@@ -335,7 +339,7 @@ function usePlayback(duration: number) {
 		}
 		frame.current = requestAnimationFrame(step)
 		return () => cancelAnimationFrame(frame.current)
-	}, [state.playing, duration])
+	}, [state.playing, duration, editor])
 	return [state, setState] as const
 }
 

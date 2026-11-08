@@ -96,8 +96,10 @@ export function ProgressBar({ value, estimate, compute, done, runKey, label, var
 	if (next > shown.current.value) shown.current.value = next
 	const fraction = shown.current.value
 
+	// Spans styled as blocks, so the bar is valid wherever it sits, also inside a
+	// paragraph of status text (a div inside a p is invalid HTML).
 	return (
-		<div
+		<span
 			className={`paper-progress paper-progress--${variant}${className ? ` ${className}` : ''}`}
 			role="progressbar"
 			aria-label={label}
@@ -107,8 +109,8 @@ export function ProgressBar({ value, estimate, compute, done, runKey, label, var
 			aria-valuetext={value == null && !done ? `About ${Math.round(fraction * 100)}%` : undefined}
 			data-progress={fraction.toFixed(4)}
 		>
-			<div className="paper-progress-fill" style={{ transform: `scaleX(${fraction})` }} />
-		</div>
+			<span className="paper-progress-fill" style={{ transform: `scaleX(${fraction})` }} />
+		</span>
 	)
 }
 

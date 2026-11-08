@@ -8,11 +8,13 @@ import {
 	T,
 	TLShape,
 	TLShapeId,
+	useEditor,
 	useValue,
 } from 'tldraw'
 import { ProgressBar } from '../components/ProgressBar'
 import { cancelVideoJob, freshVideos, isVideoJobRunning, runningVideoJobs, videoJobProgress } from './video/jobs'
 import type { AnimationPhase } from './video/pipeline'
+import { useHoldVideoWhileMoving } from './playback'
 
 /** tldraw has its own `video` shape, for files the user drops, so this one has its own type. */
 export const VIDEO_TYPE = 'animation'
@@ -283,13 +285,29 @@ function Player({ shape, height }: { shape: VideoShape; height: number }) {
 	const [failed, setFailed] = useState(false)
 	const { renderKey, duration } = shape.props
 	const total = duration || ref.current?.duration || 0
+	const editor = useEditor()
+	// A playing video holds while the user pans or zooms, and goes on after.
+	const held = useHoldVideoWhileMoving(editor, ref)
+	// Whether this video plays on its own when it lands.
+	const autoplay = useRef(freshVideos.has(shape.id))
 
 	// A video that just landed plays once on its own.
 	useEffect(() => {
 		if (!freshVideos.has(shape.id)) return
 		freshVideos.delete(shape.id)
+		autoplay.current = true
 		void ref.current?.play().catch(() => {})
 	}, [shape.id, renderKey])
+
+	// At rest the player shows the finished picture, the video's last frame, as
+	// its poster does, so the time reads the end too. Play starts again from 0.
+	const restAtEnd = (video: HTMLVideoElement) => {
+		if (autoplay.current || !video.paused || video.currentTime > 0) return
+		const end = video.duration
+		if (!Number.isFinite(end) || end <= 0) return
+		video.currentTime = end
+		setTime(end)
+	}
 
 	const toggle = () => {
 		const video = ref.current
@@ -311,8 +329,12 @@ function Player({ shape, height }: { shape: VideoShape; height: number }) {
 					muted
 					playsInline
 					loop={loop}
+					onLoadedMetadata={(e) => restAtEnd(e.currentTarget)}
 					onPlay={() => setPlaying(true)}
-					onPause={() => setPlaying(false)}
+					onPause={() => {
+						// A hold for a camera move is not the user's pause.
+						if (!held.current) setPlaying(false)
+					}}
 					onEnded={() => setPlaying(false)}
 					onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
 					onError={() => setFailed(true)}
@@ -352,7 +374,7 @@ function Player({ shape, height }: { shape: VideoShape; height: number }) {
 				<span className="video-time">
 					{formatTime(time)} / {formatTime(total)}
 				</span>
-				<button className={`video-button${loop ? ' video-button-on' : ''}`} aria-label="Loop" aria-pressed={loop} onClick={() => setLoop((l) => !l)}>
+				<button className={`video-button${loop ? ' video-button-on' : ''}`} aria-label="Loop" title={loop ? 'Loop is on' : 'Loop'} aria-pressed={loop} onClick={() => setLoop((l) => !l)}>
 					<svg width="14" height="12" viewBox="0 0 14 12">
 						<path d="M2.5 6 A3.5 3.5 0 0 1 6 2.5 H9.5 M8 1 L9.8 2.5 L8 4 M11.5 6 A3.5 3.5 0 0 1 8 9.5 H4.5 M6 8 L4.2 9.5 L6 11" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
 					</svg>

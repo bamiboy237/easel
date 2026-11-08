@@ -923,9 +923,12 @@
 }
 
 /*
- * A thread on the board: the same ruled sticky note as the question card,
- * holding the question in red pencil and the agent's answer in ink. It sits
- * straight on the board, so text stays crisp at every zoom.
+ * A thread on the board: a quiet sheet of the board's own paper beside the
+ * mark. The question is the user's words in serif italic, in data ink; the
+ * answer is in ink. One hairline and a faint shadow lift it off the board,
+ * with no ruled lines, margin, or sticky-note yellow. Text still sits on a
+ * 24 px rhythm, so the note's measured height holds. It sits straight on the
+ * board, so text stays crisp at every zoom.
  */
 .thread-note-container {
 	overflow: visible;
@@ -934,16 +937,11 @@
 
 .thread-note {
 	box-sizing: border-box;
-	padding: 14px 14px 14px 30px;
-	border-radius: 2px 2px 3px 3px;
-	background:
-		linear-gradient(90deg, transparent 21px, rgba(174, 59, 44, 0.45) 21px, rgba(174, 59, 44, 0.45) 22px, transparent 22px),
-		url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='24'%3E%3Cline x1='0' y1='23.5' x2='4' y2='23.5' stroke='%23c8b678' stroke-width='1'/%3E%3C/svg%3E") 0 14px repeat,
-		linear-gradient(180deg, #fcf3bd 0%, #fcf3bd 55%, #f6e7a0 100%);
-	box-shadow:
-		0 1px 1px rgba(60, 45, 20, 0.08),
-		0 12px 18px -10px rgba(60, 45, 20, 0.3),
-		0 2px 10px rgba(60, 45, 20, 0.07);
+	padding: 14px 14px 14px 16px;
+	border: 1px solid var(--paper-viz-border);
+	border-radius: 6px;
+	background: var(--paper-card);
+	box-shadow: 0 1px 2px rgba(60, 45, 20, 0.05), 0 4px 12px -6px rgba(60, 45, 20, 0.12);
 }
 
 /* Only a note that just landed or opened settles in. A note scrolled back into
@@ -993,34 +991,36 @@
 	padding: 0;
 	border: none;
 	border-radius: 4px;
-	background: transparent;
-	color: #716c62;
+	background: var(--paper-card);
+	color: var(--paper-viz-data);
 	cursor: pointer;
 	transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out);
 }
 
 .thread-note-controls button:hover {
-	background-color: rgba(60, 45, 20, 0.07);
-	color: #302f2a;
+	background-color: var(--paper-hover);
+	color: var(--paper-ink);
 }
 
 .thread-note-controls button:active {
+	background-color: var(--paper-pressed);
 	transform: scale(0.94);
 }
 
-/* A folded thread: a small sticky dot ringed in red pencil, with the count of questions. */
+/* A folded thread: a small paper dot with a hairline ring and the count of questions. */
 .thread-pin {
 	box-sizing: border-box;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	padding: 0;
-	border: 1.5px dashed rgba(174, 59, 44, 0.75);
+	border: 1px solid var(--paper-viz-line-strong);
 	border-radius: 50%;
-	background-color: #fcf3bd;
-	color: #ae3b2c;
+	background-color: var(--paper-card);
+	color: var(--paper-ink);
 	font: 600 11px/1 Inter, system-ui, sans-serif;
-	box-shadow: 0 1px 2px rgba(60, 45, 20, 0.12), 0 4px 10px -4px rgba(60, 45, 20, 0.25);
+	font-variant-numeric: tabular-nums;
+	box-shadow: 0 1px 2px rgba(60, 45, 20, 0.08);
 	cursor: pointer;
 	transition: transform 150ms var(--ease-out);
 }
@@ -1039,10 +1039,8 @@
 
 /* Resolved: the check is written in ink, and the pin steps back. */
 .thread-pin--resolved {
-	border-style: solid;
-	border-color: rgba(60, 45, 20, 0.25);
-	color: #3b3320;
-	opacity: 0.75;
+	border-color: var(--paper-viz-line);
+	color: var(--paper-viz-data);
 }
 
 @keyframes pin-place {
@@ -1062,19 +1060,19 @@
 .thread-entry--user {
 	font-size: 14px;
 	font-style: italic;
-	color: #ae3b2c;
+	color: var(--paper-viz-data);
 }
 
 .thread-entry--agent {
 	font-size: 15px;
-	color: #3b3320;
+	color: var(--paper-ink);
 }
 
 /* The quiet last line of a note: that the agent is thinking, or that its target is gone. */
 .thread-entry--quiet {
 	font-size: 14px;
 	font-style: italic;
-	color: #9a8a58;
+	color: var(--paper-viz-data);
 }
 
 /* Thinking: three pencil dots that rise and fall in turn, written on the paper. */
@@ -1088,7 +1086,7 @@
 	width: 4px;
 	height: 4px;
 	border-radius: 50%;
-	background-color: #ae3b2c;
+	background-color: var(--paper-viz-data);
 	opacity: 0.35;
 	animation: thread-thinking 1.2s ease-in-out infinite;
 }
@@ -1113,7 +1111,7 @@
 	}
 }
 
-/* The follow-up is written on the note's last line, in the same red pencil as the question. */
+/* The follow-up is written on the note's last line, in the same voice as the question. */
 .thread-follow-up {
 	margin: 0;
 }
@@ -1129,12 +1127,12 @@
 	font-size: 14px;
 	font-style: italic;
 	line-height: 24px;
-	color: #ae3b2c;
-	caret-color: #ae3b2c;
+	color: var(--paper-ink);
+	caret-color: var(--paper-accent);
 }
 
 .thread-follow-up input::placeholder {
-	color: #b9a873;
+	color: var(--paper-viz-data);
 }
 
 /* After a pen circle, a tiny sticky tab offers to ask about it. */
@@ -1781,10 +1779,14 @@ input.shape-parameter-value:focus-visible {
  */
 .paper-range {
 	--fill: 0%;
+	box-sizing: border-box;
 	width: 100%;
 	min-width: 40px;
 	height: 18px;
 	margin: 0;
+	/* Room at both ends for the grown thumb and the focus ring (2 px gap and a
+	 * 2 px ring), which the input would otherwise clip. */
+	padding: 0 4px;
 	background: transparent;
 	cursor: pointer;
 	pointer-events: all;
@@ -1857,8 +1859,13 @@ input.shape-parameter-value:focus-visible {
 	box-shadow: 0 0 0 2px var(--paper-card), 0 0 0 4px var(--paper-ink);
 }
 
+/* One rule per engine: a selector list that names another engine's
+ * pseudo-element is dropped whole, so Chromium would never see it. */
 @media (prefers-reduced-motion: reduce) {
-	.paper-range::-webkit-slider-thumb,
+	.paper-range::-webkit-slider-thumb {
+		transition: none;
+	}
+
 	.paper-range::-moz-range-thumb {
 		transition: none;
 	}
@@ -1922,9 +1929,10 @@ input.shape-parameter-value:focus-visible {
 	color: var(--paper-viz-data);
 }
 
+/* Hover replaces the paint with an opaque one; it never lays a film on top. */
 .simulation-play:hover,
 .video-button:hover {
-	background: color-mix(in srgb, var(--paper-rule) 45%, transparent);
+	background: var(--paper-hover);
 }
 
 .simulation-play:active,
@@ -2113,6 +2121,7 @@ input.shape-parameter-value:focus-visible {
  * 2 px inside a pill, a card, or a note.
  */
 .paper-progress {
+	display: block;
 	position: relative;
 	height: 2px;
 	overflow: hidden;
@@ -2129,6 +2138,7 @@ input.shape-parameter-value:focus-visible {
 }
 
 .paper-progress-fill {
+	display: block;
 	width: 100%;
 	height: 100%;
 	background: var(--paper-viz-data);
@@ -2191,9 +2201,14 @@ input.shape-parameter-value:focus-visible {
 	pointer-events: all;
 }
 
+/* Loop on is a named state: the accent, on an opaque grid fill. */
 .video-button-on {
-	color: #2f5d8c;
-	background: color-mix(in srgb, #2f5d8c 10%, transparent);
+	color: var(--paper-accent);
+	background: var(--paper-viz-grid);
+}
+
+.video-button-on:hover {
+	background: var(--paper-viz-fill-dim);
 }
 
 .video-time {
