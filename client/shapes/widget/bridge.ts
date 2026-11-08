@@ -25,8 +25,37 @@ const Name = z.string().min(1).max(64)
 export const WidgetMessage = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('ready') }),
 	z.object({ type: z.literal('heartbeat') }),
-	z.object({ type: z.literal('set-param'), name: Name, value: z.number().finite() }),
-	z.object({ type: z.literal('set-state'), key: Name, value: z.json() }),
+	// A durable change, which the runtime sends only from the user's own input.
+	// seq numbers the input event; a discrete one (a click or a key) starts its own undo step.
+	z.object({ type: z.literal('set-param'), name: Name, value: z.number().finite(), user: z.literal(true), seq: z.number().int(), discrete: z.boolean() }),
+	z.object({ type: z.literal('set-state'), key: Name, value: z.json(), user: z.literal(true), seq: z.number().int(), discrete: z.boolean() }),
+	// Board keys pressed inside the frame, which the board handles as its own.
+	z.object({
+		type: z.literal('key'),
+		key: z.string().max(16),
+		ctrl: z.boolean(),
+		meta: z.boolean(),
+		shift: z.boolean(),
+		alt: z.boolean(),
+	}),
+	// A wheel the widget did not use, so the board pans or zooms.
+	z.object({
+		type: z.literal('wheel'),
+		dx: z.number().finite(),
+		dy: z.number().finite(),
+		x: z.number().finite(),
+		y: z.number().finite(),
+		ctrl: z.boolean(),
+		meta: z.boolean(),
+		shift: z.boolean(),
+		alt: z.boolean(),
+	}),
+	z.object({ type: z.literal('press') }),
+	// A restored widget's clocks are waiting for the user, or have started.
+	z.object({ type: z.literal('held') }),
+	z.object({ type: z.literal('resumed') }),
+	// The smoke test's report, from a hidden copy of a new widget.
+	z.object({ type: z.literal('smoke'), tested: z.number().int().min(0), problems: z.array(z.string().max(400)).max(12), fatal: z.boolean() }),
 	z.object({
 		type: z.literal('snapshot'),
 		id: z.string().max(64),

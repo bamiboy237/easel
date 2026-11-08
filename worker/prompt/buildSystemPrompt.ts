@@ -10,6 +10,7 @@ import designSkill from './skills/design.md?raw'
 import drawingSkill from './skills/drawing.md?raw'
 import explainingSkill from './skills/explaining.md?raw'
 import { BUILT_IN_TEMPLATES } from '../../client/shapes/scene/templates'
+import { BUILT_IN_WIDGET_TEMPLATES } from '../../client/shapes/widget/widgetTemplates'
 
 /**
  * Build the system prompt for the agent.
@@ -45,6 +46,7 @@ export function buildSystemPrompt(
 	]
 
 	if (modePart.actionTypes.includes('scene_template')) lines.push(buildTemplatesSection())
+	if (modePart.actionTypes.includes('widget_template')) lines.push(buildWidgetTemplatesSection())
 
 	if (withSchema) {
 		lines.push(buildSchemaPromptSection(modePart))
@@ -120,6 +122,22 @@ function buildTemplatesSection() {
 	return `## Scene templates
 
 Scene templates you can place with scene_template. These are checked and verified, so prefer one when it fits:
+${rows.join('\n')}
+`
+}
+
+/**
+ * The built-in widget templates, also in the cached system prompt. When the
+ * user asks about one of these topics, the template is the answer, even when
+ * they ask for "a widget".
+ */
+function buildWidgetTemplatesSection() {
+	const rows = BUILT_IN_WIDGET_TEMPLATES.map(
+		(t) => `  - ${t.id}: ${t.title}, for ${t.useFor}. State: ${Object.entries(t.state).map(([k, v]) => `${k} = ${v}`).join(', ')}. ${t.width} by ${t.height} pixels.`
+	)
+	return `## Widget templates
+
+Hand-written widgets you can place with widget_template. They are checked by hand and land ready at once. When the user asks for a widget, a visual, or help with one of these topics, place the template instead of writing a widget or a scene, then explain it in one or two sentences:
 ${rows.join('\n')}
 `
 }

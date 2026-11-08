@@ -21,6 +21,7 @@ import {
 	SceneTemplateActionUtil,
 	SetParameterActionUtil,
 	WidgetActionUtil,
+	WidgetTemplateActionUtil,
 	RenderAnimationActionUtil,
 	SimulationActionUtil,
 } from '../actions/InteractiveActionUtils'
@@ -182,6 +183,7 @@ export const AGENT_MODE_DEFINITIONS = [
 			SceneObjectActionUtil.type,
 			SceneTemplateActionUtil.type,
 			SetParameterActionUtil.type,
+			WidgetTemplateActionUtil.type,
 			WidgetActionUtil.type,
 			RenderAnimationActionUtil.type,
 

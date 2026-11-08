@@ -17,8 +17,8 @@ import { useEffect, useRef, useState } from 'react'
  * animation's phases are in client/shapes/video/progress.ts.
  */
 export const EXPECTED_MS = {
-	/** A widget's code, from the job's start until it lands. */
-	widget: 35000,
+	/** A widget's code, from the job's start until it lands, its smoke test included. */
+	widget: 47000,
 	/** An agent request, typed or delegated by the voice, from start to end. */
 	request: 15000,
 }
