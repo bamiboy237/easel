@@ -4,25 +4,31 @@
 }
 
 .paper-side {
-	width: 372px;
-	gap: 12px;
+	width: 380px;
+	gap: 10px;
+}
+
+.lead {
+	font-size: 14.5px;
+	line-height: 1.4;
+}
+
+.coords {
+	font-variant-numeric: tabular-nums;
+	white-space: pre;
 }
 
 #readout .paper-readout {
 	grid-template-columns: 64px 1fr;
-	font-size: 14.5px;
-	row-gap: 3px;
-}
-
-#readout .paper-readout-value {
-	white-space: normal;
-	overflow: visible;
-}
-
-.hint {
-	font-size: 13.5px;
+	font-size: 16px;
+	row-gap: 2px;
 }
 
 #meaning {
-	font-size: 14.5px;
+	font-size: 15px;
+	min-height: 4.2em;
+}
+
+.hint {
+	font-size: 14px;
 }

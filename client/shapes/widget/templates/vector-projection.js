@@ -1,16 +1,23 @@
 // Vector norms and projections: a hand-written widget template, built from the
-// paper kit. Two draggable vectors a and b; the plot shows the angle, the line
-// of b, the line where a·b = 0, the projection of a onto b with its right-angle
-// mark, and the side column shows the exact working for every number.
-const { fmt, num, eq, vec, MINUS } = paper
+// paper kit. Two draggable vectors a and b. The plot shows the angle, the line
+// of b, the line perpendicular to b where a·b = 0, and the projection of a onto
+// b with the dropped perpendicular and its right-angle mark. The side column
+// gives each result with its exact working.
+const { fmt, num, eq, vec } = paper
 
 const PRESETS = {
-	Start: [2, 3, 4, 1],
+	Reset: [2, 3, 4, 1],
 	Parallel: [2, 1, 4, 2],
 	Perpendicular: [1, 3, 3, -1],
 	Obtuse: [-2, 3, 4, 1],
 	Opposite: [-2, -1, 4, 2],
 }
+
+// Inks: a in full ink, b in the data grey, and the projection, the result, in the accent.
+const A = 0
+const B = '#747471'
+const PROJ = '#344c41'
+const QUIET = '#9a9a97'
 
 const view = { xMin: -6, xMax: 6, yMin: -4.5, yMax: 4.5 }
 const plot = paper.plot('#plot', { ...view, label: 'Vectors a and b on a grid', xLabel: 'x', yLabel: 'y' })
@@ -21,15 +28,10 @@ const get = () => {
 	return { ax: n(s.ax, 2), ay: n(s.ay, 3), bx: n(s.bx, 4), by: n(s.by, 1) }
 }
 
-// Exact text for a square root: √13, or √25 = 5 when it is a whole square.
-const rootOf = (s) => {
+// Exact text for a square root: √13, or 5 when it is a whole square.
+const root = (s) => {
 	const r = Math.sqrt(s)
-	return { text: `√${fmt(s, 4)}`, value: r, exact: paper.isExact(r, 2) }
-}
-const normWorking = (x, y) => {
-	const s = x * x + y * y
-	const r = rootOf(s)
-	return `√(${num(x)}² + ${num(y)}²) = ${r.text} ${eq(r.value)}`
+	return paper.isExact(r, 2) ? fmt(r) : `√${fmt(s, 4)}`
 }
 
 function compute(v) {
@@ -38,36 +40,37 @@ function compute(v) {
 	const nb = Math.hypot(bx, by)
 	const dot = ax * bx + ay * by
 	const cross = ax * by - ay * bx
+	const sa = ax * ax + ay * ay
 	const sb = bx * bx + by * by
 	const zeroA = na < 1e-9
 	const zeroB = nb < 1e-9
 	let theta = null
 	if (!zeroA && !zeroB) {
-		// Exact cases first, so 90° and 0° read as exact.
+		// Exact cases first, so 90°, 0°, and 180° read as exact.
 		if (Math.abs(dot) < 1e-9) theta = Math.PI / 2
 		else if (Math.abs(cross) < 1e-9) theta = dot > 0 ? 0 : Math.PI
 		else theta = Math.acos(Math.max(-1, Math.min(1, dot / (na * nb))))
 	}
-	const k = zeroB ? null : dot / sb
-	const proj = zeroB ? null : [k * bx, k * by]
-	return { ...v, na, nb, dot, cross, sb, theta, k, proj, comp: zeroB ? null : dot / nb, zeroA, zeroB }
+	const proj = zeroB ? null : [(dot / sb) * bx, (dot / sb) * by]
+	return { ...v, na, nb, dot, cross, sa, sb, theta, proj, comp: zeroB ? null : dot / nb, zeroA, zeroB }
 }
 
 const presets = paper.presets('#presets', Object.keys(PRESETS), (name) => {
 	const [ax, ay, bx, by] = PRESETS[name]
+	plot.view(view)
 	easel.setState('ax', ax)
 	easel.setState('ay', ay)
 	easel.setState('bx', bx)
 	easel.setState('by', by)
 })
 const readout = paper.readout('#readout', [])
+const coords = document.getElementById('coords')
 const meaning = document.getElementById('meaning')
 
-// The handles: a in ink, b in blue.
 plot.handle({
 	name: 'a',
 	label: 'tip of a',
-	color: 0,
+	color: A,
 	get: () => [get().ax, get().ay],
 	set: (x, y) => {
 		easel.setState('ax', x)
@@ -77,7 +80,7 @@ plot.handle({
 plot.handle({
 	name: 'b',
 	label: 'tip of b',
-	color: 2,
+	color: B,
 	get: () => [get().bx, get().by],
 	set: (x, y) => {
 		easel.setState('bx', x)
@@ -85,7 +88,6 @@ plot.handle({
 	},
 })
 
-const RED = 1, BLUE = 2, INK = 0, GREEN = 3
 const deg = (rad) => (rad * 180) / Math.PI
 
 function render() {
@@ -96,66 +98,64 @@ function render() {
 
 	plot.draw((g) => {
 		if (!c.zeroB) {
-			// The line of b, and the line through the origin where a·b = 0.
+			// The line of b, and the line through the origin perpendicular to b, where a·b = 0.
 			g.fullLine(o, b, { color: 'var(--paper-viz-line)', label: 'line of b' })
-			g.fullLine(o, [-c.by, c.bx], { color: 'var(--paper-viz-line)', dash: '2 4', label: `a·b = 0` })
+			g.fullLine(o, [-c.by, c.bx], { color: 'var(--paper-viz-line)', dash: '2 4', label: 'perpendicular to b: a·b = 0' })
 		}
-		if (c.theta !== null && c.theta > 1e-6 && Math.abs(c.theta - Math.PI) > 1e-6 && Math.abs(c.theta - Math.PI / 2) > 1e-9) {
-			g.angle(o, b, a, { color: GREEN, r: 44, label: `θ ${eq(deg(c.theta), 1)}°` })
-		}
-		if (c.proj) {
-			const p = c.proj
+		const special = c.theta === null || c.theta < 1e-6 || Math.abs(c.theta - Math.PI) < 1e-6 || Math.abs(c.theta - Math.PI / 2) < 1e-9
+		if (!special) g.angle(o, b, a, { color: QUIET, r: 40, label: `θ ${eq(deg(c.theta), 1)}°` })
+		const p = c.proj
+		const hasProj = p && Math.hypot(...p) > 1e-6
+		if (p) {
 			const perp = [c.ax - p[0], c.ay - p[1]]
-			const hasPerp = Math.hypot(...perp) > 1e-6
-			// a − proj, from the tip of a to the foot on the line of b.
-			if (hasPerp) {
-				g.line(a, p, { color: 'var(--paper-viz-data)', dash: '5 4', width: 1.25 })
-				const along = Math.hypot(...p) > 1e-6 ? [-p[0], -p[1]] : [c.bx, c.by]
-				g.rightAngle(p, along, perp, { size: 11 })
-			}
-			// The projection, the most important mark, drawn as a wide band under b, so both read.
-			if (Math.hypot(...p) > 1e-6) {
-				g.arrow(o, p, { color: RED, width: 6, head: 15 })
-				// Its label sits beside it, on the side of a, where the dashed line comes down.
-				g.tag(o, p, 'proj_b a', { color: RED, size: 15, side: p[0] * c.ay - p[1] * c.ax > 0 ? 1 : -1, gap: 8 })
-			} else {
-				g.point(o, { color: RED, r: 4.5 })
+			// The perpendicular dropped from the tip of a to the line of b, meeting it at p.
+			if (Math.hypot(...perp) > 1e-6) {
+				g.line(a, p, { color: QUIET, dash: '5 4', width: 1.25 })
+				g.rightAngle(p, hasProj ? [-p[0], -p[1]] : b, perp, { size: 11, color: QUIET })
 			}
 		}
-		if (!c.zeroB) g.arrow(o, b, { color: BLUE, width: 2, label: 'b', bold: true, labelSize: 17 })
-		else g.point(o, { color: BLUE, r: 4, label: 'b = 0' })
-		if (!c.zeroA) g.arrow(o, a, { color: INK, width: 2.25, label: 'a', bold: true, labelSize: 17 })
+		if (!c.zeroB) g.arrow(o, b, { color: B, width: 2, label: 'b', bold: true, labelSize: 18 })
+		else g.point(o, { color: B, r: 4, label: 'b = 0' })
+		if (!c.zeroA) g.arrow(o, a, { color: A, width: 2.25, label: 'a', bold: true, labelSize: 18 })
+		// The projection, the result, goes on top.
+		if (hasProj) {
+			g.arrow(o, p, { color: PROJ, width: 4.5, head: 15 })
+			// Its label goes on the side away from a, clear of the angle.
+			g.tag(o, p, 'proj_b a', { color: PROJ, size: 16, side: p[0] * c.ay - p[1] * c.ax > 0 ? -1 : 1, gap: 8, at: 0.5 })
+		}
+		if (p) g.point(p, { color: PROJ, r: 3.5 })
+		if (p && !c.zeroA) g.label(p, 'p', { color: PROJ, size: 15, center: true })
 		// Lengths sit beside each vector, outside the angle between them.
-		if (!c.zeroA) g.tag(o, a, `‖a‖ ${eq(c.na)}`, { color: INK, size: 13, italic: false, side: c.cross < 0 ? 1 : -1 })
-		if (!c.zeroB) g.tag(o, b, `‖b‖ ${eq(c.nb)}`, { color: BLUE, size: 13, italic: false, side: c.cross < 0 ? -1 : 1, at: 0.78 })
+		if (!c.zeroA) g.tag(o, a, `‖a‖ ${eq(c.na)}`, { color: A, size: 14, italic: false, side: c.cross < 0 ? 1 : -1 })
+		if (!c.zeroB) g.tag(o, b, `‖b‖ ${eq(c.nb)}`, { color: B, size: 14, italic: false, side: c.cross < 0 ? -1 : 1, at: 0.8 })
 	})
 	// A projection outside the view widens it once the user lets go.
-	if (c.proj) plot.ensure([c.proj, a, b])
+	if (c.proj) plot.ensure([c.proj], 0.3)
 
+	coords.textContent = paper.minus(`a = ${vec(a)}    b = ${vec(b)}`)
 	const rows = [
-		{ name: 'a', value: vec(a) },
-		{ name: 'b', value: vec(b) },
-		{ name: '‖a‖', value: normWorking(c.ax, c.ay) },
-		{ name: '‖b‖', value: normWorking(c.bx, c.by) },
-		{ name: 'a·b', value: `${num(c.ax)}·${num(c.bx)} + ${num(c.ay)}·${num(c.by)} ${eq(c.dot)}` },
+		{ name: '‖a‖', value: eq(c.na), note: `length of a: √(${num(c.ax)}² + ${num(c.ay)}²) = ${root(c.sa)}` },
+		{ name: '‖b‖', value: eq(c.nb), note: `length of b: √(${num(c.bx)}² + ${num(c.by)}²) = ${root(c.sb)}` },
+		{ name: 'a·b', value: eq(c.dot), note: `${num(c.ax)}·${num(c.bx)} + ${num(c.ay)}·${num(c.by)}` },
 	]
-	if (c.theta === null) {
-		rows.push({ name: 'θ', value: 'undefined: a zero vector has no direction' })
-	} else {
-		const ra = rootOf(c.na * c.na), rb = rootOf(c.sb)
-		rows.push({ name: 'θ', value: `cos θ = ${fmt(c.dot, 4)} / (${ra.text} · ${rb.text}), so θ ${eq(deg(c.theta), 1)}°`, color: GREEN })
-	}
+	if (c.theta === null) rows.push({ name: 'θ', value: 'undefined', note: 'a zero vector has no direction' })
+	else rows.push({ name: 'θ', value: `${eq(deg(c.theta), 1)}°`, note: `cos θ = a·b / (‖a‖ ‖b‖) = ${fmt(c.dot, 4)} / (${root(c.sa)} · ${root(c.sb)})` })
 	if (c.zeroB) {
-		rows.push({ name: { html: 'comp<sub>b</sub> a' }, value: 'undefined: b is the zero vector' })
+		rows.push({ name: { html: 'comp<sub>b</sub> a' }, value: 'undefined', note: 'b is the zero vector, so it has no direction' })
 		rows.push({ name: { html: 'proj<sub>b</sub> a' }, value: 'undefined' })
 	} else {
-		const rb = rootOf(c.sb)
-		rows.push({ name: { html: 'comp<sub>b</sub> a' }, value: `a·b / ‖b‖ = ${fmt(c.dot, 4)} / ${rb.text} ${eq(c.comp)}`, note: `the signed length of the projection, also ‖a‖ cos θ` })
+		rows.push({
+			name: { html: 'comp<sub>b</sub> a' },
+			value: eq(c.comp),
+			color: PROJ,
+			note: `a·b / ‖b‖ = ${fmt(c.dot, 4)} / ${root(c.sb)}: the signed length of the projection${c.zeroA ? '' : ', also ‖a‖ cos θ'}`,
+		})
 		const exact = paper.isExact(c.proj[0]) && paper.isExact(c.proj[1])
 		rows.push({
 			name: { html: 'proj<sub>b</sub> a' },
-			value: `(a·b / ‖b‖²) b = (${fmt(c.dot, 4)} / ${fmt(c.sb, 4)})${vec(b)} ${exact ? '=' : '≈'} ${vec(c.proj)}`,
-			color: RED,
+			value: `${exact ? '=' : '≈'} ${vec(c.proj)}`,
+			color: PROJ,
+			note: `(a·b / ‖b‖²) b = (${fmt(c.dot, 4)} / ${fmt(c.sb, 4)}) ${vec(b)}`,
 		})
 	}
 	readout.set(rows)
@@ -163,10 +163,10 @@ function render() {
 	let text
 	if (c.zeroB) text = 'b is the zero vector, so it has no direction: the angle and the projection onto b are undefined.'
 	else if (c.zeroA) text = 'a is the zero vector, so its projection onto b is the zero vector too.'
-	else if (Math.abs(c.dot) < 1e-9) text = 'a·b = 0, so a is perpendicular to b. Its shadow on the line of b is a single point: the projection is the zero vector.'
-	else if (Math.abs(c.cross) < 1e-9) text = c.dot > 0 ? 'a lies along b, so the projection of a onto b is a itself, and θ = 0°.' : 'a points against b, so the projection is a itself, the scalar projection is negative, and θ = 180°.'
-	else if (c.dot > 0) text = `a·b > 0, so θ is under 90° and the projection points along b. It is the point on the line of b closest to the tip of a, where the dashed line meets it at a right angle.`
-	else text = `a·b < 0, so θ is over 90°: the tip of a is past the line a·b = 0, and the projection points against b, so the scalar projection is negative.`
+	else if (Math.abs(c.dot) < 1e-9) text = 'Now a·b = 0: a lies on the perpendicular to b, so the perpendicular from its tip lands at the origin. p is the origin, and the projection is the zero vector.'
+	else if (Math.abs(c.cross) < 1e-9) text = c.dot > 0 ? 'Now a lies along b, so p is the tip of a: the projection is a itself, and θ = 0°.' : 'Now a points against b, so p is the tip of a: the projection is a itself, its signed length is negative, and θ = 180°.'
+	else if (c.dot > 0) text = 'Now a·b > 0: θ is under 90°, a is on the same side of the dotted line as b, and the projection points along b.'
+	else text = 'Now a·b < 0: θ is over 90°, a has crossed the dotted line, and the projection points against b, so its signed length is negative.'
 	meaning.textContent = paper.minus(text)
 }
 

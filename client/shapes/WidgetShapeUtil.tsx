@@ -53,11 +53,13 @@ const TITLE_BAR = 28
 /** How long a running frame may go without a heartbeat before it is stopped, in milliseconds. */
 const HEARTBEAT_TIMEOUT_MS = 3000
 /**
- * The shortest time between two edits a frame asks for, in milliseconds: the
- * rate cap on durable changes. A drag inside the frame lands about ten times
- * a second, and stays one undo step.
+ * Durable changes from the frame land once the user's burst of input pauses
+ * for this long, in milliseconds, so one drag inside a widget is one command
+ * and one undo step. The frame shows each change at once by itself.
  */
-const FLUSH_MS = 100
+const FLUSH_MS = 250
+/** A long, unbroken drag still lands at least this often, in milliseconds: the rate cap on durable changes. */
+const FLUSH_MAX_MS = 2000
 /** How long after the pointer leaves a frame its changes still count as the user's, in milliseconds. */
 const INPUT_GRACE_MS = 1500
 /** The largest zoom step one wheel event makes, as tldraw's own wheel handling caps it. */
@@ -370,8 +372,16 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 		// board's history.
 		const pending: { params: Record<string, number>; state: Record<string, unknown> } = { params: {}, state: {} }
 		let flushTimer: ReturnType<typeof setTimeout> | null = null
+		let firstPendingAt = 0
+		// A change that comes after a pause in the user's input starts a new undo step.
+		let newStep = false
 		const scheduleFlush = () => {
-			flushTimer ??= setTimeout(flush, FLUSH_MS)
+			const now = performance.now()
+			if (now - lastEditAt.current > UNDO_GAP_MS) newStep = true
+			lastEditAt.current = now
+			if (!flushTimer) firstPendingAt = now
+			else clearTimeout(flushTimer)
+			flushTimer = setTimeout(flush, Math.max(0, Math.min(FLUSH_MS, firstPendingAt + FLUSH_MAX_MS - now)))
 		}
 		const flush = () => {
 			flushTimer = null
@@ -406,10 +416,9 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 				console.warn(`Widget ${shape.id} state would pass ${MAX_STATE_CHARS} characters.`)
 				return
 			}
-			// One undo step per burst of changes, such as one drag inside the frame.
-			const now = performance.now()
-			if (now - lastEditAt.current > UNDO_GAP_MS) editor.markHistoryStoppingPoint('widget change')
-			lastEditAt.current = now
+			// One undo step per burst of input, such as one drag inside the frame.
+			if (newStep) editor.markHistoryStoppingPoint('widget change')
+			newStep = false
 			editor.updateShape<WidgetShape>({ id: shape.id, type: WIDGET_TYPE, props: { params, state } })
 		}
 		const onMessage = (event: MessageEvent) => {

@@ -328,10 +328,13 @@ label {
 	text-overflow: ellipsis;
 }
 
+/* A row's working sits under its value, quieter and smaller. */
 .paper-readout-note {
-	grid-column: 1 / -1;
+	grid-column: 2 / -1;
+	margin: -2px 0 4px;
 	color: var(--paper-viz-data);
-	font-size: 14px;
+	font-size: 13.5px;
+	line-height: 1.3;
 }
 
 /* Plots: drawn in SVG, sized to their box. */
@@ -360,7 +363,9 @@ label {
 	font-variant-numeric: tabular-nums;
 }
 
-.paper-handle {
+.paper-handle,
+.paper-handle:focus,
+.paper-handle:focus-visible {
 	cursor: grab;
 	touch-action: none;
 	outline: none;

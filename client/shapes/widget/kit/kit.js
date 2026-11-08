@@ -146,7 +146,37 @@
 		// Labels avoid each other: each tries a few spots around its anchor.
 		const overlaps = (b) => placed.some((o) => b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y)
 		const inside = (b) => b.x >= 2 && b.y >= 2 && b.x + b.w <= W - 2 && b.y + b.h <= H - 2
+		// Lines drawn this render, in screen pixels, so labels keep off them too.
+		let segs = []
+		let queue = []
+		const hitsSegment = (b) => {
+			const x0 = b.x - 1, y0 = b.y - 1, x1 = b.x + b.w + 1, y1 = b.y + b.h + 1
+			for (const [ax, ay, bx, by] of segs) {
+				// Liang-Barsky: does the segment enter the box?
+				let t0 = 0, t1 = 1
+				const dx = bx - ax, dy = by - ay
+				let ok = true
+				for (const [pp, q] of [[-dx, ax - x0], [dx, x1 - ax], [-dy, ay - y0], [dy, y1 - ay]]) {
+					if (pp === 0) { if (q < 0) { ok = false; break } continue }
+					const r = q / pp
+					if (pp < 0) { if (r > t1) { ok = false; break } if (r > t0) t0 = r }
+					else { if (r < t0) { ok = false; break } if (r < t1) t1 = r }
+				}
+				if (ok) return true
+			}
+			return false
+		}
+		// Labels are placed after the whole drawing, so each one can keep clear of
+		// every line and every label placed before it.
 		function placeLabel(px, py, text, o = {}) {
+			queue.push([px, py, text, o])
+		}
+		function flushLabels() {
+			const jobs = queue
+			queue = []
+			for (const [px, py, text, o] of jobs) layoutLabel(px, py, text, o)
+		}
+		function layoutLabel(px, py, text, o) {
 			const size = o.size || 15
 			const t = el('text', { 'font-size': size, fill: ink(o.color), 'font-style': o.italic === false ? 'normal' : 'italic', 'font-weight': o.bold ? 600 : 400, 'paint-order': 'stroke', stroke: 'var(--paper-card)', 'stroke-width': 4, 'stroke-linejoin': 'round' }, labelLayer)
 			// "proj_b a" writes b as a subscript.
@@ -159,19 +189,30 @@
 			const bb = t.getBBox()
 			const w = bb.width || text.length * size * 0.5, h = bb.height || size * 1.2
 			const gap = o.gap ?? 6
-			// away: a screen direction; the whole label moves that way until it clears the anchor.
+			const spots = []
 			if (o.away) {
+				// away: a screen direction; the label moves that way until it clears its anchor, then further if it must.
 				const [nx, ny] = o.away
-				const d = (o.gap ?? 6) + Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2
-				px += nx * d
-				py += ny * d
+				const d = gap + Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2
+				for (const extra of [0, 8, 16, 26, 38]) spots.push([nx * (d + extra) - w / 2, ny * (d + extra) + h * 0.35])
+				for (const along of [-24, 24, -48, 48]) spots.push([nx * d + ny * along - w / 2, ny * d - nx * along + h * 0.35])
+			} else if (o.center) {
+				spots.push([-w / 2, h * 0.35])
+				for (const r of [12, 22, 34]) for (const [cx, cy] of [[0, -1], [1, 0], [0, 1], [-1, 0], [0.7, -0.7], [-0.7, -0.7], [0.7, 0.7], [-0.7, 0.7]]) spots.push([cx * (r + w / 2) - w / 2, cy * (r + h / 2) + h * 0.35])
+			} else if (o.dx !== undefined || o.dy !== undefined) spots.push([o.dx || 0, o.dy || 0])
+			for (const k of [1, 2, 3]) {
+				const g2 = gap * k
+				spots.push([g2, -g2], [g2, g2 + h * 0.7], [-g2 - w, -g2], [-g2 - w, g2 + h * 0.7], [-w / 2, -g2 - 2], [-w / 2, h + g2])
 			}
-			const prefer = o.center || o.away ? [[-w / 2, h * 0.35]] : o.dx !== undefined || o.dy !== undefined ? [[o.dx || 0, o.dy || 0]] : []
-			const spots = prefer.concat([[gap, -gap], [gap, gap + h * 0.7], [-gap - w, -gap], [-gap - w, gap + h * 0.7], [-w / 2, -gap - 2], [-w / 2, h + gap], [gap * 2, -gap * 2 - 4], [-gap * 2 - w, gap * 2 + h]])
+			const boxAt = ([dx, dy]) => ({ x: px + dx, y: py + dy - h * 0.78, w, h })
 			let chosen = null
-			for (const [dx, dy] of spots) {
-				const box = { x: px + dx, y: py + dy - h * 0.78, w, h }
-				if (inside(box) && !overlaps(box)) { chosen = [dx, dy, box]; break }
+			// First clear of labels and lines, then clear of labels only.
+			for (const strict of [true, false]) {
+				for (const spot of spots) {
+					const box = boxAt(spot)
+					if (inside(box) && !overlaps(box) && (!strict || !hitsSegment(box))) { chosen = [spot[0], spot[1], box]; break }
+				}
+				if (chosen) break
 			}
 			if (!chosen) {
 				const [dx, dy] = spots[0]
@@ -189,6 +230,7 @@
 			/** A segment from p to q. */
 			line(p, q, o = {}) {
 				const [x1, y1] = P(p), [x2, y2] = P(q)
+				segs.push([x1, y1, x2, y2])
 				return el('line', { x1, y1, x2, y2, stroke: ink(o.color), 'stroke-width': o.width || 1.5, 'stroke-dasharray': o.dash ? (o.dash === true ? '5 4' : o.dash) : undefined, 'stroke-linecap': 'round', opacity: o.opacity }, drawLayer)
 			},
 			/** The whole line through p in direction d, clipped to the view. */
@@ -210,7 +252,7 @@
 					}
 					if (Number.isFinite(t) && t > 0) {
 						const at = [p[0] + u[0] * t * 0.92, p[1] + u[1] * t * 0.92]
-						placeLabel(X(at[0]), Y(at[1]), o.label, { color: o.labelColor || 'var(--paper-viz-data)', size: 13 })
+						placeLabel(X(at[0]), Y(at[1]), o.label, { color: o.labelColor || 'var(--paper-viz-data)', size: 13, away: [-u[1], -u[0]], gap: 4 })
 					}
 				}
 				return line
@@ -233,6 +275,7 @@
 				const ux = (x2 - x1) / len, uy = (y2 - y1) / len
 				const bx = x2 - ux * head, by = y2 - uy * head
 				const half = head * 0.42
+				segs.push([x1, y1, x2, y2])
 				el('line', { x1, y1, x2: bx + ux, y2: by + uy, stroke: color, 'stroke-width': width, 'stroke-linecap': 'round', 'stroke-dasharray': o.dash ? (o.dash === true ? '6 4' : o.dash) : undefined }, grp)
 				el('path', { d: `M${x2},${y2} L${bx - uy * half},${by + ux * half} L${bx + uy * half},${by - ux * half} Z`, fill: color, 'stroke-linejoin': 'round' }, grp)
 				if (o.label) {
@@ -383,6 +426,8 @@
 			render() {
 				measure()
 				placed = []
+				segs = []
+				queue = []
 				drawGrid()
 				drawLayer.textContent = ''
 				labelLayer.textContent = ''
@@ -392,6 +437,9 @@
 					placed.push({ x: x - 9, y: y - 9, w: 18, h: 18 })
 				}
 				if (painter) painter(g)
+				// Axes count as lines for labels.
+				segs.push([0, Y(0), W, Y(0)], [X(0), 0, X(0), H])
+				flushLabels()
 				for (const h of handles) h.place()
 			},
 			/**
