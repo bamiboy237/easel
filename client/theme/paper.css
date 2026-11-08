@@ -1724,7 +1724,8 @@
 
 .shape-parameter {
 	display: grid;
-	grid-template-columns: 64px 1fr 44px;
+	/* The value column grows for a unit, such as "9.81 m/s²". */
+	grid-template-columns: 64px 1fr minmax(44px, auto);
 	align-items: center;
 	gap: 10px;
 	height: 28px;
@@ -2462,4 +2463,30 @@ input.shape-parameter-value:focus-visible {
 
 .paper-style-close {
 	margin-right: 8px;
+}
+
+/* A value with the allowed range beside it while it is typed, or for a moment after it was brought into range. */
+.shape-parameter-value-wrap {
+	position: relative;
+	justify-self: end;
+	display: inline-flex;
+	align-items: center;
+	min-width: 44px;
+}
+
+.shape-parameter-value-wrap input.shape-parameter-value {
+	width: 64px;
+}
+
+.shape-parameter-range {
+	position: absolute;
+	right: calc(100% + 6px);
+	white-space: nowrap;
+	padding: 1px 6px;
+	border-radius: 4px;
+	background: var(--paper-card);
+	box-shadow: inset 0 0 0 1px var(--paper-viz-border);
+	color: var(--paper-viz-data);
+	font-size: 11px;
+	pointer-events: none;
 }
