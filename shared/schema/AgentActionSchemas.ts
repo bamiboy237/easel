@@ -577,31 +577,12 @@ export const WidgetAction = z
 	.meta({
 		title: 'Widget',
 		description: [
-			'The AI starts a widget: a small interactive program, written in HTML and JavaScript in the background and run in a sandbox on the board, behind a placeholder. If a widget template fits the topic, place it with widget_template instead. Reach for a new widget only when a template, a scene, a graph, or a diagram cannot do the job: a clickable prototype of a mockup, custom interaction such as sorting cards or stepping through an algorithm, pixel work, or 3D. It takes a minute to write, so tell the user it is on its way and carry on.',
+			'The AI starts a widget: a small interactive program, written in HTML and JavaScript in the background and run in a sandbox on the board, behind a placeholder. Reach for it only when a scene, a graph, or a diagram cannot do the job: a clickable prototype of a mockup, custom interaction such as sorting cards or stepping through an algorithm, pixel work, or 3D. It takes a minute to write, so tell the user it is on its way and carry on.',
 			'brief: everything the program must show and do, in plain words, as the full spec for the writer, who sees nothing else: layout, controls, what each control changes, labels, and what the drawing must show so it teaches the idea. Name the values and names already on the board, such as a 10 N push or the product name, so the widget uses the same ones. params: named numbers shown as sliders under the widget that the user and you can change (use set_parameter), each with value, min, max, step. state: the other values the widget keeps on the board, each with a key and a starting value, such as {key: "screen", value: "signup"} or {key: "count", value: 0}; the widget may change only these, and the board records each change. width and height are the widget area in pixels. You see the widget as a snapshot in your view of the board, with its parameter and state values. To rewrite a widget, send it again with its shapeId and a new brief.',
 		].join(' '),
 	})
 
 export type WidgetAction = z.infer<typeof WidgetAction>
-
-// Widget Template Action
-export const WidgetTemplateAction = z
-	.object({
-		_type: z.literal('widget_template'),
-		intent: z.string(),
-		shapeId: SimpleShapeIdSchema,
-		template: z.string(),
-		x: z.number(),
-		y: z.number(),
-		state: z.array(z.object({ key: z.string(), value: z.union([z.string(), z.number(), z.boolean()]) })),
-	})
-	.meta({
-		title: 'Widget Template',
-		description:
-			'The AI places a ready-made widget from the widget templates listed in the prompt, with its own starting values for any of the template state keys (or an empty list). A widget template is hand-written, checked, and lands at once, ready to use, so whenever one fits the topic, always place it instead of writing a widget, and then talk the user through it. Write a widget only when no widget template fits.',
-	})
-
-export type WidgetTemplateAction = z.infer<typeof WidgetTemplateAction>
 
 // Render Animation Action
 export const RenderAnimationAction = z
