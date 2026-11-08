@@ -2515,3 +2515,11 @@ input.shape-parameter-value:focus-visible {
 .chat-panel.tl-theme__light .chat-history-change-kept-remove:hover {
 	background: var(--paper-hover);
 }
+
+/* After a value was brought into range, the note sits above the value, clear of the track. */
+.shape-parameter-range--note {
+	right: 0;
+	bottom: calc(100% + 4px);
+	color: var(--paper-ink);
+	font-size: 12px;
+}

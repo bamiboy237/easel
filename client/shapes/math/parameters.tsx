@@ -156,19 +156,19 @@ function ParameterValue({ parameter, onSet }: { parameter: ShapeParameter; onSet
 	const [draft, setDraft] = useState<string | null>(null)
 	// After a typed value was out of range, the range shows for a moment, so the
 	// change to the nearest allowed value is never silent.
-	const [clampedAt, setClampedAt] = useState(0)
+	const [clamped, setClamped] = useState<{ typed: string; at: number } | null>(null)
 	useEffect(() => {
-		if (!clampedAt) return
-		const timer = setTimeout(() => setClampedAt(0), RANGE_NOTE_MS)
+		if (!clamped) return
+		const timer = setTimeout(() => setClamped(null), RANGE_NOTE_MS)
 		return () => clearTimeout(timer)
-	}, [clampedAt])
+	}, [clamped])
 	const range = `${withUnit(round(parameter.min), parameter.unit)} to ${withUnit(round(parameter.max), parameter.unit)}`
 	if (draft === null) {
 		return (
 			<span className="shape-parameter-value-wrap">
-				{clampedAt > 0 && (
-					<span className="shape-parameter-range" role="status">
-						Range {range}
+				{clamped && (
+					<span className="shape-parameter-range shape-parameter-range--note" role="status">
+						{clamped.typed} is outside {range}, so it is {withUnit(round(parameter.value), parameter.unit)}
 					</span>
 				)}
 				<button
@@ -189,7 +189,7 @@ function ParameterValue({ parameter, onSet }: { parameter: ShapeParameter; onSet
 	const commit = () => {
 		const value = Number(draft.replace(',', '.').replace('\u2212', '-'))
 		if (draft.trim() !== '' && Number.isFinite(value)) {
-			if (value < parameter.min || value > parameter.max) setClampedAt(Date.now())
+			if (value < parameter.min || value > parameter.max) setClamped({ typed: draft.trim(), at: Date.now() })
 			onSet(value)
 		}
 		setDraft(null)
@@ -218,7 +218,7 @@ function ParameterValue({ parameter, onSet }: { parameter: ShapeParameter; onSet
 }
 
 /** How long the allowed range shows after a typed value was brought into it. */
-const RANGE_NOTE_MS = 2500
+const RANGE_NOTE_MS = 4000
 
 /** How far along its track a slider is, for the ink fill of a `.paper-range`. */
 export function rangeFill(value: number, min: number, max: number): React.CSSProperties {
