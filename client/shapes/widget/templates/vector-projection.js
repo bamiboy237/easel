@@ -161,9 +161,9 @@ function render() {
 		// The projection, the result, is a broad band with a and b drawn thin over it, so all
 		// three stay visible when they share a line.
 		if (hasProj) g.arrow(o, p, { color: PROJ, width: 7, head: 17 })
-		if (!c.zeroB) g.arrow(o, b, { color: B, width: 2, label: `b ${vec(b, 2)}`, bold: true, labelSize: 16 })
+		if (!c.zeroB) g.arrow(o, b, { color: B, width: 2, label: `b ${vec(b)}`, bold: true, labelSize: 16 })
 		else g.point(o, { color: B, r: 4, label: 'b = 0' })
-		if (!c.zeroA) g.arrow(o, a, { color: A, width: 2, label: `a ${vec(a, 2)}`, bold: true, labelSize: 16 })
+		if (!c.zeroA) g.arrow(o, a, { color: A, width: 2, label: `a ${vec(a)}`, bold: true, labelSize: 16 })
 		if (hasProj) {
 			// Its label goes on the side away from a, clear of the angle.
 			const same = !c.zeroA && Math.abs(c.cross) < 1e-9
