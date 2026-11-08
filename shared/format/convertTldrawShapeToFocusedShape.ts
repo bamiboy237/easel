@@ -304,6 +304,13 @@ function getSimpleBounds(editor: Editor, shape: TLShape): Box {
 	// A text shape measures itself through a cache of shapes on the board, which
 	// throws for one that is not there, so measure its words directly.
 	if (shape.type === 'text') return new Box(pagePoint.x, pagePoint.y, ...measureTextOffBoard(editor, shape as TLTextShape))
+	// An arrow's geometry reads its bindings from the board, which a removed arrow
+	// no longer has: its own start and end points give its box.
+	if (shape.type === 'arrow') {
+		const { start, end } = (shape as TLArrowShape).props
+		const box = Box.FromPoints([start, end])
+		return new Box(pagePoint.x + box.x, pagePoint.y + box.y, box.w, box.h)
+	}
 	try {
 		const local = editor.getShapeUtil(shape).getGeometry(shape).bounds
 		const corners = Mat.applyToPoints(Mat.Rotate(shape.rotation), local.corners)
