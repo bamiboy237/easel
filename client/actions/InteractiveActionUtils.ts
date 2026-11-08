@@ -14,6 +14,7 @@ import {
 	SetParameterAction,
 	SimulationAction,
 	WidgetAction,
+	WidgetTemplateAction,
 } from '../../shared/schema/AgentActionSchemas'
 import { Streaming } from '../../shared/types/Streaming'
 import { AgentHelpers } from '../AgentHelpers'
@@ -33,6 +34,8 @@ import {
 } from '../shapes/SimulationShapeUtil'
 import { describeWidget, WIDGET_TYPE, widgetChromeHeight, WidgetShape } from '../shapes/WidgetShapeUtil'
 import { runWidgetJob } from '../shapes/widget/job'
+import { freshWidgets } from '../shapes/widget/jobs'
+import { BUILT_IN_WIDGET_TEMPLATES, getWidgetTemplate } from '../shapes/widget/widgetTemplates'
 import { describeVideo, VIDEO_TYPE, videoHeightForWidth, VideoShape } from '../shapes/VideoShapeUtil'
 import { runVideoJob } from '../shapes/video/job'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
@@ -682,6 +685,63 @@ export const WidgetActionUtil = registerActionUtil(
 				if (!placed || placed.props.status !== 'writing' || placed.props.brief !== brief) return
 				void runWidgetJob(agent, id, context)
 			}, 0)
+		}
+	}
+)
+
+/**
+ * The agent places a hand-written widget from the widget templates. It lands
+ * ready, as this action's command, with no job: the code is the template's,
+ * and the agent may set the starting values of its state.
+ */
+export const WidgetTemplateActionUtil = registerActionUtil(
+	class WidgetTemplateActionUtil extends AgentActionUtil<WidgetTemplateAction> {
+		static override type = 'widget_template' as const
+
+		override getInfo(action: Streaming<WidgetTemplateAction>) {
+			return { icon: 'pencil' as const, description: action.intent ?? '' }
+		}
+
+		override applyAction(action: Streaming<WidgetTemplateAction>, helpers: AgentHelpers) {
+			if (!action.complete) return
+			const { editor } = this
+			const name = String(action.template ?? '').trim()
+			const template = getWidgetTemplate(name)
+			if (!template) {
+				this.agent.schedule(
+					`There is no widget template named "${name}". The widget templates are: ${BUILT_IN_WIDGET_TEMPLATES.map((t) => t.id).join(', ')}. Place one of them, or write a widget with a widget action.`
+				)
+				return
+			}
+			const state: Record<string, unknown> = { ...template.state }
+			for (const entry of action.state ?? []) {
+				const key = String(entry?.key ?? '').trim()
+				if (Object.hasOwn(state, key) && typeof entry.value === typeof template.state[key]) state[key] = entry.value
+			}
+			const id = `shape:${helpers.ensureShapeIdIsUnique(String(action.shapeId || template.id) as Parameters<AgentHelpers['ensureShapeIdIsUnique']>[0])}` as TLShapeId
+			const at = helpers.removeOffsetFromVec({ x: action.x ?? 0, y: action.y ?? 0 })
+			const params = {}
+			freshWidgets.add(id)
+			editor.createShape<WidgetShape>({
+				id,
+				type: WIDGET_TYPE,
+				x: at.x,
+				y: at.y,
+				props: {
+					title: template.title,
+					brief: template.brief,
+					html: template.html,
+					css: template.css,
+					js: template.js,
+					status: 'ready',
+					error: '',
+					params,
+					state,
+					w: template.width,
+					h: template.height + widgetChromeHeight({ params }),
+				},
+			})
+			settleBlock(this.agent, id)
 		}
 	}
 )

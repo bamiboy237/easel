@@ -2,13 +2,14 @@ import { TLShapeId } from 'tldraw'
 import type { TldrawAgent } from '../../agent/TldrawAgent'
 import { WIDGET_TYPE, widgetChromeHeight, WidgetShape } from '../WidgetShapeUtil'
 import { closedWidgetBlocks, parseWidgetCode, WIDGET_STREAM_ERROR } from '../../../shared/widgetCode'
-import { runningWidgetJobs, setWidgetPreview } from './jobs'
+import { freshWidgets, runningWidgetJobs, setWidgetPreview } from './jobs'
 import { guardLoops } from './sandbox'
+import { smokeTestWidget } from './smoke'
 
-/** How often a growing preview is redrawn, in milliseconds: each redraw reloads its frame. */
-const PREVIEW_EVERY_MS = 2000
-
-/** How many times the job asks again when the code does not parse. */
+/**
+ * How many times the job asks again when the code does not parse, or its smoke
+ * test finds a control that does nothing: the writer is told the problem once.
+ */
 const RETRIES = 1
 
 /**
@@ -46,7 +47,9 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 		problem: undefined as string | undefined,
 	}
 
-	let outcome: { html: string; css: string; js: string } | { error: string } = { error: 'No reply.' }
+	let outcome: { html: string; css: string; js: string; note?: string } | { error: string } = { error: 'No reply.' }
+	// The best code that ran, kept in case the retry does worse.
+	let best: { code: { html: string; css: string; js: string }; problems: string[]; fatal: boolean } | null = null
 	for (let attempt = 0; attempt <= RETRIES; attempt++) {
 		try {
 			const response = await fetch('/widget', {
@@ -64,23 +67,18 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 			// html and css blocks are both closed.
 			const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
 			let text = ''
-			let shownAt = 0
-			let shownLength = 0
+			let shown = false
 			for (;;) {
 				const { done, value } = await reader.read()
 				if (done) break
 				text += value
+				// The layout shows once its style sheet and markup are both complete,
+				// faded like any work still being written. A half-written page reads
+				// as broken, so nothing shows before that.
 				const blocks = closedWidgetBlocks(text)
-				// Once the style sheet is done, the markup shows as it arrives, a few
-				// times as it grows: html without its css would read as a bare page.
-				const markup = blocks.html ?? blocks.htmlSoFar
-				if (blocks.css !== null && markup && markup.length > shownLength) {
-					const now = performance.now()
-					if (blocks.html !== null || (markup.length > 400 && now - shownAt > PREVIEW_EVERY_MS)) {
-						shownAt = now
-						shownLength = markup.length
-						setWidgetPreview(id, { html: markup, css: blocks.css })
-					}
+				if (!shown && blocks.css !== null && blocks.html !== null) {
+					shown = true
+					setWidgetPreview(id, { html: blocks.html, css: blocks.css })
 				}
 			}
 			const failed = text.indexOf(WIDGET_STREAM_ERROR)
@@ -104,7 +102,16 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 				request.problem = guarded.error
 				continue
 			}
-			outcome = code
+			// Run it before it is shown: it must start cleanly, and every control must do something.
+			const smoke = await smokeTestWidget(code, { params: Object.fromEntries(Object.values(params).map((p) => [p.name, p.value])), state }, { width: request.width, height: request.height })
+			if (controller.signal.aborted) break
+			console.info(`Widget ${id} smoke test: ${smoke.tested} controls, ${smoke.problems.length} problems.`, smoke.problems)
+			if (!best || (best.fatal && !smoke.fatal) || (best.fatal === smoke.fatal && smoke.problems.length < best.problems.length)) best = { code, ...smoke }
+			if (smoke.problems.length && attempt < RETRIES) {
+				request.problem = `It was run and its controls were used before showing it, and this did not work:\n- ${smoke.problems.join('\n- ')}\nFix these, and keep everything else that works.`
+				outcome = { error: smoke.problems[0] }
+				continue
+			}
 			break
 		} catch (error) {
 			if (controller.signal.aborted) {
@@ -115,6 +122,11 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 		}
 	}
 
+	if (best) {
+		outcome = best.fatal
+			? { error: `It was written, but it does not work: ${best.problems[0]}` }
+			: { ...best.code, note: best.problems.length ? `Its smoke test found: ${best.problems.join(' ')}` : '' }
+	}
 	setWidgetPreview(id, null)
 	if (controller.signal.aborted) return
 	runningWidgetJobs.update((jobs) => {
@@ -124,7 +136,11 @@ export async function runWidgetJob(agent: TldrawAgent, id: TLShapeId, context: W
 	})
 	if (!editor.getShape(id)) return
 	const options = { baseRev, allowedShapeIds: context.allowedShapeIds, passId: context.passId, requestId: context.requestId }
-	const props = 'error' in outcome ? { status: 'failed' as const, error: outcome.error } : { ...outcome, status: 'ready' as const, error: '' }
+	const props =
+		'error' in outcome
+			? { status: 'failed' as const, error: outcome.error }
+			: { html: outcome.html, css: outcome.css, js: outcome.js, status: 'ready' as const, error: outcome.note ?? '' }
+	freshWidgets.add(id)
 	const result = agent.commands.execute('agent', 'widget', () => editor.updateShape<WidgetShape>({ id, type: WIDGET_TYPE, props }), options)
 	if (result.status === 'applied') return
 	// The user changed the widget meanwhile, or put it inside their own work. The

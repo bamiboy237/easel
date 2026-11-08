@@ -37,3 +37,11 @@ export function cancelWidgetJobs() {
 	for (const job of runningWidgetJobs.get().values()) job.controller.abort()
 	runningWidgetJobs.set(new Map())
 }
+
+/**
+ * Widgets that landed in this page: written by a job or placed from a template
+ * since the page loaded. Their clocks run at once. Any other widget was
+ * restored from the saved board, so its timers and animation frames wait for
+ * the user's first touch, and a game does not restart by itself after a reload.
+ */
+export const freshWidgets = new Set<TLShapeId>()

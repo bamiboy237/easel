@@ -1,4 +1,8 @@
 import { parse } from 'acorn'
+import serifItalic from '@fontsource-variable/source-serif-4/files/source-serif-4-latin-standard-italic.woff2?inline'
+import serif from '@fontsource-variable/source-serif-4/files/source-serif-4-latin-standard-normal.woff2?inline'
+import kitCss from './kit/kit.css?raw'
+import kitJs from './kit/kit.js?raw'
 
 /**
  * The sandbox for generated widgets. A widget is HTML, CSS, and JavaScript the
@@ -169,7 +173,21 @@ export interface WidgetValues {
  * The frame's document: the CSP, the runtime, then the widget. The runtime
  * holds the values at build time, so the widget can read them as it starts.
  */
-export function buildWidgetDocument(source: WidgetSource, values: WidgetValues): { doc: string } | { error: string } {
+export interface WidgetDocumentOptions {
+	/** Build the document for the smoke test: it drives every control and reports what changed nothing. */
+	smoke?: boolean
+	/**
+	 * Hold the widget's clocks: its timers and animation frames wait for the
+	 * user's first press or key in the frame. For a widget restored from a saved
+	 * board, so a game or a countdown does not restart by itself after a reload.
+	 */
+	holdClocks?: boolean
+}
+
+/** The board's serif, embedded, since the frame cannot load fonts. */
+const FONT_FACES = `@font-face{font-family:'Easel Serif';font-style:normal;font-weight:200 900;src:url(${serif}) format('woff2')}@font-face{font-family:'Easel Serif';font-style:italic;font-weight:200 900;src:url(${serifItalic}) format('woff2')}`
+
+export function buildWidgetDocument(source: WidgetSource, values: WidgetValues, options: WidgetDocumentOptions = {}): { doc: string } | { error: string } {
 	const guarded = guardLoops(source.js)
 	if ('error' in guarded) return guarded
 	const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')
@@ -189,13 +207,15 @@ export function buildWidgetDocument(source: WidgetSource, values: WidgetValues):
 		"webrtc 'block'",
 	].join('; ')
 	const doc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">
-<style>html,body{margin:0;padding:0;overflow:hidden;font-family:'Inter',system-ui,sans-serif;background:#fffdf8;color:#302f2a}${sanitizeWidgetCss(source.css)}</style>
-<script nonce="${nonce}">${scriptSafe(runtimeScript(values))}</script>
+<style>${FONT_FACES}html,body{margin:0;padding:0;overflow:hidden}${sanitizeWidgetCss(kitCss)}</style>
+<style>${sanitizeWidgetCss(source.css)}</style>
+<script nonce="${nonce}">${scriptSafe(runtimeScript(values, !!options.smoke, !!options.holdClocks))}</script>
+<script nonce="${nonce}">${HIDE_NONCE}${scriptSafe(kitJs)}</script>
 </head><body>${sanitizeWidgetHtml(source.html)}
 <script nonce="${nonce}">${HIDE_NONCE}(() => {
 ${scriptSafe(guarded.code)}
 })()
-</script></body></html>`
+</script>${options.smoke ? `<script nonce="${nonce}">${HIDE_NONCE}${scriptSafe(SMOKE_HARNESS)}</script>` : ''}</body></html>`
 	return { doc }
 }
 
@@ -210,7 +230,7 @@ ${scriptSafe(guarded.code)}
  */
 const HIDE_NONCE = "document.currentScript.removeAttribute('nonce');document.currentScript.nonce='';"
 
-function runtimeScript(values: WidgetValues): string {
+function runtimeScript(values: WidgetValues, smoke: boolean, holdClocks: boolean): string {
 	return `${HIDE_NONCE}(() => {
 'use strict';
 // The guard keeps its own copies, so the widget cannot change the clock it reads.
@@ -240,6 +260,7 @@ new MutationObserver((records) => {
 	}
 }).observe(document, { childList: true, subtree: true });
 let values = ${JSON.stringify(values).replace(/</g, '\\u003c')};
+const SMOKE = ${smoke ? 'true' : 'false'};
 const listeners = [];
 let started = 0, pending = false, stopped = false;
 let calls = 0;
@@ -257,19 +278,113 @@ const guard = () => {
 };
 // The guard cannot be replaced or deleted.
 lock(window, '${GUARD}', { value: guard, writable: false });
-const report = (e) => post({ type: 'error', kind: 'script', message: String((e && e.message) || e).slice(0, 400) });
+const smokeErrors = [];
+const report = (e) => {
+	const message = String((e && e.message) || e).slice(0, 400);
+	if (SMOKE) smokeErrors.push(message);
+	post({ type: 'error', kind: 'script', message });
+};
 window.addEventListener('error', (e) => report(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => report(e.reason));
 const copy = (v) => JSON.parse(JSON.stringify(v));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// Only real input makes a durable change: a change asked for while the browser
+// dispatches a trusted input event is the user's, and goes to the board as a
+// command. Everything else, such as a timer, an animation frame, or code
+// running at start, changes the frame's own copy and never leaves it.
+const INPUT = new Set(['pointerdown', 'pointerup', 'pointermove', 'click', 'dblclick', 'mousedown', 'mouseup', 'mousemove', 'keydown', 'keyup', 'input', 'change', 'wheel', 'touchstart', 'touchmove', 'touchend', 'contextmenu']);
+const fromUser = () => {
+	const ev = window.event;
+	if (!ev || !INPUT.has(ev.type)) return false;
+	if ((ev.type === 'pointermove' || ev.type === 'mousemove') && !ev.buttons) return false;
+	return SMOKE || ev.isTrusted === true;
+};
+// The frame's own changes, over the board's values, so a widget reads back
+// what it just set. A durable change stays until the board confirms it; a
+// transient one until the board's value for that key changes.
+const overlay = { params: {}, state: {} };
+let lastEvent = null, seq = 0;
+let notifyQueued = false, notifyDepth = 0;
+const notify = () => {
+	if (notifyQueued) return;
+	notifyQueued = true;
+	queueMicrotask(() => {
+		notifyQueued = false;
+		// A render that keeps setting new values does not spin forever.
+		if (++notifyDepth > 8) { later(() => { notifyDepth = 0 }, 0); return }
+		later(() => { notifyDepth = 0 }, 0);
+		for (const callback of listeners) { try { callback(easel) } catch (e) { report(e) } }
+	});
+};
+const effective = (kind) => {
+	const out = copy(values[kind] || {});
+	for (const [k, e] of Object.entries(overlay[kind])) out[k] = copy(e.value);
+	return out;
+};
+const setLocal = (kind, key, value) => {
+	const user = fromUser();
+	const current = Object.hasOwn(overlay[kind], key) ? overlay[kind][key].value : (values[kind] || {})[key];
+	const changed = !same(current, value);
+	overlay[kind][key] = { value, durable: user, at: clock() };
+	if (user) {
+		// A click or a key is its own undo step; a drag or a slider's stream of moves is one step together.
+		const ev = window.event;
+		if (ev !== lastEvent) { lastEvent = ev; seq++ }
+		const discrete = !/move$|^input$|^wheel$/.test(ev.type);
+		post(kind === 'params' ? { type: 'set-param', name: key, value, user: true, seq, discrete } : { type: 'set-state', key, value, user: true, seq, discrete });
+	}
+	if (changed) notify();
+};
+const receive = (next) => {
+	const prev = values;
+	values = next;
+	const now = clock();
+	for (const kind of ['params', 'state']) {
+		for (const [k, e] of Object.entries(overlay[kind])) {
+			const hostNow = (values[kind] || {})[k], hostBefore = (prev[kind] || {})[k];
+			if (e.durable ? same(hostNow, e.value) || now - e.at > 1500 : !same(hostNow, hostBefore)) delete overlay[kind][k];
+		}
+	}
+	for (const callback of listeners) { try { callback(easel) } catch (e) { report(e) } }
+};
 const easel = {
-	get params() { return copy(values.params) },
-	get state() { return copy(values.state) },
+	get params() { return effective('params') },
+	get state() { return effective('state') },
 	onChange(callback) { if (typeof callback === 'function') listeners.push(callback) },
-	setParam(name, value) { post({ type: 'set-param', name: String(name), value: Number(value) }) },
-	setState(key, value) { post({ type: 'set-state', key: String(key), value: copy(value === undefined ? null : value) }) },
+	setParam(name, value) { const v = Number(value); if (Number.isFinite(v)) setLocal('params', String(name), v) },
+	setState(key, value) { setLocal('state', String(key), copy(value === undefined ? null : value)) },
+	/** True while the code runs because of the user's own input. */
+	get userInput() { return fromUser() },
 	snapshot: null,
 };
 Object.defineProperty(window, 'easel', { value: easel, configurable: false, writable: false });
+// Board keys work from inside the frame: undo, redo, Escape, and Delete go to
+// the board unless the widget handled them or a text field has focus.
+const editable = (t) => !!t && (t.isContentEditable || (t.tagName === 'INPUT' && !/^(range|button|checkbox|radio|submit|reset|color)$/i.test(t.type)) || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT');
+window.addEventListener('keydown', (e) => {
+	if (e.defaultPrevented || !e.isTrusted) return;
+	const mod = e.ctrlKey || e.metaKey;
+	const key = e.key;
+	const boardKey = key === 'Escape' || (!editable(e.target) && ((mod && /^[zyZY]$/.test(key)) || key === 'Delete' || key === 'Backspace'));
+	if (!boardKey) return;
+	e.preventDefault();
+	post({ type: 'key', key, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey, alt: e.altKey });
+});
+// A wheel the widget does not use pans and zooms the board, as anywhere else.
+window.addEventListener('wheel', (e) => {
+	if (e.defaultPrevented || !e.isTrusted) return;
+	e.preventDefault();
+	const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+	post({ type: 'wheel', dx: e.deltaX * k, dy: e.deltaY * k, x: e.clientX, y: e.clientY, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey, alt: e.altKey });
+}, { passive: false });
+// The board learns of a press, so it can select the widget, as a press on any shape does.
+window.addEventListener('pointerdown', (e) => { if (e.isTrusted) post({ type: 'press' }) }, true);
+if (SMOKE) {
+	// The smoke test's events are not trusted, and have no real pointer to capture.
+	const capture = Element.prototype.setPointerCapture;
+	Element.prototype.setPointerCapture = function (id) { try { capture.call(this, id) } catch (e) {} };
+	Object.defineProperty(window, '__easelSmoke', { value: { values: () => ({ params: effective('params'), state: effective('state') }), errors: smokeErrors, post }, configurable: false, writable: false });
+}
 async function defaultSnapshot() {
 	const w = document.documentElement.clientWidth, h = document.documentElement.clientHeight;
 	const canvas = document.createElement('canvas');
@@ -298,8 +413,7 @@ window.addEventListener('message', async (event) => {
 	if (event.source !== host) return;
 	const data = event.data || {};
 	if (data.type === 'values') {
-		values = { params: data.params || {}, state: data.state || {} };
-		for (const callback of listeners) { try { callback(easel) } catch (e) { report(e) } }
+		receive({ params: data.params || {}, state: data.state || {} });
 	} else if (data.type === 'snapshot-request') {
 		let dataUrl = null;
 		try { dataUrl = typeof easel.snapshot === 'function' ? await easel.snapshot() : await defaultSnapshot() } catch (e) {}
@@ -309,5 +423,166 @@ window.addEventListener('message', async (event) => {
 });
 setInterval(() => post({ type: 'heartbeat' }), 500);
 window.addEventListener('DOMContentLoaded', () => post({ type: 'ready' }));
+// After a reload, the widget's clocks wait for the user: its timers and
+// animation frames are queued until the first press or key in the frame, or
+// until the widget calls easel.resume() because it should run at once.
+const HOLD = ${holdClocks ? 'true' : 'false'};
+let holding = HOLD, toldHeld = false, nextFake = 1;
+const real = { st: setTimeout.bind(window), si: setInterval.bind(window), raf: requestAnimationFrame.bind(window), ct: clearTimeout.bind(window), ci: clearInterval.bind(window), caf: cancelAnimationFrame.bind(window) };
+const queued = new Map();
+const ids = new Map();
+const hold = (kind, fn, delay, args) => {
+	if (!holding) return null;
+	if (!toldHeld) { toldHeld = true; post({ type: 'held' }) }
+	const id = 1e9 + nextFake++;
+	queued.set(id, { kind, fn, delay, args });
+	return id;
+};
+const release = () => {
+	if (!holding) return;
+	holding = false;
+	post({ type: 'resumed' });
+	for (const [id, q] of queued) {
+		if (q.kind === 'raf') ids.set(id, real.raf(q.fn));
+		else if (q.kind === 'interval') ids.set(id, real.si(q.fn, q.delay, ...q.args));
+		else ids.set(id, real.st(q.fn, q.delay, ...q.args));
+	}
+	queued.clear();
+};
+if (HOLD) {
+	window.setTimeout = (fn, delay, ...args) => hold('timeout', fn, delay, args) ?? real.st(fn, delay, ...args);
+	window.setInterval = (fn, delay, ...args) => hold('interval', fn, delay, args) ?? real.si(fn, delay, ...args);
+	window.requestAnimationFrame = (fn) => hold('raf', fn, 0, []) ?? real.raf(fn);
+	const clear = (fallback) => (id) => { if (queued.delete(id)) return; if (ids.has(id)) { const r = ids.get(id); ids.delete(id); real.ct(r); real.ci(r); real.caf(r); return } fallback(id) };
+	window.clearTimeout = clear(real.ct);
+	window.clearInterval = clear(real.ci);
+	window.cancelAnimationFrame = clear(real.caf);
+	for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, (e) => { if (e.isTrusted) release() }, true);
+}
+lock(easel, 'resume', { value: release, writable: false });
 })();`
 }
+
+/**
+ * The smoke test, run in a hidden copy of a new widget before it is shown:
+ * it waits for the widget to start, then drives every visible button, slider,
+ * number field, and drag handle, and reports each one that changed nothing:
+ * no state, no text, and no drawing. Its events are synthetic, so the runtime
+ * treats every input event as the user's while it runs.
+ */
+const SMOKE_HARNESS = `(() => {
+const hook = window.__easelSmoke;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) } return h >>> 0 };
+const fingerprint = () => {
+	let s = JSON.stringify(hook.values()) + '|' + document.body.innerHTML;
+	for (const c of document.querySelectorAll('canvas')) { try { s += '|' + hash(c.toDataURL()) } catch (e) {} }
+	for (const i of document.querySelectorAll('input, select, textarea')) s += '|' + i.value + (i.checked ? '1' : '0');
+	return hash(s);
+};
+const shown = (el) => {
+	const r = el.getBoundingClientRect();
+	if (r.width <= 0 || r.height <= 0) return false;
+	const cs = getComputedStyle(el);
+	return cs.visibility !== 'hidden' && cs.display !== 'none' && !el.closest('[hidden]');
+};
+const name = (el) => (el.getAttribute('aria-label') || el.getAttribute('data-handle') || el.textContent || el.id || el.getAttribute('title') || el.tagName.toLowerCase()).trim().replace(/\\s+/g, ' ').slice(0, 40);
+const center = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2] };
+const fire = (el, type, x, y, extra) => {
+	const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, buttons: /down|move/.test(type) ? 1 : 0, pointerId: 1, pointerType: 'mouse', isPrimary: true, view: window, ...extra };
+	const Ctor = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+	el.dispatchEvent(new Ctor(type, init));
+};
+const press = async (el, holdMs) => {
+	const [x, y] = center(el);
+	fire(el, 'pointerdown', x, y); fire(el, 'mousedown', x, y);
+	await wait(holdMs);
+	fire(el, 'pointerup', x, y); fire(el, 'mouseup', x, y); fire(el, 'click', x, y);
+};
+const drag = async (el) => {
+	const [x, y] = center(el);
+	const box = (el.ownerSVGElement || el.parentElement || document.body).getBoundingClientRect();
+	let tx = box.left + box.width / 2, ty = box.top + box.height / 2;
+	if (Math.hypot(tx - x, ty - y) < 30) { tx = x + 40; ty = y - 30 }
+	else { const d = Math.hypot(tx - x, ty - y); tx = x + (tx - x) / d * Math.min(60, d); ty = y + (ty - y) / d * Math.min(60, d) }
+	fire(el, 'pointerdown', x, y); fire(el, 'mousedown', x, y);
+	for (let i = 1; i <= 6; i++) {
+		const px = x + (tx - x) * i / 6, py = y + (ty - y) * i / 6;
+		fire(el, 'pointermove', px, py); fire(el, 'mousemove', px, py);
+		await wait(16);
+	}
+	fire(el, 'pointerup', tx, ty); fire(el, 'mouseup', tx, ty);
+};
+const setValue = (input, value) => {
+	input.value = String(value);
+	input.dispatchEvent(new Event('input', { bubbles: true }));
+	input.dispatchEvent(new Event('change', { bubbles: true }));
+};
+const run = async () => {
+	await wait(500);
+	await frames();
+	const problems = [];
+	const startErrors = hook.errors.length;
+	if (startErrors) problems.push('The script threw an error as it started: ' + hook.errors[0]);
+	// Everything must fit the frame: text cut off at an edge cannot be read.
+	const fits = () => {
+		const W = innerWidth, H = innerHeight;
+		const cut = [];
+		for (const el of document.body.querySelectorAll('p, span, div, label, li, button, h2, h3, td, th, svg, canvas')) {
+			if (!shown(el)) continue;
+			if (el.tagName !== 'svg' && el.tagName !== 'CANVAS' && !el.childNodes.length) continue;
+			if ([...el.childNodes].some((n) => n.nodeType === 1 && n.tagName !== 'BR' && n.tagName !== 'SUB' && n.tagName !== 'SUP' && n.tagName !== 'VAR' && n.tagName !== 'B' && n.tagName !== 'I' && n.tagName !== 'STRONG' && n.tagName !== 'EM')) continue;
+			const r = el.getBoundingClientRect();
+			if (r.bottom > H + 2 || r.right > W + 2) cut.push(Math.round(Math.max(r.bottom - H, r.right - W)) + ' px: "' + (el.textContent || el.tagName).trim().slice(0, 40) + '"');
+		}
+		return cut;
+	};
+	const cut = fits();
+	if (cut.length) problems.push('Content runs past the edge of the frame and is cut off, so make the layout fit the given size: ' + cut.slice(0, 3).join('; ') + '.');
+	const buttons = [...document.querySelectorAll('button, [role=button], input[type=button], input[type=submit], input[type=checkbox], input[type=radio]')].filter((b) => shown(b) && !b.disabled);
+	const ranges = [...document.querySelectorAll('input[type=range]')].filter((r) => shown(r) && !r.disabled);
+	const numbers = [...document.querySelectorAll('input[type=number]')].filter((r) => shown(r) && !r.disabled);
+	const marked = [...document.querySelectorAll('[data-handle]')].filter(shown);
+	const grabbable = [];
+	const all = document.body.querySelectorAll('*');
+	for (let i = 0; i < all.length && i < 3000; i++) {
+		const el = all[i];
+		if (el.closest('button, input, [data-handle], label, a') || marked.some((m) => m.contains(el))) continue;
+		const isCanvas = el.tagName === 'CANVAS';
+		const cursor = getComputedStyle(el).cursor;
+		if (!isCanvas && !/^(grab|grabbing|move|crosshair|pointer|ew-resize|ns-resize|col-resize|row-resize)$/.test(cursor)) continue;
+		if (!shown(el)) continue;
+		if (grabbable.some((g) => g.contains(el))) continue;
+		grabbable.push(el);
+	}
+	const handles = marked.concat(grabbable.filter((g) => !marked.some((m) => g.contains(m)))).slice(0, 12);
+	const controls = [];
+	for (const b of buttons.slice(0, 24)) controls.push({ kind: 'button', el: b, act: () => press(b, 260) });
+	for (const r of ranges.slice(0, 12)) controls.push({ kind: 'slider', el: r, act: () => { const lo = Number(r.min || 0), hi = Number(r.max || 100), v = Number(r.value); setValue(r, v > (lo + hi) / 2 ? lo + (hi - lo) * 0.2 : lo + (hi - lo) * 0.8) } });
+	for (const n of numbers.slice(0, 12)) controls.push({ kind: 'number field', el: n, act: () => { setValue(n, (Number(n.value) || 0) + (Number(n.step) || 1)); n.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) } });
+	for (const h of handles) controls.push({ kind: 'drag handle', el: h, act: () => drag(h) });
+	const dead = [];
+	let stillDead = 0;
+	for (const c of controls) {
+		const before = fingerprint();
+		try { await c.act() } catch (e) { problems.push('Using the ' + c.kind + ' "' + name(c.el) + '" threw: ' + String(e && e.message || e).slice(0, 200)); continue }
+		await frames(); await wait(120);
+		if (fingerprint() === before) dead.push(c);
+	}
+	// A control that did nothing at first, such as Reset at rest, gets a second try now that other controls have changed things.
+	for (const c of dead) {
+		if (!c.el.isConnected || !shown(c.el) || c.el.disabled) continue;
+		const before = fingerprint();
+		try { await c.act() } catch (e) {}
+		await frames(); await wait(120);
+		if (fingerprint() !== before) continue;
+		stillDead++;
+		problems.push('Using the ' + c.kind + ' "' + name(c.el) + '" changed nothing: no state, text, or drawing changed.');
+	}
+	for (const e of hook.errors.slice(startErrors, startErrors + 2)) problems.push('The script threw an error while its controls were used: ' + e);
+	const fatal = startErrors > 0 || (controls.length > 0 && stillDead === controls.length);
+	hook.post({ type: 'smoke', tested: controls.length, problems: [...new Set(problems)].slice(0, 12), fatal });
+};
+if (document.readyState === 'complete') run(); else window.addEventListener('load', run);
+})();`
