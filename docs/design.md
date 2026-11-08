@@ -171,17 +171,17 @@ One bar, `ProgressBar` (`client/components/ProgressBar.tsx`, styled as `.paper-p
 - Default: a percent shows only while real frames drive the bar. An estimate shows no number.
 - Default: when a request ends, its bar fills and stays for 450 ms, then goes. Under reduced motion it goes at once.
 
-The expected durations are measured on the plan model, in November 2026.
+The expected durations are measured on the plan model, in November 2026. The animation rows were measured again on November 8, after the writer's prompt was cut to one reference scene, the check deadline to 15 s, and the final video to 1280 by 720 (the same unit-circle scene renders in 17.6 s instead of 28.2 s).
 
 | Work | Expected | Measured |
 | --- | --- | --- |
 | Agent request, typed or delegated | 15 s | 12 s and 18 s |
 | Widget code | 35 s | 29 s and 40 s |
-| Animation: writing, then the whole scene's sketch | 35 s, to 50% of the bar | 30, 37, and 39 s |
-| Animation: checking the sketch | 10 s, to 65% | 4, 9, and 11 s |
-| Animation: a fix, its sketch and video | 12 s, real frames to 100% | 8, 11, and 13 s |
-| Animation: the final video | 15 s, real frames to 100% | Not reached: all three reviews fixed the scene |
-| Animation: the whole job | | 42, 60, and 62 s (the Phase 12 gate saw 64 to 89 s) |
+| Animation: writing, then the whole scene's sketch | 40 s, to 70% of the bar | 39 and 43 s (earlier: 30, 37, and 39 s) |
+| Animation: checking the sketch | 10 s, to 85% | 9 s, and 15 s when dropped at the deadline |
+| Animation: a fix, its sketch and video | 10 s, real frames to 100% | 8 s |
+| Animation: the final video | 10 s, real frames to 100% | Under 1 s left after the check: the video renders during it |
+| Animation: the whole job | | 48 and 56 s; 66, 69, and 72 s from the ask to the video on the Phase 12 gate (before: 64 to 89 s, and 104 s for one unit-circle animation) |
 
 The animation's phases and their stretches of the bar are in `client/shapes/video/progress.ts`. The other durations are `EXPECTED_MS` in `ProgressBar.tsx`.
 
