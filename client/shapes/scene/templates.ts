@@ -105,13 +105,31 @@ export const BUILT_IN_TEMPLATES: SceneTemplate[] = [
 			{ id: 'omega', type: 'state', init: '0', rate: '-(g/L)*sin(theta)' },
 			{ id: 'E', type: 'let', expr: '0.5*L^2*omega^2 + g*L*(1 - cos(theta))' },
 			{ id: 'T0', type: 'let', expr: '2*pi*sqrt(L/g)' },
+			// The exact period at any release angle: T0 / AGM(1, cos(th0/2)), the
+			// arithmetic-geometric mean in five steps, which converge to well under
+			// a millisecond even at 170 degrees.
+			{ id: 'b0', type: 'let', expr: 'cos(deg(th0)/2)' },
+			{ id: 'a1', type: 'let', expr: '(1 + b0)/2' },
+			{ id: 'b1', type: 'let', expr: 'sqrt(b0)' },
+			{ id: 'a2', type: 'let', expr: '(a1 + b1)/2' },
+			{ id: 'b2', type: 'let', expr: 'sqrt(a1*b1)' },
+			{ id: 'a3', type: 'let', expr: '(a2 + b2)/2' },
+			{ id: 'b3', type: 'let', expr: 'sqrt(a2*b2)' },
+			{ id: 'a4', type: 'let', expr: '(a3 + b3)/2' },
+			{ id: 'b4', type: 'let', expr: 'sqrt(a3*b3)' },
+			{ id: 'a5', type: 'let', expr: '(a4 + b4)/2' },
+			{ id: 'T', type: 'let', expr: 'T0/a5' },
 			{ id: 'pivot', type: 'point', x: '0', y: '0' },
 			{ id: 'bob', type: 'point', x: 'L*sin(theta)', y: '-L*cos(theta)', label: 'bob', ink: 2 },
 			{ id: 'rod', type: 'segment', from: 'pivot', to: 'bob' },
 			{ id: 'path', type: 'trace', of: 'bob', ink: 1 },
 			{ id: 'angle', type: 'readout', text: 'θ = {theta*180/pi}°' },
-			{ id: 'small', type: 'readout', text: 'small-angle period 2π√(L/g) = {T0} s' },
+			{ id: 'period', type: 'readout', text: 'period at this angle T = {T} s' },
+			{ id: 'small', type: 'readout', text: 'small-angle estimate 2π√(L/g) = {T0} s' },
 			{ id: 'energy', type: 'check', expr: 'abs(E - g*L*(1 - cos(deg(th0)))) < 0.001*g*L', text: 'energy is conserved' },
+			{ id: 'longer', type: 'check', expr: 'T >= T0', text: 'a wider swing never takes less time than the small-angle estimate' },
+			// At 60 degrees the exact period is 1.0732 times the small-angle one.
+			{ id: 'sixty', type: 'check', expr: 'th0 != 60 or abs(T/T0 - 1.07318) < 1e-4', text: 'the period at 60 degrees is 1.0732 times the small-angle period' },
 		],
 	},
 	{

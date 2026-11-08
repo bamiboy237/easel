@@ -259,11 +259,31 @@ export function resolveRef(ref: SceneRef, values: SceneValues): [number, number]
 export function fillText(text: string, scope: Scope): string {
 	return text.replace(/\{([^{}]+)\}/g, (_, source: string) => {
 		try {
+			// A state in words: {test ? In : Miss} shows "In" while the test holds.
+			const choice = splitChoice(source)
+			if (choice) return evaluateIn(choice.test, scope) !== 0 ? choice.yes : choice.no
 			return formatNumber(evaluateIn(source, scope))
 		} catch {
 			return '?'
 		}
 	})
+}
+
+/**
+ * A choice of words in braces, `test ? words : other words`, so a readout says
+ * "In" or "Miss" instead of a 1 or a 0. Words may be quoted. Null when the
+ * source is a plain expression.
+ */
+export function splitChoice(source: string): { test: string; yes: string; no: string } | null {
+	const q = source.indexOf('?')
+	if (q < 0) return null
+	const rest = source.slice(q + 1)
+	const c = rest.lastIndexOf(':')
+	if (c < 0) return null
+	const word = (w: string) => w.trim().replace(/^(["'])(.*)\1$/, '$2')
+	const test = source.slice(0, q).trim()
+	if (!test) return null
+	return { test, yes: word(rest.slice(0, c)), no: word(rest.slice(c + 1)) }
 }
 
 export function formatNumber(value: number): string {
@@ -554,7 +574,7 @@ export function findUndefinedNames(props: Pick<SceneProps, 'params' | 'objects'>
 }
 
 function textExpressions(text: string): string[] {
-	return [...text.matchAll(/\{([^{}]+)\}/g)].map((m) => m[1])
+	return [...text.matchAll(/\{([^{}]+)\}/g)].map((m) => splitChoice(m[1])?.test ?? m[1])
 }
 
 function refExpressions(ref: SceneRef): string[] {
@@ -635,6 +655,36 @@ export function checkScene(props: SceneProps): SceneProblem[] {
 				add(`${id}:check`, `check ${id} fails${where(sample.label)}: ${o.text || o.expr}`)
 				break
 			}
+		}
+	}
+
+	// A yes or no shown as a 1 or a 0, such as "Make = 0 (1 yes, 0 no)": the reader
+	// has to decode it. It reads as words instead: {test ? In : Miss}.
+	for (const [id, o] of Object.entries(props.objects)) {
+		if ((o.type !== 'readout' && o.type !== 'label') || undefinedIds.has(id)) continue
+		const coded = /\b[01]\s*(=|:)?\s*(yes|no|true|false|in|out|hit|miss)\b/i.test(o.text)
+		const flags = [...o.text.matchAll(/\{([^{}]+)\}/g)]
+			.map((m) => m[1])
+			.filter((source) => !splitChoice(source))
+			.filter((source) =>
+				samples.every((sample) => {
+					try {
+						const v = evaluateIn(source, sample.values.scope)
+						return v === 0 || v === 1
+					} catch {
+						return false
+					}
+				})
+			)
+			.filter((source) => /[<>]|==|!=|\b(and|or|not)\b|\bif\(/.test(source) || /^[A-Za-z_]\w*$/.test(source.trim()))
+		// A plain name that is always 0 or 1 is a flag only when it is a let built from a test.
+		const isFlag = flags.some((source) => {
+			const name = source.trim()
+			const def = props.objects[name]
+			return !/^[A-Za-z_]\w*$/.test(name) || (def?.type === 'let' && /[<>]|==|!=|\b(and|or|not)\b|\bif\(/.test(def.expr))
+		})
+		if (coded || isFlag) {
+			add(`${id}:yes-no`, `${o.type} ${id} ("${o.text}") shows a yes or no as 1 or 0; say it in words with {test ? In : Miss}, and give the measure that decides it, such as "{abs(dh) < 0.12 ? In : Miss}, {round(100*dh)} cm from the rim"`)
 		}
 	}
 
