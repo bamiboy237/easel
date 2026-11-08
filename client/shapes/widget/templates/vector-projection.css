@@ -1,0 +1,29 @@
+#plot {
+	position: absolute;
+	inset: 0;
+}
+
+.paper-side {
+	width: 372px;
+	gap: 12px;
+}
+
+#readout .paper-readout {
+	grid-template-columns: 64px 1fr;
+	font-size: 14.5px;
+	row-gap: 3px;
+}
+
+#readout .paper-readout-value {
+	white-space: normal;
+	overflow: visible;
+}
+
+.hint {
+	margin-top: auto;
+	font-size: 13.5px;
+}
+
+#meaning {
+	font-size: 14.5px;
+}

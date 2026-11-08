@@ -10,6 +10,7 @@ import {
 	TLShapeId,
 	useEditor,
 	useValue,
+	Vec,
 } from 'tldraw'
 import { parametersHeight } from './GraphShapeUtil'
 import { clampParameter, describeParameters, ShapeParameter, shapeParameterValidator, SliderRows } from './math/parameters'
@@ -51,8 +52,16 @@ export type WidgetShape = TLShape<typeof WIDGET_TYPE>
 const TITLE_BAR = 28
 /** How long a running frame may go without a heartbeat before it is stopped, in milliseconds. */
 const HEARTBEAT_TIMEOUT_MS = 3000
-/** The shortest time between two edits a frame asks for, in milliseconds. */
-const FLUSH_MS = 50
+/**
+ * The shortest time between two edits a frame asks for, in milliseconds: the
+ * rate cap on durable changes. A drag inside the frame lands about ten times
+ * a second, and stays one undo step.
+ */
+const FLUSH_MS = 100
+/** How long after the pointer leaves a frame its changes still count as the user's, in milliseconds. */
+const INPUT_GRACE_MS = 1500
+/** The largest zoom step one wheel event makes, as tldraw's own wheel handling caps it. */
+const MAX_ZOOM_STEP = 10
 /** Changes further apart than this are separate undo steps, in milliseconds. */
 const UNDO_GAP_MS = 600
 /** How long a snapshot request waits for the frame, in milliseconds. */
@@ -77,7 +86,9 @@ export function describeWidget(props: WidgetProps, id?: TLShapeId): string {
 			? 'still being written in the background'
 			: props.status === 'failed'
 				? `failed: ${props.error}`
-				: 'running'
+				: props.error
+					? `running, but ${props.error.replace(/^Its/, 'its')}`
+					: 'running'
 	return `Widget "${props.title}", ${status}. It shows: ${props.brief}.${params ? ` Parameters: ${params}.` : ''} State: ${state}.`
 }
 
@@ -174,13 +185,11 @@ function Widget({ shape }: { shape: WidgetShape }) {
 	const jobRunning = jobStartedAt !== null
 	const preview = useValue('widget preview', () => widgetPreviews.get().get(shape.id) ?? null, [shape.id])
 	const frameHeight = Math.max(40, h - widgetChromeHeight(shape.props))
-	// The frame takes pointer events once the widget is selected, so a first
-	// click selects it and the title bar always moves it.
-	const interactive = useValue(
-		'widget interactive',
-		() => editor.getOnlySelectedShapeId() === shape.id || editor.getEditingShapeId() === shape.id,
-		[editor, shape.id]
-	)
+	// The frame takes the pointer whenever the select tool is on, so a first
+	// press on a control works the control. The title bar is the move handle.
+	// With a drawing tool on, the pointer goes to the board, so a stroke can
+	// cross a widget.
+	const interactive = useValue('widget interactive', () => editor.getCurrentToolId() === 'select', [editor])
 
 	const setParam = (name: string, value: number) => {
 		const current = editor.getShape<WidgetShape>(shape.id)
@@ -248,7 +257,7 @@ function WidgetPreview({ shape, preview, height }: { shape: WidgetShape; preview
 				referrerPolicy="no-referrer"
 				allow=""
 				srcDoc={built.doc}
-				style={{ width: '100%', height, border: 0, display: 'block', pointerEvents: 'none', opacity: 0.85 }}
+				style={{ width: '100%', height, border: 0, display: 'block', pointerEvents: 'none', opacity: 0.5 }}
 			/>
 			<div className="widget-writing-badge">
 				<span className="chat-working-dots" aria-hidden>
@@ -264,12 +273,17 @@ function WidgetPreview({ shape, preview, height }: { shape: WidgetShape; preview
 
 function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; height: number; interactive: boolean }) {
 	const editor = useEditor()
-	// Only while the user can reach into the frame is a change it asks for the
-	// user's. Otherwise nobody caused it: the frame is starting, or reacting to
-	// the agent's change, and the request is dropped.
-	const interactiveRef = useRef(interactive)
-	interactiveRef.current = interactive
 	const frameRef = useRef<HTMLIFrameElement>(null)
+	// The runtime sends a change only from a trusted input event. The board
+	// also checks that the user is at this frame: the pointer is over it, has
+	// just left it, or the frame has keyboard focus. Anything else, such as a
+	// timer or a frame reacting to the agent's change, is never the user's.
+	const pointerOver = useRef(false)
+	const pointerLeftAt = useRef(0)
+	const userAtFrame = () =>
+		pointerOver.current ||
+		performance.now() - pointerLeftAt.current < INPUT_GRACE_MS ||
+		(!!frameRef.current && document.activeElement === frameRef.current)
 	const [phase, setPhase] = useState<Phase>({ kind: 'starting' })
 	const [restarts, setRestarts] = useState(0)
 	const [scriptError, setScriptError] = useState<string | null>(null)
@@ -292,6 +306,57 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 
 	const stop = (reason: string) => setPhase((p) => (p.kind === 'stopped' ? p : { kind: 'stopped', reason }))
 	const post = (message: unknown) => frameRef.current?.contentWindow?.postMessage(message, '*')
+
+	// Board keys pressed inside the frame do what they do on the board.
+	const onBoardKey = (k: { key: string; ctrl: boolean; meta: boolean; shift: boolean }) => {
+		const mod = k.ctrl || k.meta
+		const key = k.key.toLowerCase()
+		if (mod && (key === 'z' || key === 'y')) {
+			if (key === 'y' || k.shift) editor.redo()
+			else editor.undo()
+			return
+		}
+		if (k.key === 'Escape') {
+			frameRef.current?.blur()
+			editor.focus()
+			if (editor.getSelectedShapeIds().includes(shape.id)) editor.selectNone()
+			return
+		}
+		if (k.key === 'Delete' || k.key === 'Backspace') {
+			const selected = editor.getSelectedShapeIds()
+			if (!selected.length || editor.getIsReadonly()) return
+			frameRef.current?.blur()
+			editor.focus()
+			editor.deleteShapes(selected)
+		}
+	}
+	// A wheel the widget did not use pans or zooms the board, at the pointer.
+	const onBoardWheel = (w: { dx: number; dy: number; x: number; y: number; ctrl: boolean; meta: boolean; shift: boolean; alt: boolean }) => {
+		const frame = frameRef.current
+		if (!frame) return
+		const rect = frame.getBoundingClientRect()
+		const k = frame.clientWidth ? rect.width / frame.clientWidth : 1
+		let { dx, dy } = w
+		let dz = 0
+		const isMac = /mac/i.test(navigator.platform)
+		if (w.ctrl || w.alt || w.meta) dz = (Math.abs(dy) > MAX_ZOOM_STEP ? MAX_ZOOM_STEP * Math.sign(dy) : dy) / 100
+		else if (w.shift && !isMac) {
+			dx = dy
+			dy = 0
+		}
+		if (!dx && !dy && !dz) return
+		editor.dispatch({
+			type: 'wheel',
+			name: 'wheel',
+			delta: { x: -dx * k, y: -dy * k, z: -dz },
+			point: new Vec(rect.left + w.x * k, rect.top + w.y * k),
+			shiftKey: w.shift,
+			altKey: w.alt,
+			ctrlKey: w.meta || w.ctrl,
+			metaKey: w.meta,
+			accelKey: isMac ? w.meta : w.ctrl,
+		})
+	}
 
 	// Messages from the frame: checked, rate capped, then applied as edits of the shape.
 	const lastBeat = useRef(performance.now())
@@ -368,14 +433,26 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 				case 'heartbeat':
 					break
 				case 'set-param':
-					if (!interactiveRef.current) return
+					if (!userAtFrame()) return
 					pending.params[message.name] = message.value
 					scheduleFlush()
 					break
 				case 'set-state':
-					if (!interactiveRef.current) return
+					if (!userAtFrame()) return
 					pending.state[message.key] = message.value
 					scheduleFlush()
+					break
+				case 'press':
+					// A press inside a widget selects it, as a press on any shape does.
+					if (editor.getOnlySelectedShapeId() !== shape.id && editor.getCurrentToolId() === 'select') editor.select(shape.id)
+					break
+				case 'key':
+					onBoardKey(message)
+					break
+				case 'wheel':
+					onBoardWheel(message)
+					break
+				case 'smoke':
 					break
 				case 'snapshot': {
 					const resolve = pendingSnapshots.current.get(message.id)
@@ -496,6 +573,11 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 				allow=""
 				srcDoc={built.doc}
 				style={{ width: '100%', height, border: 0, display: 'block', pointerEvents: interactive ? 'all' : 'none' }}
+				onPointerEnter={() => (pointerOver.current = true)}
+				onPointerLeave={() => {
+					pointerOver.current = false
+					pointerLeftAt.current = performance.now()
+				}}
 				onLoad={() => {
 					loads.current++
 					if (loads.current > 1) stop('It tried to leave its own page.')
