@@ -123,6 +123,25 @@ var {
 	flex-wrap: wrap;
 }
 
+/*
+ * Nothing in a row, stack, or side column grows wider than it, so text wraps
+ * inside the widget instead of running past its edge. A slider row keeps its
+ * natural minimum width, so its track never runs over its name.
+ */
+.paper-row > :not(.paper-slider),
+.paper-stack > :not(.paper-slider),
+.paper-side > :not(.paper-slider) {
+	min-width: 0;
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+
+p,
+.paper-note,
+.paper-readout-note {
+	overflow-wrap: anywhere;
+}
+
 .paper-rule {
 	border: 0;
 	border-top: 1px solid var(--paper-rule);
