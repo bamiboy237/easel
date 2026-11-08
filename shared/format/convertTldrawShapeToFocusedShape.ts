@@ -12,6 +12,7 @@ import {
 	TLNoteShape,
 	TLShape,
 	TLShapeId,
+	renderPlaintextFromRichText,
 	TLTextShape,
 	Vec,
 } from 'tldraw'
@@ -300,6 +301,9 @@ function getSimpleBounds(editor: Editor, shape: TLShape): Box {
 	// Measure its geometry directly. Creating a stand-in shape on the board would
 	// write to the store, and every store write is a board command.
 	let size = { w: 0, h: 0 }
+	// A text shape measures itself through a cache of shapes on the board, which
+	// throws for one that is not there, so measure its words directly.
+	if (shape.type === 'text') return new Box(pagePoint.x, pagePoint.y, ...measureTextOffBoard(editor, shape as TLTextShape))
 	try {
 		const local = editor.getShapeUtil(shape).getGeometry(shape).bounds
 		const corners = Mat.applyToPoints(Mat.Rotate(shape.rotation), local.corners)
@@ -309,6 +313,30 @@ function getSimpleBounds(editor: Editor, shape: TLShape): Box {
 		console.warn('Could not measure a shape that is not on the board.', shape.id, error)
 	}
 	return new Box(pagePoint.x, pagePoint.y, size.w, size.h)
+}
+
+/** tldraw's text sizes, in px at scale 1. */
+const TEXT_SIZES: Record<string, number> = { s: 18, m: 24, l: 36, xl: 44 }
+
+/** A text shape's size from its words and style, for a shape that is not on the board. */
+function measureTextOffBoard(editor: Editor, shape: TLTextShape): [number, number] {
+	const { size, scale, autoSize, w } = shape.props
+	const fontSize = (TEXT_SIZES[size] ?? 24) * (scale || 1)
+	try {
+		const text = renderPlaintextFromRichText(editor, shape.props.richText) || ' '
+		const measured = editor.textMeasure.measureText(text, {
+			fontFamily: "'Source Serif 4 Variable', Georgia, serif",
+			fontSize,
+			fontWeight: 'normal',
+			fontStyle: 'normal',
+			lineHeight: 1.35,
+			maxWidth: autoSize ? null : Math.max(1, w),
+			padding: '0px',
+		})
+		return [autoSize ? measured.w : Math.max(w, 1), measured.h]
+	} catch {
+		return [Math.max(w, 1), fontSize * 1.35]
+	}
 }
 
 /**

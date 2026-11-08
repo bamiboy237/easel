@@ -15,6 +15,7 @@ import { convertTldrawIdToSimpleId } from '../../../shared/format/convertTldrawS
 import { AgentCanvasLint } from '../../../shared/types/AgentCanvasLint'
 import { BaseAgentManager } from './BaseAgentManager'
 
+import { checkGraph, GRAPH_TYPE, GraphShape } from '../../shapes/GraphShapeUtil'
 import { SCENE_TYPE, SceneShape } from '../../shapes/SceneShapeUtil'
 import { checkScene } from '../../shapes/scene/sceneModel'
 
@@ -25,7 +26,7 @@ function getLintKey(lint: AgentCanvasLint): string {
 	const sortedIds = [...lint.shapeIds].sort().join(',')
 	// Each scene problem is surfaced once, keyed by its object and kind, so moving
 	// a slider does not report the same problems again.
-	const detail = lint.type === 'scene-problem' ? `:${lint.problemKey ?? ''}` : ''
+	const detail = lint.type === 'scene-problem' || lint.type === 'graph-problem' ? `:${lint.problemKey ?? ''}` : ''
 	return `${lint.type}:${sortedIds}${detail}`
 }
 
@@ -199,6 +200,18 @@ export class AgentLintManager extends BaseAgentManager {
 				type: 'friendless-arrow',
 				shapeIds: [convertTldrawIdToSimpleId(arrow.id)],
 			})
+		}
+
+		for (const shape of shapes) {
+			if (shape.type !== GRAPH_TYPE) continue
+			for (const problem of checkGraph((shape as GraphShape).props)) {
+				lints.push({
+					type: 'graph-problem',
+					shapeIds: [convertTldrawIdToSimpleId(shape.id)],
+					texts: [problem.text],
+					problemKey: problem.key,
+				})
+			}
 		}
 
 		for (const shape of shapes) {

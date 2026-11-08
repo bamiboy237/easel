@@ -235,6 +235,15 @@ export const CanvasLintsPartDefinition: PromptPartDefinition<CanvasLintsPart> = 
 			messages.push(lines.join('\n'))
 		}
 
+		const graphLints = lints.filter((l) => l.type === 'graph-problem')
+		if (graphLints.length > 0) {
+			const lines = [
+				'Graph problems: measured from your graphs, so they are real. Fix each by sending the graph action again with its shapeId, changing only the fields named.',
+				...graphLints.map((lint) => `  - ${lint.shapeIds[0]}: ${(lint.texts ?? []).join('; ')}`),
+			]
+			messages.push(lines.join('\n'))
+		}
+
 		if (friendlessArrowLints.length > 0) {
 			const shapeIds = friendlessArrowLints.flatMap((l) => l.shapeIds)
 			const lines = [

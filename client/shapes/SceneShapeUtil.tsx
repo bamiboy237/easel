@@ -153,7 +153,7 @@ function Scene({ shape }: { shape: SceneShape }) {
 		[showFormulas, objects, values.scope]
 	)
 	const xStep = gridStep(xMax - xMin, w, Math.max(Math.abs(xMin), Math.abs(xMax)))
-	const yStep = gridStep(yMax - yMin, plotHeight, Math.max(Math.abs(yMin), Math.abs(yMax)))
+	const yStep = gridStep(yMax - yMin, plotHeight, Math.max(Math.abs(yMin), Math.abs(yMax)), true)
 	// Both axes share one scale, set by whichever range is tighter, so the plot
 	// shows a little more than the range on the other axis.
 	const unitsPerPixel = Math.max((xMax - xMin) / w, (yMax - yMin) / plotHeight)
