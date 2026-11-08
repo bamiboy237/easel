@@ -228,7 +228,9 @@ export function ChatPanel() {
 					? jobs
 					: lastWork
 						? { text: lastSaid ?? (answeredInThread ? 'I answered beside your mark.' : describeWork(agent, lastWork)) ?? '' }
-						: null
+						: notices.length > 0
+							? { text: lastSaid ?? 'Nothing changed on the board.' }
+							: null
 	const summary = status?.text || null
 	// Work that landed out of the user's view gets a Show link, for when the
 	// camera could not follow because the user was working.

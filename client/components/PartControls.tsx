@@ -1,8 +1,8 @@
-import { TLShape, TLShapeId, useEditor, useValue } from 'tldraw'
+import { TLShapeId, useEditor, useValue } from 'tldraw'
 import { useAgent } from '../agent/TldrawAgentAppProvider'
 
-/** How far above a frame's top edge its part controls sit, in screen pixels. */
-const ABOVE = 30
+/** How far below a frame's bottom edge its part controls sit, in screen pixels. */
+const BELOW = 8
 
 interface PartView {
 	id: TLShapeId
@@ -13,8 +13,9 @@ interface PartView {
 }
 
 /**
- * Controls for one part of a map, above its frame's top-right corner, outside
- * the frame so they never cover its content. A part being filled or waiting
+ * Controls for one part of a map, under its frame's bottom-right corner,
+ * outside the frame and clear of its title, so they never cover its content.
+ * A part being filled or waiting
  * offers Stop. An unfinished part says so and offers Fill and Redo. A finished
  * part offers Redo while its frame is selected.
  */
@@ -33,10 +34,9 @@ export function PartControls() {
 				if (status === 'done' && !selected.has(shape.id)) continue
 				const bounds = editor.getShapePageBounds(shape)
 				if (!bounds) continue
-				const corner = editor.pageToViewport({ x: bounds.maxX, y: bounds.minY })
-				const children = editor.getSortedChildIdsForParent(shape.id).map((id) => editor.getShape(id)).filter((c): c is TLShape => !!c)
-				const hasAgentWork = children.some((c) => !(typeof c.meta.note === 'string' && c.meta.note.startsWith('Description of')) && c.meta.createdBy !== 'user')
-				views.push({ id: shape.id, status, x: Math.round(corner.x), y: Math.round(corner.y - ABOVE), hasAgentWork })
+				const corner = editor.pageToViewport({ x: bounds.maxX, y: bounds.maxY })
+				const hasAgentWork = agent.frames.getPartWork(shape.id).length > 0
+				views.push({ id: shape.id, status, x: Math.round(corner.x), y: Math.round(corner.y + BELOW), hasAgentWork })
 			}
 			return views
 		},

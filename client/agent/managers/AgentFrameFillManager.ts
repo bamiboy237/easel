@@ -118,6 +118,26 @@ export class AgentFrameFillManager extends BaseAgentManager {
 	}
 
 	/**
+	 * The agent's work in one part of a map: shapes it made inside the frame, and
+	 * shapes it drew over the frame that have not been filed into it yet. The
+	 * frame's description and the user's own shapes are not part of it.
+	 */
+	getPartWork(id: TLShapeId): TLShape[] {
+		const { editor } = this.agent
+		const frameBounds = editor.getShapePageBounds(id)
+		if (!frameBounds) return []
+		const isDescription = (c: TLShape) => typeof c.meta.note === 'string' && c.meta.note.startsWith('Description of')
+		const inside = editor.getSortedChildIdsForParent(id).map((child) => editor.getShape(child)).filter((c): c is TLShape => !!c)
+		const pageId = editor.getCurrentPageId()
+		const over = editor.getCurrentPageShapes().filter((shape) => {
+			if (shape.parentId !== pageId || shape.id === id || shape.type === 'frame') return false
+			const b = editor.getShapePageBounds(shape)
+			return !!b && frameBounds.contains(b)
+		})
+		return [...inside, ...over].filter((c) => !isDescription(c) && getShapeCreator(c) !== 'user')
+	}
+
+	/**
 	 * The user asks for one part of a map again. "Fill" keeps what the frame
 	 * already holds and adds what is missing; "redo" first removes the agent's
 	 * shapes in it and starts the part over. The user's own shapes in the frame
@@ -132,7 +152,7 @@ export class AgentFrameFillManager extends BaseAgentManager {
 		const descriptionShape = children.find((c) => typeof c.meta.note === 'string' && c.meta.note.startsWith('Description of'))
 		const description = descriptionShape ? this.agent.commands.getShapeText(descriptionShape) : ''
 		if (redo) {
-			const agentShapes = children.filter((c) => c !== descriptionShape && getShapeCreator(c) !== 'user')
+			const agentShapes = this.getPartWork(id)
 			if (agentShapes.length > 0) {
 				this.agent.commands.execute('user', 'redo-part', () => editor.deleteShapes(agentShapes.map((c) => c.id)))
 			}
@@ -141,7 +161,7 @@ export class AgentFrameFillManager extends BaseAgentManager {
 		if (!bounds) return
 		const helpers = new AgentHelpers(this.agent)
 		const modelBounds = helpers.roundBox(helpers.applyOffsetToBox(bounds))
-		const kept = !redo && children.length > 1
+		const kept = !redo && this.getPartWork(id).length > 0
 		const message =
 			fillMessage({ id, title, description, modelBounds }) +
 			(kept ? '\nThe frame already holds part of its content. Keep it, do not draw it again, and add only what is missing.' : '')
