@@ -36,7 +36,7 @@ The page already has the board's style sheet: the serif for prose and labels, a 
 
 ## Look
 - No h1 and no title: the board's title bar already names the widget. No cards inside the widget, no boxes around sections, no uppercase headings, no shadows, no gradients.
-- Buttons are the kit's quiet buttons: never colour a button's fill. Mark the chosen one with aria-pressed="true".
+- Buttons are the kit's quiet buttons: never colour a button's fill or give it a heavy border; size is the only thing you may change. Mark the chosen one with aria-pressed="true".
 - Text is 13 px or larger, tick labels 12 px. Data in the inks; prose in ink; nothing in bright web blue, orange, or purple.
 
 ## State: what the board keeps
@@ -56,6 +56,8 @@ Before it is shown, the widget is run and every visible button, slider, number f
 - No placeholder text: a list, a formula, or a label shows real content from the first frame, never an empty box.
 - The starting state shows the idea at once, in a clear, general case (not a degenerate one, and not two objects nearly on top of each other). Options that are on by default must show something at the start.
 - One short line of prose explains what the learner sees, and it updates with the values. Presets for the telling cases help.
+- Feedback says what to change: after a miss, say whether it was short, long, left, or right, and by how much. Instructions name where to start a gesture, such as "swipe up from the ball".
+- An end state is consistent: when a run ends (a target reached, time up), stop the motion, show the final values, and say what happened; never show forces or values that contradict it.
 - Use the values and names the brief gives.
 
 Keep the code short and correct.`
