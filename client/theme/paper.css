@@ -752,18 +752,18 @@
 	/* One complete sentence: it wraps to a second line rather than being cut. */
 	display: -webkit-box;
 	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
+	-webkit-line-clamp: 3;
 	overflow: hidden;
 	color: var(--paper-ink);
 }
 
-/* A plain note under the status, such as the user's text the agent kept. */
+/* A plain note under the status, such as the user's text the agent kept: as loud as the status, since it matters as much. */
 .chat-panel--floating.tl-theme__light .chat-answer-notice {
 	margin: -8px 0 0;
 	padding: 0 16px 14px;
-	color: var(--paper-viz-data);
-	font-size: 12px;
-	line-height: 17px;
+	color: var(--paper-ink);
+	font-size: 13px;
+	line-height: 18px;
 }
 
 /* "Show": glides to work that landed out of view, styled as "See more". The camera never moves by itself. */
@@ -2412,7 +2412,14 @@ input.shape-parameter-value:focus-visible {
 
 .video-making-reason {
 	font-weight: 400;
+	font-size: 12px;
 	color: var(--paper-viz-data);
+}
+
+/* Retry sits right beside the message it answers. */
+.video-making-phase--ended + .video-stop {
+	margin-left: 0;
+	align-self: flex-end;
 }
 
 /*

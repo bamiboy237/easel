@@ -58,7 +58,7 @@ export interface PersistedAgentState {
  * - stopped: the user pressed Stop.
  */
 export type RequestOutcome =
-	| { status: 'failed'; message: string; landed: boolean }
+	| { status: 'failed'; message: string; landed: boolean; request: string }
 	| { status: 'stopped'; landed: boolean }
 
 /** The plain words for an error that ended a request, never the raw error text. */
@@ -506,7 +506,9 @@ export class TldrawAgent {
 		} catch (e) {
 			console.error('Error data:', e)
 			const landed = this.actions.getLastWork() !== null
-			this.$outcome.set({ status: 'failed', message: describeRequestError(e, landed), landed })
+			const asked = this.lastUserRequest ? [...this.lastUserRequest.userMessages, ...this.lastUserRequest.agentMessages][0] ?? '' : ''
+			const quoted = asked.length > 90 ? `${asked.slice(0, 88)}...` : asked
+			this.$outcome.set({ status: 'failed', message: describeRequestError(e, landed), landed, request: quoted ? `Your request: "${quoted}"` : '' })
 			this.requests.setIsPrompting(false)
 			this.requests.setCancelFn(null)
 			return

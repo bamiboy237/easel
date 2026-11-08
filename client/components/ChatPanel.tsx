@@ -4,7 +4,6 @@ import { Box, TLShape, TLShapeId, useValue } from 'tldraw'
 import type { AgentWork } from '../agent/managers/AgentActionManager'
 import type { TldrawAgent } from '../agent/TldrawAgent'
 import { runningVideoJobs } from '../shapes/video/jobs'
-import { retryVideoJob } from '../shapes/video/job'
 import { runningWidgetJobs } from '../shapes/widget/jobs'
 import { getUsableViewBounds } from '../agent/findClearSpace'
 import { AgentFace } from '../../shared/icons/AgentFace'
@@ -200,9 +199,12 @@ export function ChatPanel() {
 	// The line says what is true now: a failure or a stop first, then
 	// background work (a widget or an animation) as it lands, then the agent's
 	// own first sentence, and otherwise what it put on the board.
-	const lastSaid = useValue('pane last said', () => firstSentence(lastMessage(agent.chat.getHistory())), [agent])
 	const outcome = useValue('pane outcome', () => agent.getOutcome(), [agent])
 	const notices = useValue('pane notices', () => agent.actions.getNotices(), [agent])
+	// After a correction, such as an edit the board refused, the agent's later
+	// message is the true one, so the card shows the latest message instead.
+	const corrected = notices.length > 0
+	const lastSaid = useValue('pane last said', () => firstSentence(lastMessage(agent.chat.getHistory(), corrected)), [agent, corrected])
 	const unfinishedParts = useValue(
 		'pane unfinished parts',
 		() => agent.editor.getCurrentPageShapes().filter((shape) => shape.type === 'frame' && agent.frames.getPartStatus(shape) === 'unfinished').length,
@@ -213,7 +215,7 @@ export function ChatPanel() {
 	const status: CardStatus | null = isGenerating || hasOpenQuestion
 		? null
 		: outcome?.status === 'failed'
-			? { text: outcome.message, action: { label: 'Retry', run: () => agent.retry() } }
+			? { text: outcome.message, detail: outcome.request, action: { label: 'Retry', run: () => agent.retry() } }
 			: outcome?.status === 'stopped'
 				? {
 						text:
@@ -368,6 +370,7 @@ export function ChatPanel() {
 											</button>
 										)}
 									</p>
+									{status?.detail && <p className="chat-answer-notice">{status.detail}</p>}
 									{notices.map((notice) => (
 										<p key={notice} className="chat-answer-notice">
 											{notice}
@@ -436,7 +439,7 @@ export function ChatPanel() {
  * The agent's first message in the newest exchange, if it sent one: its answer
  * to the user. Later messages are usually notes from follow-up passes.
  */
-function lastMessage(history: readonly { type: string; promptSource?: string; action?: { _type?: string; text?: unknown } }[]): string | null {
+function lastMessage(history: readonly { type: string; promptSource?: string; action?: { _type?: string; text?: unknown } }[], latest = false): string | null {
 	let first: string | null = null
 	for (let i = history.length - 1; i >= 0; i--) {
 		const item = history[i]
@@ -444,6 +447,7 @@ function lastMessage(history: readonly { type: string; promptSource?: string; ac
 		if (item.type === 'prompt' && item.promptSource !== 'self') break
 		if (item.type === 'action' && item.action?._type === 'message' && typeof item.action.text === 'string' && item.action.text.trim()) {
 			first = item.action.text
+			if (latest) break
 		}
 	}
 	return first
@@ -462,6 +466,8 @@ interface CardStatus {
 	text: string
 	/** Background work still running: the line shows the working dots. */
 	working?: boolean
+	/** A second line, such as the request a failure was about. */
+	detail?: string
 	action?: { label: string; run: () => void }
 }
 
@@ -537,23 +543,20 @@ function describeJobs(agent: TldrawAgent, work: AgentWork | null): CardStatus | 
 		return { text: animation && widget ? 'Making the widget and the animation.' : animation ? 'Making the animation.' : 'Writing the widget.', working: true }
 	}
 	const lines: string[] = []
-	let retryId: TLShapeId | null = null
 	for (const shape of shapes) {
 		const props = shape.props as { status?: string; title?: string }
 		const name = shape.type === 'widget' ? 'widget' : 'animation'
 		const title = props.title?.trim()
 		if (props.status === 'ready') lines.push(title ? `"${title}" is ready.` : `The ${name} is ready.`)
 		else if (props.status === 'failed') {
-			lines.push(`The ${name} could not finish.`)
-			if (shape.type === 'animation') retryId = shape.id
+			// The animation carries its own Retry, beside its message, so the card points there.
+			lines.push(shape.type === 'animation' ? 'The animation could not finish. Retry is on the animation.' : `The ${name} could not finish.`)
 		} else if (shape.type === 'animation' && props.status === 'rendering') {
-			lines.push('The animation was stopped before it finished.')
-			retryId = shape.id
+			lines.push('The animation was stopped before it finished. Retry is on the animation.')
 		}
 	}
 	if (lines.length === 0) return null
-	const id = retryId
-	return { text: lines.join(' '), action: id ? { label: 'Retry', run: () => retryVideoJob(agent, id) } : undefined }
+	return { text: lines.join(' ') }
 }
 
 /** Fine-stroke glyphs that match the toolbar: 1.5 px on a 24 px grid. */
