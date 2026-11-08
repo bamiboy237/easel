@@ -2490,3 +2490,21 @@ input.shape-parameter-value:focus-visible {
 	font-size: 11px;
 	pointer-events: none;
 }
+
+/* "Remove it too" after a revert kept shapes the user changed: a quiet text button. */
+.chat-panel.tl-theme__light .chat-history-change-kept-remove {
+	padding: 0 4px;
+	border: 0;
+	border-radius: 4px;
+	background: none;
+	font: inherit;
+	font-weight: 500;
+	color: var(--paper-ink);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	cursor: pointer;
+}
+
+.chat-panel.tl-theme__light .chat-history-change-kept-remove:hover {
+	background: var(--paper-hover);
+}
