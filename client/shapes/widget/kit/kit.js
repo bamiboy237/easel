@@ -26,6 +26,24 @@
 		return node
 	}
 	const resolve = (target) => (typeof target === 'string' ? document.querySelector(target) : target)
+	// What the kit already made in an element: a widget that builds its plot,
+	// sliders, readout, or presets inside its render function gets the same ones
+	// back, updated, instead of a new copy stacked under the old one.
+	const made = new WeakMap()
+	const madeIn = (host, kind) => {
+		let m = made.get(host)
+		if (!m) made.set(host, (m = {}))
+		return m[kind] || (m[kind] = new Map())
+	}
+	/** The part made before in this element, if the widget has not removed it since. */
+	const madeBefore = (host, kind, key, node) => {
+		const part = madeIn(host, kind).get(key)
+		if (part && !host.contains(node(part))) {
+			madeIn(host, kind).delete(key)
+			return null
+		}
+		return part || null
+	}
 	const ink = (c) => (typeof c === 'number' ? INKS[c] || INKS[0] : c || INKS[0])
 
 	// Numbers ---------------------------------------------------------------
@@ -43,7 +61,9 @@
 	/** True when x is exactly what fmt(x, d) shows. */
 	function isExact(x, d = 2) {
 		const f = 10 ** d
-		return Math.abs(Math.round(x * f) / f - x) < 1e-9 * Math.max(1, Math.abs(x))
+		// Floating-point noise is far below 1e-9 plus a millionth of a millionth of x;
+		// a value rounded at d decimals is off by much more, even when x is large.
+		return Math.abs(Math.round(x * f) / f - x) <= 1e-9 + 1e-12 * Math.abs(x)
 	}
 	/** A number to put inside working: negatives in parentheses, "(−3.2)". */
 	function num(x, d = 2) {
@@ -77,6 +97,11 @@
 	function plot(target, opts = {}) {
 		const host = resolve(target)
 		if (!host) throw new Error('paper.plot: no element ' + target)
+		const existing = madeBefore(host, 'plot', 'plot', (p) => p.svg)
+		if (existing) {
+			existing.reconfigure(opts)
+			return existing
+		}
 		host.classList.add('paper-plot')
 		const svg = el('svg', { role: 'img', 'aria-label': opts.label || 'plot' }, host)
 		const gridLayer = el('g', {}, svg)
@@ -427,6 +452,17 @@
 			toMath(px, py) { return [(px - ox) / scaleX, (oy - py) / scaleY] },
 			/** The visible math region. */
 			visible,
+			/**
+			 * Take new options from a second paper.plot call on the same element: the
+			 * range becomes the view (not during a drag), the rest replace the old ones.
+			 */
+			reconfigure(next = {}) {
+				const range = {}
+				for (const k of ['xMin', 'xMax', 'yMin', 'yMax']) if (next[k] !== undefined) range[k] = next[k]
+				for (const [k, v] of Object.entries(next)) if (!(k in range)) opts[k] = v
+				if (!dragging && Object.keys(range).length) view = { ...view, ...range }
+				return api
+			},
 			/** Set the view. Ignored while a handle is being dragged. */
 			view(next) {
 				if (dragging) return false
@@ -490,7 +526,16 @@
 			 * snapped to `snap`. The element is kept between renders, so keyboard
 			 * focus and key repeat work.
 			 */
-			handle(o) {
+			handle(options) {
+				const key = options.name || options.label || 'handle'
+				const again = handles.find((x) => x.key === key)
+				if (again) {
+					Object.assign(again.cfg, options)
+					again.place()
+					return again
+				}
+				// The options live in one object, so a second call with the same name updates them.
+				const o = { ...options }
 				const color = ink(o.color)
 				const node = el('g', { class: 'paper-handle', tabindex: 0, role: 'slider', 'aria-label': o.label || 'handle', 'data-handle': o.name || o.label || 'handle' }, handleLayer)
 				el('circle', { r: 16, fill: 'transparent' }, node)
@@ -558,6 +603,8 @@
 					put(x + k[0] * s, y + k[1] * s)
 				})
 				const h = {
+					key,
+					cfg: o,
 					node,
 					position: () => o.get(),
 					place() {
@@ -574,6 +621,7 @@
 		}
 		measure()
 		if (typeof ResizeObserver === 'function') new ResizeObserver(() => api.render()).observe(host)
+		madeIn(host, 'plot').set('plot', api)
 		return api
 	}
 
@@ -589,8 +637,17 @@
 	 * A labelled slider row with units: name, track, value. onInput(v) gets each
 	 * value while the user drags. Returns { el, input, set(v) }.
 	 */
-	function slider(target, o) {
+	function slider(target, options) {
 		const host = resolve(target)
+		const key = options.label || options.name || ''
+		const again = madeBefore(host, 'slider', key, (p) => p.el)
+		if (again) {
+			Object.assign(again.cfg, options)
+			for (const k of ['min', 'max', 'step']) if (options[k] !== undefined) again.input[k] = options[k]
+			again.set(options.value !== undefined ? options.value : Number(again.input.value))
+			return again
+		}
+		const o = { ...options }
 		const row = html('label', 'paper-slider', host)
 		html('span', 'paper-slider-name', row, o.label || o.name || '')
 		const input = html('input', '', row)
@@ -611,7 +668,9 @@
 		input.addEventListener('input', () => { show(); o.onInput && o.onInput(Number(input.value)) })
 		input.addEventListener('change', () => { o.onChange && o.onChange(Number(input.value)) })
 		show()
-		return { el: row, input, set(v) { if (Number(input.value) !== v) { input.value = v; show() } } }
+		const api = { el: row, input, cfg: o, set(v) { input.value = v; show() } }
+		madeIn(host, 'slider').set(key, api)
+		return api
 	}
 
 	/**
@@ -620,6 +679,11 @@
 	 */
 	function readout(target, rows) {
 		const host = resolve(target)
+		const again = madeBefore(host, 'readout', 'readout', (p) => p.el)
+		if (again) {
+			again.set(rows)
+			return again
+		}
 		const grid = html('div', 'paper-readout', host)
 		const api = {
 			el: grid,
@@ -636,6 +700,7 @@
 			},
 		}
 		api.set(rows)
+		madeIn(host, 'readout').set('readout', api)
 		return api
 	}
 
@@ -649,14 +714,22 @@
 	/** A row of preset buttons; onPick(name) is called on a click. */
 	function presets(target, names, onPick) {
 		const host = resolve(target)
+		const again = madeBefore(host, 'presets', 'presets', (p) => p.el)
+		if (again && again.names.join('|') === names.join('|')) {
+			again.onPick = onPick
+			return again
+		}
+		if (again) again.el.remove()
 		const row = html('div', 'paper-presets', host)
-		const buttons = names.map((name) => {
+		const api = { el: row, names: [...names], onPick, buttons: [], mark(name) { for (const b of api.buttons) b.setAttribute('aria-pressed', String(b.textContent === name)) } }
+		api.buttons = names.map((name) => {
 			const b = html('button', 'paper-button', row, name)
 			b.type = 'button'
-			b.addEventListener('click', () => onPick(name))
+			b.addEventListener('click', () => api.onPick(name))
 			return b
 		})
-		return { el: row, buttons, mark(name) { for (const b of buttons) b.setAttribute('aria-pressed', String(b.textContent === name)) } }
+		madeIn(host, 'presets').set('presets', api)
+		return api
 	}
 
 	const paper = Object.freeze({ fmt, num, eq, vec, deg, minus, isExact, plot, slider, readout, presets, inks: INKS, accent: ACCENT, MINUS })
