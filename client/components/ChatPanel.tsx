@@ -1,6 +1,11 @@
 import { FormEventHandler, useCallback, useEffect, useRef, useState } from 'react'
 import { getCameraFollow } from '../voice/follow'
-import { Box, TLShapeId, useValue } from 'tldraw'
+import { Box, TLShape, TLShapeId, useValue } from 'tldraw'
+import type { AgentWork } from '../agent/managers/AgentActionManager'
+import type { TldrawAgent } from '../agent/TldrawAgent'
+import { runningVideoJobs } from '../shapes/video/jobs'
+import { retryVideoJob } from '../shapes/video/job'
+import { runningWidgetJobs } from '../shapes/widget/jobs'
 import { getUsableViewBounds } from '../agent/findClearSpace'
 import { AgentFace } from '../../shared/icons/AgentFace'
 import { answerQuestion, getOpenQuestion } from '../agent/openQuestion'
@@ -192,11 +197,39 @@ export function ChatPanel() {
 	// drawing is what the user sees. "See more" opens the whole conversation. An
 	// open question is the exception: it must be seen to be answered.
 	const lastWork = useValue('pane last work', () => agent.actions.getLastWork(), [agent])
-	// The line is the agent's own first sentence when it said something, such as
-	// how to use what it drew; otherwise a count of what it drew.
+	// The line says what is true now: a failure or a stop first, then
+	// background work (a widget or an animation) as it lands, then the agent's
+	// own first sentence, and otherwise what it put on the board.
 	const lastSaid = useValue('pane last said', () => firstSentence(lastMessage(agent.chat.getHistory())), [agent])
-	const summary =
-		!isGenerating && lastWork && !hasOpenQuestion ? lastSaid ?? describeWork(lastWork.createdIds.length, lastWork.shapeIds.length) : null
+	const outcome = useValue('pane outcome', () => agent.getOutcome(), [agent])
+	const notices = useValue('pane notices', () => agent.actions.getNotices(), [agent])
+	const unfinishedParts = useValue(
+		'pane unfinished parts',
+		() => agent.editor.getCurrentPageShapes().filter((shape) => shape.type === 'frame' && agent.frames.getPartStatus(shape) === 'unfinished').length,
+		[agent]
+	)
+	const jobs = useValue('pane jobs', () => describeJobs(agent, lastWork), [agent, lastWork])
+	const answeredInThread = useValue('pane answered in thread', () => repliedInThread(agent.chat.getHistory()), [agent])
+	const status: CardStatus | null = isGenerating || hasOpenQuestion
+		? null
+		: outcome?.status === 'failed'
+			? { text: outcome.message, action: { label: 'Retry', run: () => agent.retry() } }
+			: outcome?.status === 'stopped'
+				? {
+						text:
+							'Stopped. ' +
+							(unfinishedParts > 0
+								? `${unfinishedParts === 1 ? 'One part is' : `${unfinishedParts} parts are`} unfinished; fill or redo each one from its frame.`
+								: outcome.landed
+									? 'What I drew before you stopped stays on the board.'
+									: 'Nothing changed on the board.'),
+					}
+				: jobs
+					? jobs
+					: lastWork
+						? { text: lastSaid ?? (answeredInThread ? 'I answered beside your mark.' : describeWork(agent, lastWork)) ?? '' }
+						: null
+	const summary = status?.text || null
 	// Work that landed out of the user's view gets a Show link, for when the
 	// camera could not follow because the user was working.
 	const hiddenWork = useValue(
@@ -226,10 +259,39 @@ export function ChatPanel() {
 		const idle = inputRef.current && !inputRef.current.value.trim() ? inputRef.current : null
 		getCameraFollow(agent.editor).reveal(hiddenWork, { idleElement: idle })
 	}, [agent, hiddenWork, lastWork])
+	// When work lands under the answer card, the card folds into the ball, with
+	// a dot, so it never covers what was just made. A failure, a note about
+	// the user's text, and a question stay open: they must be read.
+	const sheetRef = useRef<HTMLDivElement>(null)
+	const foldedFor = useRef<unknown>(null)
+	useEffect(() => {
+		if (isGenerating || pane !== 'responding' || hasOpenQuestion || !lastWork || foldedFor.current === lastWork) return
+		if (outcome?.status === 'failed' || notices.length > 0) return
+		const work = lastWork
+		const timer = setTimeout(() => {
+			const sheet = sheetRef.current?.getBoundingClientRect()
+			if (!sheet || foldedFor.current === work) return
+			const editor = agent.editor
+			const frame = editor.getContainer().getBoundingClientRect()
+			const covered = work.createdIds.some((id) => {
+				const b = editor.getShapePageBounds(id as TLShapeId)
+				if (!b) return false
+				const a = editor.pageToViewport({ x: b.minX, y: b.minY })
+				const z = editor.pageToViewport({ x: b.maxX, y: b.maxY })
+				const left = frame.left + a.x, top = frame.top + a.y, right = frame.left + z.x, bottom = frame.top + z.y
+				return left < sheet.right && right > sheet.left && top < sheet.bottom && bottom > sheet.top
+			})
+			foldedFor.current = work
+			if (!covered) return
+			setPane('ball')
+			setUnread(true)
+		}, 900)
+		return () => clearTimeout(timer)
+	}, [agent, isGenerating, pane, hasOpenQuestion, lastWork, outcome, notices, setPane])
 	const showWork = () => {
 		if (!hiddenWork) return
 		// The user asked to see it, so the camera moves now, into the free part of the view.
-		getCameraFollow(agent.editor).reveal(hiddenWork, { justAsked: true })
+		getCameraFollow(agent.editor).reveal(hiddenWork, { justAsked: true, overview: true })
 	}
 
 	const composer = (
@@ -266,7 +328,7 @@ export function ChatPanel() {
 		return (
 			<div className="chat-panel chat-panel--floating tl-theme__light">
 				{/* The answer and the composer are one sheet, with a hairline between them. */}
-				<div className={'chat-sheet' + (answering ? ' chat-sheet--answering' : '')}>
+				<div ref={sheetRef} className={'chat-sheet' + (answering ? ' chat-sheet--answering' : '')}>
 					{answering && (
 						<div className="chat-answer">
 							<div className="chat-answer-header">
@@ -283,14 +345,33 @@ export function ChatPanel() {
 								</span>
 							</div>
 							{summary ? (
-								<p className="chat-answer-status">
-									<span className="chat-answer-status-text" title={summary}>{summary}</span>
-									{hiddenWork && (
-										<button className="chat-answer-show" onClick={showWork}>
-											Show
-										</button>
-									)}
-								</p>
+								<>
+									<p className="chat-answer-status" role="status">
+										{status?.working && (
+											<span className="chat-working-dots" aria-hidden>
+												<span />
+												<span />
+												<span />
+											</span>
+										)}
+										<span className="chat-answer-status-text" title={summary}>{summary}</span>
+										{status?.action && (
+											<button className="chat-answer-show" onClick={status.action.run}>
+												{status.action.label}
+											</button>
+										)}
+										{hiddenWork && (
+											<button className="chat-answer-show" onClick={showWork}>
+												Show
+											</button>
+										)}
+									</p>
+									{notices.map((notice) => (
+										<p key={notice} className="chat-answer-notice">
+											{notice}
+										</p>
+									))}
+								</>
 							) : work ? (
 								<p className="chat-answer-status" role="status">
 									<span className="chat-working-dots" aria-hidden>
@@ -374,11 +455,103 @@ function firstSentence(text: string | null): string | null {
 	return (match ? match[0] : plain) || null
 }
 
-function describeWork(created: number, changed: number): string | null {
-	const shapes = (n: number) => `${n} ${n === 1 ? 'shape' : 'shapes'}`
-	if (created > 0) return `Drew ${shapes(created)}` + (changed > created ? `, changed ${changed - created} more` : '')
-	if (changed > 0) return `Changed ${shapes(changed)}`
-	return null
+/** What the answer card says, and the one action it offers, if any. */
+interface CardStatus {
+	text: string
+	/** Background work still running: the line shows the working dots. */
+	working?: boolean
+	action?: { label: string; run: () => void }
+}
+
+/** Names for what the agent put on the board, singular and plural. */
+const KIND_NAMES: Record<string, [string, string]> = {
+	text: ['a note', 'notes'],
+	note: ['a sticky note', 'sticky notes'],
+	geo: ['a shape', 'shapes'],
+	arrow: ['an arrow', 'arrows'],
+	line: ['a line', 'lines'],
+	draw: ['a sketch', 'sketch strokes'],
+	highlight: ['a highlight', 'highlights'],
+	frame: ['a frame', 'frames'],
+	graph: ['a graph', 'graphs'],
+	equation: ['an equation', 'equations'],
+	scene: ['a live scene', 'live scenes'],
+	simulation: ['a simulation', 'simulations'],
+	diagram: ['a diagram', 'diagrams'],
+	widget: ['a widget', 'widgets'],
+	animation: ['an animation', 'animations'],
+	thread: ['an answer beside your mark', 'answers beside your marks'],
+}
+
+/**
+ * What a request put on the board, as a sentence, for when the agent said
+ * nothing itself: "Added an equation, 3 notes, and an arrow." Shapes inside
+ * new frames are counted with their frame.
+ */
+function describeWork(agent: TldrawAgent, work: AgentWork): string | null {
+	const { editor } = agent
+	const created = new Set(work.createdIds)
+	const shapes = work.createdIds.map((id) => editor.getShape(id as TLShapeId)).filter((s): s is TLShape => !!s)
+	const top = shapes.filter((shape) => !created.has(shape.parentId))
+	const counts = new Map<string, number>()
+	for (const shape of top) counts.set(shape.type, (counts.get(shape.type) ?? 0) + 1)
+	const parts = [...counts].map(([type, n]) => {
+		const [one, many] = KIND_NAMES[type] ?? ['a shape', 'shapes']
+		return n === 1 ? one : `${n} ${many}`
+	})
+	const changed = work.shapeIds.filter((id) => !created.has(id)).length
+	if (parts.length === 0) return changed > 0 ? `Changed ${changed === 1 ? 'one shape' : `${changed} shapes`} on the board.` : null
+	const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')}${parts.length > 2 ? ',' : ''} and ${parts[parts.length - 1]}`
+	return `Added ${list}${changed > 0 ? `, and changed ${changed === 1 ? 'one shape' : `${changed} shapes`}` : ''}.`
+}
+
+/** Whether the newest exchange answered in a thread beside a mark. */
+function repliedInThread(history: readonly { type: string; promptSource?: string; action?: { _type?: string } }[]): boolean {
+	for (let i = history.length - 1; i >= 0; i--) {
+		const item = history[i]
+		if (item.type === 'prompt' && item.promptSource !== 'self') break
+		if (item.type === 'action' && item.action?._type === 'reply_in_thread') return true
+	}
+	return false
+}
+
+/**
+ * Where the request's background work stands: a widget being written or an
+ * animation being made, then ready, failed, or stopped. Null when the request
+ * started none.
+ */
+function describeJobs(agent: TldrawAgent, work: AgentWork | null): CardStatus | null {
+	if (!work) return null
+	const { editor } = agent
+	const ids = [...new Set([...work.createdIds, ...work.shapeIds])] as TLShapeId[]
+	const shapes = ids.map((id) => editor.getShape(id)).filter((s): s is TLShape => !!s && (s.type === 'widget' || s.type === 'animation'))
+	if (shapes.length === 0) return null
+	const widgets = runningWidgetJobs.get()
+	const videos = runningVideoJobs.get()
+	const running = shapes.filter((s) => widgets.has(s.id) || videos.has(s.id))
+	if (running.length > 0) {
+		const animation = running.some((s) => s.type === 'animation')
+		const widget = running.some((s) => s.type === 'widget')
+		return { text: animation && widget ? 'Making the widget and the animation.' : animation ? 'Making the animation.' : 'Writing the widget.', working: true }
+	}
+	const lines: string[] = []
+	let retryId: TLShapeId | null = null
+	for (const shape of shapes) {
+		const props = shape.props as { status?: string; title?: string }
+		const name = shape.type === 'widget' ? 'widget' : 'animation'
+		const title = props.title?.trim()
+		if (props.status === 'ready') lines.push(title ? `"${title}" is ready.` : `The ${name} is ready.`)
+		else if (props.status === 'failed') {
+			lines.push(`The ${name} could not finish.`)
+			if (shape.type === 'animation') retryId = shape.id
+		} else if (shape.type === 'animation' && props.status === 'rendering') {
+			lines.push('The animation was stopped before it finished.')
+			retryId = shape.id
+		}
+	}
+	if (lines.length === 0) return null
+	const id = retryId
+	return { text: lines.join(' '), action: id ? { label: 'Retry', run: () => retryVideoJob(agent, id) } : undefined }
 }
 
 /** Fine-stroke glyphs that match the toolbar: 1.5 px on a 24 px grid. */

@@ -9,6 +9,12 @@ const GLIDE_MS = 700
 const EDGE = 48
 /** The camera never zooms out past this fraction of the user's zoom to reveal work. */
 const MIN_ZOOM_RATIO = 0.55
+/**
+ * Nor below this zoom, unless the user was already further out, so new work
+ * lands at a size its body text can be read at. The whole of large work is
+ * the overview the user asks for with Show.
+ */
+const READING_ZOOM = 0.7
 
 /**
  * Keeps what the voice talks about, the work it delegates, and the answer to
@@ -74,7 +80,10 @@ export class CameraFollow {
 	 * further than about half the user's zoom; then its top left part is shown.
 	 * Returns whether the camera moved.
 	 */
-	reveal(box: Box, { justAsked = false, idleElement = null }: { justAsked?: boolean; idleElement?: Element | null } = {}): boolean {
+	reveal(
+		box: Box,
+		{ justAsked = false, idleElement = null, overview = false }: { justAsked?: boolean; idleElement?: Element | null; overview?: boolean } = {}
+	): boolean {
 		const { editor } = this
 		if (this.isUserBusy(performance.now(), justAsked, idleElement) || editor.getCameraOptions().isLocked) return false
 		if (this.isInView(box)) return false
@@ -87,7 +96,8 @@ export class CameraFollow {
 		const area = { x: EDGE, y: top + EDGE, w: screen.w - EDGE * 2, h: usable.h * zoom - EDGE * 2 }
 		if (area.w <= 0 || area.h <= 0) return false
 		const fit = Math.min(area.w / box.w, area.h / box.h)
-		const z = Math.max(Math.min(zoom, fit), zoom * MIN_ZOOM_RATIO)
+		// The overview fits the whole box, however far out that is.
+		const z = overview ? Math.min(zoom, fit) : Math.max(Math.min(zoom, fit), zoom * MIN_ZOOM_RATIO, Math.min(zoom, READING_ZOOM))
 		// Page coordinates of the area at the new zoom, before panning. A zoom
 		// change keeps the page point at the area's top left corner where it is.
 		const view = { x: area.x / zoom - camera.x, y: area.y / zoom - camera.y, w: area.w / z, h: area.h / z }

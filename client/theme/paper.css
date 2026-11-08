@@ -749,9 +749,21 @@
 }
 
 .chat-panel--floating.tl-theme__light .chat-answer-status-text {
+	/* One complete sentence: it wraps to a second line rather than being cut. */
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
 	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	color: var(--paper-ink);
+}
+
+/* A plain note under the status, such as the user's text the agent kept. */
+.chat-panel--floating.tl-theme__light .chat-answer-notice {
+	margin: -8px 0 0;
+	padding: 0 16px 14px;
+	color: var(--paper-viz-data);
+	font-size: 12px;
+	line-height: 17px;
 }
 
 /* "Show": glides to work that landed out of view, styled as "See more". The camera never moves by itself. */
@@ -2322,4 +2334,132 @@ input.shape-parameter-value:focus-visible {
 	place-items: center;
 	width: 26px;
 	padding: 0;
+}
+
+/* Controls for one part of a map, above its frame's top-right corner. */
+.part-controls {
+	position: absolute;
+	z-index: 300;
+	transform: translateX(-100%);
+	pointer-events: all;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	height: 24px;
+	padding: 0 2px 0 10px;
+	border: 1px solid var(--paper-viz-border);
+	border-radius: 12px;
+	background: var(--paper-card);
+	font-family: 'Inter', sans-serif;
+	font-size: 12px;
+	color: var(--paper-ink);
+	white-space: nowrap;
+}
+
+.part-controls-state {
+	margin-right: 4px;
+	color: var(--paper-viz-data);
+}
+
+.part-controls-state--open {
+	color: var(--paper-ink);
+	font-weight: 500;
+}
+
+.part-controls button {
+	height: 20px;
+	padding: 0 8px;
+	border: none;
+	border-radius: 10px;
+	background: transparent;
+	font: inherit;
+	color: var(--paper-ink);
+	cursor: pointer;
+	transition: background-color 150ms var(--ease-out);
+}
+
+.part-controls button:hover:not(:disabled) {
+	background: var(--paper-hover);
+}
+
+.part-controls button:active:not(:disabled) {
+	background: var(--paper-pressed);
+}
+
+.part-controls button:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+.part-controls button:focus-visible {
+	outline: 2px solid var(--paper-accent);
+	outline-offset: 2px;
+}
+
+/* An animation that stopped or failed: its sentence and reason, on the same pill surface. */
+.video-making-phase--ended {
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	height: auto;
+	min-height: 24px;
+	padding: 5px 12px;
+	border-radius: 10px;
+	white-space: normal;
+	max-width: 75%;
+}
+
+.video-making-reason {
+	font-weight: 400;
+	color: var(--paper-viz-data);
+}
+
+/*
+ * The style panel stays closed until asked for: a small "Style" pill in the
+ * corner opens it, and "Done" closes it.
+ */
+.paper-style-toggle,
+.paper-style-close {
+	pointer-events: all;
+	height: 24px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 12px;
+	background: var(--paper-card);
+	box-shadow: inset 0 0 0 1px var(--paper-viz-border);
+	font: 500 12px 'Inter', sans-serif;
+	color: var(--paper-ink);
+	cursor: pointer;
+	transition: background-color 150ms var(--ease-out);
+}
+
+.paper-style-toggle {
+	margin: 8px 8px 0 0;
+}
+
+.paper-style-toggle:hover,
+.paper-style-close:hover {
+	background: var(--paper-hover);
+}
+
+.paper-style-toggle:focus-visible,
+.paper-style-close:focus-visible {
+	outline: 2px solid var(--paper-accent);
+	outline-offset: 2px;
+}
+
+.paper-style-panel {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 6px;
+	pointer-events: none;
+}
+
+.paper-style-panel > * {
+	pointer-events: all;
+}
+
+.paper-style-close {
+	margin-right: 8px;
 }

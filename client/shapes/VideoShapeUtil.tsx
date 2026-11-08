@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+	useEditor,
 	Geometry2d,
 	HTMLContainer,
 	Rectangle2d,
@@ -11,6 +12,8 @@ import {
 	useValue,
 } from 'tldraw'
 import { ProgressBar } from '../components/ProgressBar'
+import { AgentAppAgentsManager } from '../agent/managers/AgentAppAgentsManager'
+import { describeAnimationError, lastVideoFrames, retryVideoJob } from './video/job'
 import { cancelVideoJob, freshVideos, isVideoJobRunning, runningVideoJobs, videoJobProgress } from './video/jobs'
 import type { AnimationPhase } from './video/pipeline'
 
@@ -195,17 +198,10 @@ function Video({ shape }: { shape: VideoShape }) {
 				) : (
 					<>
 						<div className="widget-frame" style={{ height: area }}>
-							{status === 'rendering' && job ? (
+							{job ? (
 								<Making shape={shape} />
 							) : (
-								<div className="widget-placeholder">
-									<div className="widget-placeholder-head">
-										{status === 'rendering' ? 'This animation was stopped' : 'This animation could not be made'}
-									</div>
-									<div className="widget-placeholder-brief">
-										{status === 'rendering' ? 'Ask the agent to make it again.' : shape.props.error}
-									</div>
-								</div>
+								<Unfinished shape={shape} />
 							)}
 						</div>
 						<div className="video-controls" style={{ height: CONTROLS_BAR }} />
@@ -213,6 +209,47 @@ function Video({ shape }: { shape: VideoShape }) {
 				)}
 			</div>
 		</HTMLContainer>
+	)
+}
+
+/**
+ * An animation that stopped or failed: the last sketch frame it reached, if
+ * any, a plain sentence on what happened, and Retry, which makes it again.
+ */
+function Unfinished({ shape }: { shape: VideoShape }) {
+	const editor = useEditor()
+	const stopped = shape.props.status === 'rendering'
+	const frame = lastVideoFrames.get(shape.id)
+	const retry = () => {
+		const agent = AgentAppAgentsManager.getAgent(editor)
+		if (agent) retryVideoJob(agent, shape.id)
+	}
+	return (
+		<div className="video-making">
+			{frame ? (
+				<img className="video-making-frame" src={frame} alt="" draggable={false} />
+			) : (
+				<div className="widget-placeholder">
+					<div className="widget-placeholder-brief">{shape.props.brief}</div>
+				</div>
+			)}
+			<div className="video-making-status" role="status">
+				<span className="video-making-phase video-making-phase--ended">
+					{stopped ? 'This animation was stopped before it finished.' : 'The animation could not finish.'}
+					{!stopped && <span className="video-making-reason">{describeAnimationError(shape.props.error)}</span>}
+				</span>
+				<button
+					className="video-stop"
+					onPointerDown={keep}
+					onClick={(e) => {
+						keep(e)
+						retry()
+					}}
+				>
+					Retry
+				</button>
+			</div>
+		</div>
 	)
 }
 
