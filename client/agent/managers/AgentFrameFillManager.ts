@@ -122,7 +122,7 @@ export class AgentFrameFillManager extends BaseAgentManager {
 	 * shapes it drew over the frame that have not been filed into it yet. The
 	 * frame's description and the user's own shapes are not part of it.
 	 */
-	getPartWork(id: TLShapeId): TLShape[] {
+	getPartWork(id: TLShapeId, { anyone = false }: { anyone?: boolean } = {}): TLShape[] {
 		const { editor } = this.agent
 		const frameBounds = editor.getShapePageBounds(id)
 		if (!frameBounds) return []
@@ -134,7 +134,7 @@ export class AgentFrameFillManager extends BaseAgentManager {
 			const b = editor.getShapePageBounds(shape)
 			return !!b && frameBounds.contains(b)
 		})
-		return [...inside, ...over].filter((c) => !isDescription(c) && getShapeCreator(c) !== 'user')
+		return [...inside, ...over].filter((c) => !isDescription(c) && (anyone || getShapeCreator(c) !== 'user'))
 	}
 
 	/**

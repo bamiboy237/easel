@@ -35,7 +35,7 @@ export function PartControls() {
 				const bounds = editor.getShapePageBounds(shape)
 				if (!bounds) continue
 				const corner = editor.pageToViewport({ x: bounds.maxX, y: bounds.maxY })
-				const hasAgentWork = agent.frames.getPartWork(shape.id).length > 0
+				const hasAgentWork = agent.frames.getPartWork(shape.id, { anyone: true }).length > 0
 				views.push({ id: shape.id, status, x: Math.round(corner.x), y: Math.round(corner.y + BELOW), hasAgentWork })
 			}
 			return views
