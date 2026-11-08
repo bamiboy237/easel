@@ -41,7 +41,10 @@ export function ContextualStylePanel(props: TLUiStylePanelProps) {
 	const [open, setOpen] = useState(false)
 	const hasSubject = useValue(
 		'style panel subject',
-		() => editor.getSelectedShapeIds().length > 0 || !TOOLS_WITHOUT_STYLES.has(editor.getCurrentToolId()),
+		// A selection of shapes with nothing to style, such as a graph, offers no Style button.
+		() =>
+			(editor.getSelectedShapeIds().length > 0 && editor.getSharedStyles().size > 0) ||
+			!TOOLS_WITHOUT_STYLES.has(editor.getCurrentToolId()),
 		[editor]
 	)
 	useEffect(() => {
