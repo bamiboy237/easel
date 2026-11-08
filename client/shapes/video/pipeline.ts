@@ -101,7 +101,7 @@ export class AnimationError extends Error {}
 
 const POLL_MS = 350
 /** How long the check of the sketch may take before it is dropped, in milliseconds. */
-const REVIEW_DEADLINE_MS = 22000
+const REVIEW_DEADLINE_MS = 15000
 /** How long the review waits for the second version once the first is sketched, in milliseconds. */
 const SECOND_VERSION_WAIT_MS = 12000
 /** How often a growing scene is sketched while it is written, at most. */

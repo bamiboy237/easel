@@ -1,3 +1,4 @@
+import { typesetText } from './typesetText'
 import {
 	Box,
 	createShapeId,
@@ -175,7 +176,7 @@ function convertTextShapeToTldrawShape(
 
 	let richText
 	if (focusedShape.text !== undefined) {
-		richText = toRichText(focusedShape.text)
+		richText = toRichText(typesetText(focusedShape.text))
 	} else if (defaultTextShape.props?.richText) {
 		richText = defaultTextShape.props.richText
 	} else {
@@ -366,7 +367,7 @@ function convertArrowShapeToTldrawShape(
 	// Handle richText properly - focusedShape takes priority
 	let richText
 	if (focusedShape.text !== undefined) {
-		richText = toRichText(focusedShape.text)
+		richText = toRichText(typesetText(focusedShape.text))
 	} else if (defaultArrowShape.props?.richText) {
 		richText = defaultArrowShape.props.richText
 	} else {
@@ -472,7 +473,7 @@ function convertGeoShapeToTldrawShape(
 	// Handle richText properly - focusedShape takes priority
 	let richText
 	if (focusedShape.text !== undefined) {
-		richText = toRichText(focusedShape.text)
+		richText = toRichText(typesetText(focusedShape.text))
 	} else if (defaultGeoShape.props?.richText) {
 		richText = defaultGeoShape.props.richText
 	} else {
@@ -539,7 +540,7 @@ function convertNoteShapeToTldrawShape(
 	// Handle richText properly - focusedShape takes priority
 	let richText
 	if (focusedShape.text !== undefined) {
-		richText = toRichText(focusedShape.text)
+		richText = toRichText(typesetText(focusedShape.text))
 	} else if (defaultNoteShape.props?.richText) {
 		richText = defaultNoteShape.props.richText
 	} else {

@@ -5,6 +5,7 @@ import { AgentHelpers } from '../AgentHelpers'
 import { AgentActionUtil, registerActionUtil } from './AgentActionUtil'
 import { Bends, EdgeRoute, layoutFlow, LayoutNode, layoutMap, TreeInfo, treeOf } from '../shapes/diagram/layout'
 import { drawTimeline, groupInks, isDatedChain } from '../shapes/diagram/timeline'
+import { diagramProblems } from '../shapes/diagram/checks'
 
 /** Box sizes for a node: wide enough for a short label on one or two lines. */
 const NODE_MIN_W = 120
@@ -467,6 +468,9 @@ export const DiagramActionUtil = registerActionUtil(
 			// Boxes: new ones are created; existing ones take their new place and label,
 			// unless the user moved them away from where the layout last put them.
 			const keep = new Set<string>()
+			// What a reader would catch in its structure, such as a cycle that does not
+			// close. Kept on the boxes, so the next pass reads it as a lint and redraws.
+			const problems = preview ? [] : diagramProblems(action.layout ?? 'flow', named, edges)
 			const movedNodes = new Set<string>()
 			// The groups whose wash still shows on some box: an end recolored as a
 			// success or a failure no longer shows its group's.
@@ -477,7 +481,7 @@ export const DiagramActionUtil = registerActionUtil(
 				const id = nodeShapeId(diagramId, node.id)
 				keep.add(id)
 				const at = { x: origin.x + node.x, y: origin.y + node.y }
-				const meta = { diagram: diagramId, node: node.id, laidOutAt: at }
+				const meta = { diagram: diagramId, node: node.id, laidOutAt: at, diagramProblems: problems }
 				const existing = editor.getShape<TLGeoShape>(id)
 				const geo = geoOf.get(node.id) ?? 'rectangle'
 				// Ends of a flow are tinted lightly: the smallest difference that still reads (Tufte).
@@ -544,20 +548,29 @@ export const DiagramActionUtil = registerActionUtil(
 			if (useGroups && !preview) {
 				const bottom = Math.max(...nodes.map((n) => origin.y + n.y + n.h)) + 36
 				let x = Math.min(...nodes.map((n) => origin.x + n.x))
-				for (const g of groupNames.filter((name) => shownGroups.has(name))) {
+				// A key is complete or absent: next to the groups, it names the green
+				// and red of the ends too, as pills, the shape the ends are drawn in.
+				const entries: { name: string; color: TLDefaultColorStyle; geo: 'rectangle' | 'oval' }[] = groupNames
+					.filter((name) => shownGroups.has(name))
+					.map((name) => ({ name, color: groupInk.get(name)!, geo: 'rectangle' }))
+				const ends = new Set(endInks.values())
+				if (ends.has('green')) entries.push({ name: 'Ends in success', color: 'green', geo: 'oval' })
+				if (ends.has('red')) entries.push({ name: 'Ends in failure', color: 'red', geo: 'oval' })
+				for (const { name: g, color, geo } of entries) {
 					const swatchId = `${prefix}legend-${slug(g)}-${hash(g)}` as TLShapeId
 					const textId = `${prefix}legendt-${slug(g)}-${hash(g)}` as TLShapeId
 					keep.add(swatchId)
 					keep.add(textId)
-					const swatch = { geo: 'rectangle' as const, w: 28, h: 20, color: groupInk.get(g)!, fill: 'solid' as const, size: 's' as const }
+					const swatch = { geo, w: geo === 'oval' ? 36 : 28, h: 20, color, fill: 'solid' as const, size: 's' as const }
 					if (editor.getShape(swatchId)) editor.updateShape<TLGeoShape>({ id: swatchId, type: 'geo', x, y: bottom, props: swatch })
 					else editor.createShape<TLGeoShape>({ id: swatchId, type: 'geo', x, y: bottom, meta: { diagram: diagramId }, props: swatch })
 					const size = measure(g, 18, 1000)
 					const text = { richText: toRichText(g), size: 's' as const, color: 'black' as const, font: 'serif' as const, autoSize: true }
 					const ty = bottom + 10 - size.h / 2
-					if (editor.getShape(textId)) editor.updateShape<TLTextShape>({ id: textId, type: 'text', x: x + 38, y: ty, props: text })
-					else editor.createShape<TLTextShape>({ id: textId, type: 'text', x: x + 38, y: ty, meta: { diagram: diagramId }, props: text })
-					x += 38 + size.w + 36
+					const tx = x + swatch.w + 10
+					if (editor.getShape(textId)) editor.updateShape<TLTextShape>({ id: textId, type: 'text', x: tx, y: ty, props: text })
+					else editor.createShape<TLTextShape>({ id: textId, type: 'text', x: tx, y: ty, meta: { diagram: diagramId }, props: text })
+					x = tx + size.w + 36
 				}
 			}
 

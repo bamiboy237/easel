@@ -449,7 +449,7 @@ def measure(start, end, label=None, color=MUTED, side=None, size=SMALL, buff=0.2
     return group
 
 
-def ghost(mobject, opacity=0.22):
+def ghost(mobject, opacity=0.32):
     """A faint copy of a mobject where it is now, to leave a trace of an earlier state (a stroboscope)."""
     copy = mobject.copy().clear_updaters()
     copy.set_opacity(opacity)
@@ -589,17 +589,20 @@ class EaselScene(Scene):
         self._title = None
 
     def title(self, heading, subtitle=None, run_time=1.0):
-        """Write the title at the top left, with an optional one-line subtitle in grey under it."""
-        head = text(heading, size=TITLE, weight="SEMIBOLD", max_width=FRAME_W - 2 * MARGIN)
-        group = VGroup(head)
+        """Set the scene's situation in the title band.
+
+        The board shows the heading in the player's title bar, so the video does
+        not repeat it: the band holds the subtitle, one line at the top left,
+        that sets the situation in concrete terms. With no subtitle the band
+        stays empty, and the heading is kept only as the scene's name.
+        """
+        self._heading = heading
+        group = VGroup()
         if subtitle:
-            sub = text(subtitle, size=24, color=MUTED, slant="ITALIC", max_width=FRAME_W - 2 * MARGIN)
-            sub.next_to(head, DOWN, buff=0.14, aligned_edge=LEFT)
+            sub = text(subtitle, size=28, color=MUTED, slant="ITALIC", max_width=FRAME_W - 2 * MARGIN)
+            sub.to_corner(UL, buff=MARGIN)
             group.add(sub)
-        group.to_corner(UL, buff=MARGIN)
-        self.play(FadeIn(head, shift=0.15 * DOWN), run_time=run_time)
-        if subtitle:
-            self.play(FadeIn(group[1]), run_time=0.6)
+            self.play(FadeIn(sub, shift=0.1 * DOWN), run_time=min(run_time, 0.8))
         self._title = group
         return group
 

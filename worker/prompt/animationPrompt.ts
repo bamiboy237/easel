@@ -8,9 +8,9 @@ import motion from './animationPatterns/motion.py?raw'
  * agent only sends a title and a brief; these prompts hold everything about
  * Manim, the board's look, and the helpers, so the agent's own prompt stays small.
  */
-export const ANIMATION_SYSTEM_PROMPT = `You write one short teaching animation in Manim Community Edition 0.22, for a whiteboard app. It plays as a video on the board, beside the teacher's other work. The bar is a really good, artistic teacher: one clear idea, built up step by step, calm and precise, beautiful on paper.
+const ANIMATION_RULES = `You write one short teaching animation in Manim Community Edition 0.22, for a whiteboard app. It plays as a video on the board, beside the teacher's other work. The bar is a really good, artistic teacher: one clear idea, built up step by step, calm and precise, beautiful on paper.
 
-Reply with exactly one fenced \`\`\`python code block holding the whole file, and nothing else. Keep it under about 110 lines: use the helpers below instead of writing styling by hand.
+Reply with exactly one fenced \`\`\`python code block holding the whole file, and nothing else. Keep it under about 90 lines: use the helpers below instead of writing styling by hand. A shorter file is written and rendered sooner, and the viewer is waiting for it.
 
 ## The file
 
@@ -18,7 +18,7 @@ Reply with exactly one fenced \`\`\`python code block holding the whole file, an
 - Import only manim, easel, numpy (already there as np), and math. There is no network and no file system: no open, os, sys, subprocess, requests, getattr, eval, or exec, no images or SVG files, and no config changes. Code that tries any of these is refused.
 - Manim CE 0.22: Create (not ShowCreation), Write, FadeIn, FadeOut, GrowArrow, Transform, ReplacementTransform, TransformMatchingTex, Indicate, Circumscribe, LaggedStart, Succession, AnimationGroup, MoveAlongPath, Rotate, mobject.animate. Axes.plot (not get_graph), axes.c2p and axes.p2c, ValueTracker with always_redraw, DecimalNumber, MathTex(r"..."), Brace, DashedLine, Arc, Angle, RightAngle, Circle, Dot, Line, Polygon, Rectangle, RoundedRectangle, VGroup, arrange, next_to, move_to, align_to. There is no TexText, ShowCreation, get_graph, or TextMobject. Do not use random numbers.
 - Formulas go in formula(...) (MathTex) with raw strings; words inside a formula go in \\text{}. Plain words go in text(...).
-- 12 to 25 seconds in total. Each step 0.6 to 2 seconds; real motion in real time with rate_func=linear; a self.wait(0.5) to 1 beat after each moment the viewer must take in.
+- 12 to 20 seconds in total. Each step 0.6 to 2 seconds; real motion in real time with rate_func=linear; a self.wait(0.5) to 1 beat after each moment the viewer must take in.
 
 ## The look: paper, ink, and a few colours with one meaning each
 
@@ -31,7 +31,7 @@ Reply with exactly one fenced \`\`\`python code block holding the whole file, an
 ## The frame
 
 16:9, 14.2 units wide and 8 tall, centred on the origin:
-- Title band at the top: self.title(heading, subtitle). The subtitle sets the situation in concrete terms, with numbers.
+- Title band at the top: self.title(heading, subtitle). The board already shows the heading in the player's title bar, so only the subtitle is drawn in the video: make it set the situation in concrete terms, with numbers.
 - The stage, where everything else lives: x from STAGE_LEFT to STAGE_RIGHT (-6.65 to 6.65), y from STAGE_BOTTOM to STAGE_TOP (-2.75 to 2.35). Split it when there are formulas or values to show: the main visual in the MAIN area (MAIN_CENTER, MAIN_WIDTH 9.5, x from -6.65 to 2.85), and a column of formulas, live values, and a legend in the SIDE area (side_column(...), x from 3.35 to 6.65). Otherwise centre the visual on STAGE_CENTER.
 - Caption band at the bottom: self.caption("...") says one short sentence there, like a teacher speaking, replacing the last one. At most 60 characters, 3 to 6 times.
 
@@ -66,44 +66,72 @@ Reply with exactly one fenced \`\`\`python code block holding the whole file, an
 - Draw vectors and changing quantities large enough to read their size: an arrow that matters is at least 0.8 units long.
 - Nothing touches. Labels sit beside what they name with a clear gap, never on a line, curve, arrow, or another label. Put a box's name inside the box (card), so arrows can reach its edges without crossing words, and route arrows edge to edge in separate lanes. Keep text out of the area a moving object sweeps through. At most about six labelled parts on screen; when a new stage needs room, fade the old one out.
 - Words inside formulas go in \\text{} (formula(r"\\text{slope} = 2x")), or they lose their spaces.
-- Draw the real thing simply: a cart with wheels on a floor, a leaf with a vein, a server as a box with rack lines, a pivot with a hatch. Not just labelled boxes.
+- Draw the real thing simply: a cart with wheels on a floor, a leaf with a vein, a server as a box with rack lines, a pivot with a hatch. Not just labelled boxes. Never draw people, hands, or faces: they come out crude. Show who acts by the effect, such as a launch point with a velocity arrow labelled "release".
+- A force acts where it acts, and its label sits in clear space beside the arrow, never on the object: friction along the floor at the contact, below the floor line or beside the arrow's tail, not on the cart's roof; weight from the centre down; a push at the side it pushes.
 - Show, then say: when something is compared or decided (a swap, a cache miss, a greater-than), label the decision right where it happens.
 - Move pieces rigidly: shift them, and rotate them about a point, with .animate.shift(...) and Rotate(..., about_point=...). Never Transform one shape into another shape that stands for the same piece; it distorts on the way.
 - Motion that teaches: move things the way they really move, show the quantity that changes with a readout or a growing arrow, slow down at the moment that matters, then hold.
 - Be correct. Compute every number you show in Python from the givens (for example R = v**2 * np.sin(2 * theta) / g) and format it into the text; never work one out in your head. Directions and signs must be right, and units shown.
 - Keep it calm: no spinning, bouncing, or flashing for decoration; at most one Indicate or Circumscribe.
+- Draw structure, such as axes, a circle, or a graph, with Create in about a second, not a slow FadeIn: a half-faded figure reads as broken. A ghost() of an earlier state is for at most three key moments.
 
-## Reference patterns
-
-Four proven scenes, one per kind of animation. Start from the one closest to the brief and keep its structure: its layout, how parts and labels are introduced, how the motion is shown, and how the finished frame keeps the story. Change the content, not the craft.
-
-Motion and forces (vectors on a moving object, live values, ghosts of earlier states):
-
-\`\`\`python
-${motion.trim()}
-\`\`\`
-
-A process or a system (named parts in cards on a grid, labelled links, out and back in separate lanes, a packet travelling one step at a time):
-
-\`\`\`python
-${flow.trim()}
-\`\`\`
-
-An algorithm on values (bars that keep their numbers, each comparison decided in words where it happens, state in the side column):
-
-\`\`\`python
-${algorithm.trim()}
-\`\`\`
-
-A geometric argument (one large figure built from coordinates, pieces moved rigidly, measurements beside the edges, the result in the side column):
-
-\`\`\`python
-${geometry.trim()}
-\`\`\`
 `
 
+/** The proven scenes, one per kind of animation. The writer sees only the closest one. */
+const PATTERNS = {
+	motion: { intro: 'Motion and forces (vectors on a moving object, live values, ghosts of earlier states)', source: motion },
+	flow: { intro: 'A process or a system (named parts in cards on a grid, labelled links, out and back in separate lanes, a packet travelling one step at a time)', source: flow },
+	algorithm: { intro: 'An algorithm on values (bars that keep their numbers, each comparison decided in words where it happens, state in the side column)', source: algorithm },
+	geometry: { intro: 'A geometric argument or a curve built from a moving point (one large figure built from coordinates, pieces moved rigidly, measurements beside the edges, the result in the side column)', source: geometry },
+} as const
+type PatternKind = keyof typeof PATTERNS
+
+/** Words in a brief that point to each kind of animation. */
+const KIND_WORDS: Record<PatternKind, RegExp> = {
+	motion: /\b(force|forces|friction|push|pull|velocity|speed|accelerat\w*|momentum|energy|projectile|throw|thrown|shot|launch|ball|cart|block|ramp|incline|pendulum|spring|orbit|planet|wave|oscillat\w*|falls?|falling|gravity|collision|motion|moving)\b/gi,
+	flow: /\b(process|system|pipeline|server|client|request|network|protocol|steps?|stages?|cycle|lifecycle|flow|order|api|database|cache|message|signal|pathway|supply|chain)\b/gi,
+	algorithm: /\b(sort\w*|search\w*|algorithm|array|list|binary|heap|stack|queue|swap|compare|bubble|merge|quick|insertion|recursion|tree|graph traversal|bfs|dfs|largest|smallest)\b/gi,
+	geometry: /\b(area|triangle|angle|proof|theorem|pythagoras|parallelogram|polygon|circle|unit circle|sine|cosine|tangent|trig\w*|radian\w*|curve|derivative|integral|slope|traces?|tracing|geometry|vector sum|projection)\b/gi,
+}
+
+/** The pattern closest to a brief: the kind whose words it uses most, motion when none match. */
+export function closestPattern(title: string, brief: string): PatternKind {
+	const text = `${title} ${brief}`
+	let best: PatternKind = 'motion'
+	let most = 0
+	for (const kind of Object.keys(KIND_WORDS) as PatternKind[]) {
+		const count = (text.match(KIND_WORDS[kind]) ?? []).length
+		if (count > most) {
+			best = kind
+			most = count
+		}
+	}
+	return best
+}
+
+/**
+ * The writer's prompt for one brief: the rules and the one proven scene of the
+ * closest kind. Four full scenes made the prompt twice as long and the writer
+ * slower, and it starts from one of them anyway.
+ */
+export function animationWriterPrompt(title: string, brief: string): string {
+	const pattern = PATTERNS[closestPattern(title, brief)]
+	return `${ANIMATION_RULES}
+
+## Reference pattern
+
+A proven scene of the kind closest to this brief: ${pattern.intro}. Keep its structure: its layout, how parts and labels are introduced, how the motion is shown, and how the finished frame keeps the story. Change the content, not the craft. For a different kind of animation, keep its craft and change its structure to fit.
+
+\`\`\`python
+${pattern.source.trim()}
+\`\`\`
+`
+}
+
+
+
 /** The second look, at frames of a low-resolution render: layout from the frames, content from the source. */
-export const ANIMATION_REVIEW_PROMPT = `${ANIMATION_SYSTEM_PROMPT}
+export const ANIMATION_REVIEW_PROMPT = `${ANIMATION_RULES}
 
 ## Now: check your animation
 
@@ -126,7 +154,7 @@ Change only what fixes a problem, and keep everything else as it is.`
 
 
 /** The second look when two versions were written: pick the better one, then check it like a review. */
-export const ANIMATION_CHOOSE_PROMPT = `${ANIMATION_SYSTEM_PROMPT}
+export const ANIMATION_CHOOSE_PROMPT = `${ANIMATION_RULES}
 
 ## Now: choose and check
 
