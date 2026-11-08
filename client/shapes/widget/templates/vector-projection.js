@@ -92,7 +92,6 @@ stretch.addEventListener('click', () => {
 })
 const legs = document.getElementById('legs')
 legs.addEventListener('change', () => render())
-const coords = document.getElementById('coords')
 const meaning = document.getElementById('meaning')
 
 plot.handle({
@@ -162,13 +161,13 @@ function render() {
 		// The projection, the result, is a broad band with a and b drawn thin over it, so all
 		// three stay visible when they share a line.
 		if (hasProj) g.arrow(o, p, { color: PROJ, width: 7, head: 17 })
-		if (!c.zeroB) g.arrow(o, b, { color: B, width: 2, label: 'b', bold: true, labelSize: 18 })
+		if (!c.zeroB) g.arrow(o, b, { color: B, width: 2, label: `b ${vec(b, 2)}`, bold: true, labelSize: 16 })
 		else g.point(o, { color: B, r: 4, label: 'b = 0' })
-		if (!c.zeroA) g.arrow(o, a, { color: A, width: 2, label: 'a', bold: true, labelSize: 18 })
+		if (!c.zeroA) g.arrow(o, a, { color: A, width: 2, label: `a ${vec(a, 2)}`, bold: true, labelSize: 16 })
 		if (hasProj) {
 			// Its label goes on the side away from a, clear of the angle.
 			const same = !c.zeroA && Math.abs(c.cross) < 1e-9
-			g.tag(o, p, same ? 'proj_b a = a' : 'proj_b a', { color: PROJ, size: 16, side: p[0] * c.ay - p[1] * c.ax > 0 ? -1 : 1, gap: 8, at: 0.5 })
+			g.tag(o, p, `${same ? 'proj_b a = a' : 'proj_b a'}, comp_b a ${eq(c.comp)}`, { color: PROJ, size: 16, side: p[0] * c.ay - p[1] * c.ax > 0 ? -1 : 1, gap: 8, at: 0.5 })
 		}
 		if (p) g.point(p, { color: PROJ, r: 3.5 })
 		if (p && !c.zeroA) g.label(p, 'p', { color: PROJ, size: 15, center: true })
@@ -179,7 +178,6 @@ function render() {
 	// A projection outside the view widens it once the user lets go.
 	if (c.proj) plot.ensure([c.proj], 0.3)
 
-	coords.textContent = paper.minus(`a = ${vec(a)}    b = ${vec(b)}`)
 	const rows = [
 		{ name: '‖a‖', value: eq(c.na), note: `length of a: √(${num(c.ax)}² + ${num(c.ay)}²) = ${root(c.sa)}` },
 		{ name: '‖b‖', value: eq(c.nb), note: `length of b: √(${num(c.bx)}² + ${num(c.by)}²) = ${root(c.sb)}` },
@@ -193,16 +191,16 @@ function render() {
 	} else {
 		rows.push({
 			name: { html: 'comp<sub>b</sub> a' },
-			value: `${eq(c.comp)}, the signed length`,
+			value: eq(c.comp),
 			color: PROJ,
-			note: `a·b / ‖b‖ = ${exactText(c.dot)} / ${root(c.sb)}${c.zeroA ? '' : ', also ‖a‖ cos θ'}`,
+			note: `a·b / ‖b‖ = ${exactText(c.dot)} / ${root(c.sb)}${c.zeroA ? '' : ' = ‖a‖ cos θ'}`,
 		})
 		const exact = paper.isExact(c.proj[0]) && paper.isExact(c.proj[1])
 		rows.push({
 			name: { html: 'proj<sub>b</sub> a' },
 			value: `${exact ? '=' : '≈'} ${vec(c.proj, 2)}`,
 			color: PROJ,
-			note: { html: paper.minus(`(comp<sub>b</sub> a)(b / ‖b‖): the signed length times the unit vector along b, so (a·b / ‖b‖²) b = (${exactText(c.dot)} / ${exactText(c.sb)}) ${vec(b)}`) },
+			note: { html: paper.minus(`comp<sub>b</sub> a times b / ‖b‖ = (${exactText(c.dot)} / ${exactText(c.sb)}) ${vec(b)}`) },
 		})
 	}
 	readout.set(rows)
