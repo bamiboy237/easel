@@ -124,8 +124,8 @@ export const BUILT_IN_TEMPLATES: SceneTemplate[] = [
 			{ id: 'rod', type: 'segment', from: 'pivot', to: 'bob' },
 			{ id: 'path', type: 'trace', of: 'bob', ink: 1 },
 			{ id: 'angle', type: 'readout', text: 'θ = {theta*180/pi}°' },
-			{ id: 'period', type: 'readout', text: 'period at this angle T = {T} s' },
-			{ id: 'small', type: 'readout', text: 'small-angle estimate 2π√(L/g) = {T0} s' },
+			{ id: 'period', type: 'readout', text: 'period T = {T} s' },
+			{ id: 'small', type: 'readout', text: 'small-angle 2π√(L/g) = {T0} s' },
 			{ id: 'energy', type: 'check', expr: 'abs(E - g*L*(1 - cos(deg(th0)))) < 0.001*g*L', text: 'energy is conserved' },
 			{ id: 'longer', type: 'check', expr: 'T >= T0', text: 'a wider swing never takes less time than the small-angle estimate' },
 			// At 60 degrees the exact period is 1.0732 times the small-angle one.
