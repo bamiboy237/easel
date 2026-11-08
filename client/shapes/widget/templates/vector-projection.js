@@ -116,12 +116,8 @@ function render() {
 			// The projection, the most important mark, drawn as a wide band under b, so both read.
 			if (Math.hypot(...p) > 1e-6) {
 				g.arrow(o, p, { color: RED, width: 6, head: 15 })
-				const mid = [p[0] / 2, p[1] / 2]
-				const len = Math.hypot(...p)
-				// Its label sits on the side away from a, so it does not sit on the angle.
-				const side = c.cross > 0 ? 1 : -1
-				const nx = (p[1] / len) * side, ny = (-p[0] / len) * side
-				g.label([mid[0] + nx * 0.55, mid[1] + ny * 0.55], `proj_b a`, { color: RED, dx: -24, dy: 5 })
+				// Its label sits beside it, on the side of a, where the dashed line comes down.
+				g.tag(o, p, 'proj_b a', { color: RED, size: 15, side: p[0] * c.ay - p[1] * c.ax > 0 ? 1 : -1, gap: 8 })
 			} else {
 				g.point(o, { color: RED, r: 4.5 })
 			}
@@ -129,8 +125,9 @@ function render() {
 		if (!c.zeroB) g.arrow(o, b, { color: BLUE, width: 2, label: 'b', bold: true, labelSize: 17 })
 		else g.point(o, { color: BLUE, r: 4, label: 'b = 0' })
 		if (!c.zeroA) g.arrow(o, a, { color: INK, width: 2.25, label: 'a', bold: true, labelSize: 17 })
-		if (!c.zeroA) g.label([c.ax / 2, c.ay / 2], `‖a‖ ${eq(c.na)}`, { color: INK, size: 13, italic: false })
-		if (!c.zeroB) g.label([c.bx / 2, c.by / 2], `‖b‖ ${eq(c.nb)}`, { color: BLUE, size: 13, italic: false })
+		// Lengths sit beside each vector, outside the angle between them.
+		if (!c.zeroA) g.tag(o, a, `‖a‖ ${eq(c.na)}`, { color: INK, size: 13, italic: false, side: c.cross < 0 ? 1 : -1 })
+		if (!c.zeroB) g.tag(o, b, `‖b‖ ${eq(c.nb)}`, { color: BLUE, size: 13, italic: false, side: c.cross < 0 ? -1 : 1, at: 0.78 })
 	})
 	// A projection outside the view widens it once the user lets go.
 	if (c.proj) plot.ensure([c.proj, a, b])

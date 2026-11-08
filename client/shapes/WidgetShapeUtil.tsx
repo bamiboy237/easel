@@ -443,8 +443,8 @@ function WidgetFrame({ shape, height, interactive }: { shape: WidgetShape; heigh
 					scheduleFlush()
 					break
 				case 'press':
-					// A press inside a widget selects it, as a press on any shape does.
-					if (editor.getOnlySelectedShapeId() !== shape.id && editor.getCurrentToolId() === 'select') editor.select(shape.id)
+					// A press works the widget's control and does not select the widget: the
+					// title bar selects and moves it.
 					break
 				case 'key':
 					onBoardKey(message)

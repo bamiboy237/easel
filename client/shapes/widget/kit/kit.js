@@ -125,13 +125,18 @@
 				el('line', { x1: 0, y1: Y(0), x2: W, y2: Y(0), stroke: 'var(--paper-viz-line-strong)', 'stroke-width': 1 }, gridLayer)
 				el('line', { x1: X(0), y1: 0, x2: X(0), y2: H, stroke: 'var(--paper-viz-line-strong)', 'stroke-width': 1 }, gridLayer)
 				const every = opts.tickEvery || step * (scale * step < 28 ? 2 : 1)
+				// Tick labels stay clear of the edges, and other labels keep clear of them.
 				for (let x = Math.ceil(v.xMin / every) * every; x <= v.xMax - every / 2; x += every) {
-					if (Math.abs(x) < every / 2) continue
-					el('text', { x: X(x), y: Y(0) + 15, 'text-anchor': 'middle', class: 'paper-tick' }, gridLayer).textContent = fmt(x, 2)
+					if (Math.abs(x) < every / 2 || X(x) < 12 || X(x) > W - 12) continue
+					const text = fmt(x, 2)
+					el('text', { x: X(x), y: Y(0) + 15, 'text-anchor': 'middle', class: 'paper-tick' }, gridLayer).textContent = text
+					placed.push({ x: X(x) - text.length * 3.5, y: Y(0) + 4, w: text.length * 7, h: 13 })
 				}
 				for (let y = Math.ceil(v.yMin / every) * every; y <= v.yMax - every / 2; y += every) {
-					if (Math.abs(y) < every / 2) continue
-					el('text', { x: X(0) - 6, y: Y(y) + 4, 'text-anchor': 'end', class: 'paper-tick' }, gridLayer).textContent = fmt(y, 2)
+					if (Math.abs(y) < every / 2 || Y(y) < 12 || Y(y) > H - 12) continue
+					const text = fmt(y, 2)
+					el('text', { x: X(0) - 6, y: Y(y) + 4, 'text-anchor': 'end', class: 'paper-tick' }, gridLayer).textContent = text
+					placed.push({ x: X(0) - 6 - text.length * 7, y: Y(y) - 7, w: text.length * 7, h: 13 })
 				}
 				if (opts.xLabel) el('text', { x: W - 6, y: Y(0) - 6, 'text-anchor': 'end', class: 'paper-tick', 'font-style': 'italic' }, gridLayer).textContent = opts.xLabel
 				if (opts.yLabel) el('text', { x: X(0) + 6, y: 14, class: 'paper-tick', 'font-style': 'italic' }, gridLayer).textContent = opts.yLabel
@@ -154,7 +159,14 @@
 			const bb = t.getBBox()
 			const w = bb.width || text.length * size * 0.5, h = bb.height || size * 1.2
 			const gap = o.gap ?? 6
-			const prefer = o.dx !== undefined || o.dy !== undefined ? [[o.dx || 0, o.dy || 0]] : []
+			// away: a screen direction; the whole label moves that way until it clears the anchor.
+			if (o.away) {
+				const [nx, ny] = o.away
+				const d = (o.gap ?? 6) + Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2
+				px += nx * d
+				py += ny * d
+			}
+			const prefer = o.center || o.away ? [[-w / 2, h * 0.35]] : o.dx !== undefined || o.dy !== undefined ? [[o.dx || 0, o.dy || 0]] : []
 			const spots = prefer.concat([[gap, -gap], [gap, gap + h * 0.7], [-gap - w, -gap], [-gap - w, gap + h * 0.7], [-w / 2, -gap - 2], [-w / 2, h + gap], [gap * 2, -gap * 2 - 4], [-gap * 2 - w, gap * 2 + h]])
 			let chosen = null
 			for (const [dx, dy] of spots) {
@@ -188,10 +200,18 @@
 				const a = [p[0] - u[0] * far, p[1] - u[1] * far], b = [p[0] + u[0] * far, p[1] + u[1] * far]
 				const line = g.line(a, b, { width: 1, color: o.color || 'var(--paper-viz-line)', dash: o.dash, ...o })
 				if (o.label) {
-					// The label sits where the line meets the edge of the view, inside it.
-					const t = [p[0] + u[0] * far, p[1] + u[1] * far]
-					const ex = Math.min(Math.max(X(t[0]), 12), W - 12), ey = Math.min(Math.max(Y(t[1]), 12), H - 12)
-					placeLabel(ex, ey, o.label, { color: o.labelColor || 'var(--paper-viz-data)', size: 13 })
+					// The label sits on the line, just inside where it leaves the view.
+					const m = 18 / scale
+					let t = Infinity
+					for (const [c, lo, hi] of [[0, v.xMin + m, v.xMax - m], [1, v.yMin + m, v.yMax - m]]) {
+						if (Math.abs(u[c]) < 1e-9) continue
+						const edge = u[c] > 0 ? hi : lo
+						t = Math.min(t, (edge - p[c]) / u[c])
+					}
+					if (Number.isFinite(t) && t > 0) {
+						const at = [p[0] + u[0] * t * 0.92, p[1] + u[1] * t * 0.92]
+						placeLabel(X(at[0]), Y(at[1]), o.label, { color: o.labelColor || 'var(--paper-viz-data)', size: 13 })
+					}
 				}
 				return line
 			},
@@ -216,13 +236,30 @@
 				el('line', { x1, y1, x2: bx + ux, y2: by + uy, stroke: color, 'stroke-width': width, 'stroke-linecap': 'round', 'stroke-dasharray': o.dash ? (o.dash === true ? '6 4' : o.dash) : undefined }, grp)
 				el('path', { d: `M${x2},${y2} L${bx - uy * half},${by + ux * half} L${bx + uy * half},${by - ux * half} Z`, fill: color, 'stroke-linejoin': 'round' }, grp)
 				if (o.label) {
-					// By default the label sits beside the tip, on the left of the direction of travel.
-					const side = o.labelSide === 'right' ? -1 : 1
+					// By default the label sits just past the tip, centred on the line of the arrow;
+					// labelAt below 1 puts it beside the shaft instead.
 					const at = o.labelAt ?? 1
-					const lx = x1 + (x2 - x1) * at, ly = y1 + (y2 - y1) * at
-					placeLabel(lx + uy * 10 * side, ly - ux * 10 * side, o.label, { color, bold: o.bold, italic: o.italic, size: o.labelSize })
+					if (at >= 1) {
+						const ahead = 12 + (o.labelSize || 15) * 0.5
+						placeLabel(x2 + ux * ahead, y2 + uy * ahead, o.label, { color, bold: o.bold, italic: o.italic, size: o.labelSize, center: true })
+					} else {
+						const side = o.labelSide === 'right' ? -1 : 1
+						const lx = x1 + (x2 - x1) * at, ly = y1 + (y2 - y1) * at
+						placeLabel(lx + uy * 12 * side, ly - ux * 12 * side, o.label, { color, bold: o.bold, italic: o.italic, size: o.labelSize, center: true })
+					}
 				}
 				return grp
+			},
+			/**
+			 * A label beside the segment from p to q, at fraction `at` along it (default 0.5),
+			 * on its left (side 1, the default) or right (side -1), clear of the line.
+			 */
+			tag(p, q, text, o = {}) {
+				const [x1, y1] = P(p), [x2, y2] = P(q)
+				const len = Math.hypot(x2 - x1, y2 - y1) || 1
+				const side = o.side ?? 1
+				const at = o.at ?? 0.5
+				return placeLabel(x1 + (x2 - x1) * at, y1 + (y2 - y1) * at, text, { ...o, away: [((y2 - y1) / len) * side, (-(x2 - x1) / len) * side] })
 			},
 			/** A dot. */
 			point(p, o = {}) {
@@ -231,7 +268,7 @@
 				if (o.label) placeLabel(x, y, o.label, { color: o.color, size: o.labelSize })
 				return c
 			},
-			/** Text at p, in screen pixels offset (dx, dy) or placed clear of other labels. */
+			/** Text at p: centred on it with center: true, offset (dx, dy) pixels, or placed clear of other labels. */
 			label(p, text, o = {}) {
 				const [x, y] = P(p)
 				return placeLabel(x, y, text, o)
@@ -272,9 +309,12 @@
 				const sweepFlag = sweep > 0 ? 0 : 1
 				const arc = el('path', { d: `M${sx},${sy} A${r},${r} 0 ${large} ${sweepFlag} ${ex},${ey}`, fill: 'none', stroke: ink(o.color || 'var(--paper-viz-data)'), 'stroke-width': o.width || 1.25 }, drawLayer)
 				if (o.label) {
+					// The label sits inside the angle, far enough out to fit between its arms.
 					const mid = a1 + sweep / 2
-					const lr = r + 10
-					placeLabel(cx + lr * Math.cos(mid) - 4, cy - lr * Math.sin(mid) + 5, o.label, { color: o.labelColor || o.color || 'var(--paper-viz-data)', size: o.labelSize || 14, dx: 0, dy: 0 })
+					const width = (o.labelSize || 14) * 0.52 * String(o.label).length
+					const fit = width / 2 / Math.max(0.15, Math.sin(Math.abs(sweep) / 2))
+					const lr = Math.min(o.maxLabelR || 150, Math.max(r + 16, fit * 1.3 + 12))
+					placeLabel(cx + lr * Math.cos(mid), cy - lr * Math.sin(mid), o.label, { color: o.labelColor || o.color || 'var(--paper-viz-data)', size: o.labelSize || 14, center: true })
 				}
 				return arc
 			},
@@ -342,10 +382,10 @@
 			},
 			render() {
 				measure()
+				placed = []
 				drawGrid()
 				drawLayer.textContent = ''
 				labelLayer.textContent = ''
-				placed = []
 				// Handles keep their labels clear of other labels.
 				for (const h of handles) {
 					const [x, y] = P(h.position())

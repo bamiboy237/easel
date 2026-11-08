@@ -31,6 +31,7 @@
 
 html,
 body {
+	height: 100%;
 	background: var(--paper-card);
 	color: var(--paper-ink);
 	font: 15px/1.4 var(--serif);
