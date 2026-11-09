@@ -131,7 +131,7 @@ export const AGENT_MODEL_DEFINITIONS = {
 		provider: 'google',
 		supportsPrefill: false,
 		supportsTemperature: false,
-		thinkingLevel: 'low',
+		thinkingLevel: 'high',
 	},
 
 	// OpenAI models

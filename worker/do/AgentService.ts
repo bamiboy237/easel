@@ -86,7 +86,7 @@ export class AgentService {
 			...(env.OPENAI_API_BASE_URL ? { baseURL: `${env.OPENAI_API_BASE_URL.replace(/\/$/, '')}/v1` } : {}),
 		})
 		this.anthropic = createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })
-		this.google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_API_KEY })
+		this.google = createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY })
 		this.meta = createOpenAI({
 			apiKey: env.MODEL_API_KEY,
 			baseURL: env.MODEL_API_BASE_URL || 'https://api.meta.ai/v1',
